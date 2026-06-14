@@ -1,4 +1,6 @@
 CONFIG_IDF_TARGET="esp32p4"
+# Console on UART0 (the USB-to-UART bridge port) — unaffected by the BSP's USB-OTG init.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
 # Board has 32MB NOR flash; the A/B OTA partition layout needs > 6MB.
 CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="32MB"

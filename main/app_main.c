@@ -33,6 +33,7 @@ void app_main(void)
     };
     bsp_display_start_with_config(&disp_cfg);
     bsp_display_backlight_on();
+    bsp_display_brightness_set(100);   // ensure the panel isn't dark (PWM duty)
     render_set_roll_width(appcfg_roll_width());
 
     // 2) Build + show the idle screen (ui takes the LVGL lock internally).

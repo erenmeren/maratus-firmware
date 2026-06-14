@@ -22,11 +22,9 @@
 dependencies:
   idf: ">=5.4"
   lvgl/lvgl: "~9.3.0"
-  espressif/cjson: "*"
   espressif/esp_lvgl_port: "*"
   espressif/esp_wifi_remote: "*"
   espressif/esp_hosted: "*"
-  espressif/usb: "*"   # BSP needs USB host; moved out of IDF core in v6
   # Waveshare board BSP: MIPI-DSI panel + GT911 touch + esp_lvgl_port + C6/esp-hosted board config.
   # Provides bsp/esp-bsp.h + bsp/display.h (bsp_display_start_with_config, bsp_display_lock, ...).
   waveshare/esp32_p4_wifi6_touch_lcd_4b: "*"
