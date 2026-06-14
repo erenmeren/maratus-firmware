@@ -1,0 +1,15 @@
+menu "Ditto firmware (dev)"
+
+    config DITTO_WIFI_SSID
+        string "Dev Wi-Fi SSID"
+        default "changeme"
+        help
+            Wi-Fi SSID used during development. Replaced by on-screen provisioning in M6.
+
+    config DITTO_WIFI_PASSWORD
+        string "Dev Wi-Fi password"
+        default "changeme"
+        help
+            Wi-Fi password used during development. Replaced by on-screen provisioning in M6.
+
+endmenu

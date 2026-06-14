@@ -1,9 +1,13 @@
 ## Managed component dependencies.
 ##
-## `lvgl` is pinned to v9.x. The board BSP supplies the MIPI-DSI panel + touch
-## init and the LVGL port (bsp_display_start / bsp_display_lock / unlock). Set the
-## BSP entry below to the EXACT component + version the Waveshare demo uses —
-## copy it from the demo's `dependencies.lock` (or its `main/idf_component.yml`).
+## `lvgl` is pinned to v9.x. `esp_wifi_remote` routes the standard esp_wifi_* API
+## to the ESP32-C6 radio over esp-hosted (the P4 has no built-in Wi-Fi). Pin its
+## version to match the Waveshare demo's `dependencies.lock` if it differs.
+##
+## The board BSP supplies the MIPI-DSI panel + touch init and the LVGL port
+## (bsp_display_start / bsp_display_lock / unlock). Set the BSP entry below to the
+## EXACT component + version the Waveshare demo uses — copy it from the demo's
+## `dependencies.lock` (or its `main/idf_component.yml`).
 ##
 ## Two cases:
 ##  1. The demo pulls its BSP from the component registry → uncomment + set the
@@ -18,4 +22,5 @@
 dependencies:
   idf: ">=5.4"
   lvgl/lvgl: "~9.2.0"
+  espressif/esp_wifi_remote: "*"
   # <waveshare-bsp-component>: "<version-from-demo-dependencies.lock>"

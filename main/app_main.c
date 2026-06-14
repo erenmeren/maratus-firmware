@@ -2,6 +2,7 @@
 #include "bsp/esp-bsp.h"   // esp-bsp convention; if the demo's BSP uses a different
                             // header, change this include to match (see idf_component.yml).
 #include "ui.h"
+#include "net.h"
 
 static const char *TAG = "ditto";
 
@@ -27,6 +28,12 @@ void app_main(void)
     ui_init();
     ui_show(UI_SCREEN_IDLE);
     bsp_display_unlock();
-
     ESP_LOGI(TAG, "Idle screen shown");
+
+    // 3) Connect to Wi-Fi via the C6 radio, then reflect status on the idle dot.
+    net_start();
+    bsp_display_lock(0);
+    ui_set_online(net_is_connected());
+    bsp_display_unlock();
+    ESP_LOGI(TAG, "Wi-Fi connected=%d", net_is_connected());
 }
