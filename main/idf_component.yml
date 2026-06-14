@@ -21,7 +21,8 @@
 ## esp_lvgl_port directly, swap those three calls in app_main.c accordingly.
 dependencies:
   idf: ">=5.4"
-  lvgl/lvgl: "~9.2.0"
+  lvgl/lvgl: "~9.3.0"
+  espressif/cjson: "*"
   espressif/esp_lvgl_port: "*"
   espressif/esp_wifi_remote: "*"
   # <waveshare-bsp-component>: "<version-from-demo-dependencies.lock>"
