@@ -3,7 +3,26 @@
 
 static const char *TAG = "escpos";
 
-#define LINE_FEED_DOTS 30   // default whitespace for LF / one "line"
+#define LINE_FEED_DOTS 30   // dots per "line" for ESC d / ESC J line-based feeds
+
+// Bytes to advance for known-but-unrendered 1-param-ish ESC/GS commands (incl.
+// the 2 prefix bytes), so a text stream doesn't desync. 0 => unknown (skip 2).
+static int esc_cmd_len(uint8_t c)
+{
+    switch (c) {
+        case 0x20: case 0x25: case 0x33: case 0x4D: case 0x52:
+        case 0x54: case 0x2D: case 0x7B: case 0x56: return 3; // ESC SP/%/3/M/R/t/-/{/V (n)
+        default: return 0;                                    // e.g. ESC 2 (no param) -> default skip 2
+    }
+}
+static int gs_cmd_len(uint8_t c)
+{
+    switch (c) {
+        case 0x42: case 0x48: case 0x66: case 0x68: case 0x77: return 3; // GS B/H/f/h/w (n)
+        case 0x4C: return 4;                                             // GS L nL nH
+        default: return 0;
+    }
+}
 
 int escpos_parse(const uint8_t *data, size_t len, draw_op_t *ops, int max_ops)
 {
@@ -15,40 +34,68 @@ int escpos_parse(const uint8_t *data, size_t len, draw_op_t *ops, int max_ops)
     int qr_module = 4;     // default module size (dots)
     uint8_t qr_ecc = 0;    // default ECC = L
 
+    // Text style state.
+    uint8_t t_sx = 1, t_sy = 1, t_bold = 0;
+    size_t run_start = 0; int run_active = 0;
+
     #define EMIT(op) do { if (n < max_ops) ops[n++] = (op); } while (0)
+    #define FLUSH_RUN() do { \
+        if (run_active && i > run_start) { \
+            EMIT(((draw_op_t){ .kind = OP_TEXT, .text = { \
+                .text = (const char *)&data[run_start], .len = (int)(i - run_start), \
+                .sx = t_sx, .sy = t_sy, .bold = t_bold } })); \
+        } \
+        run_active = 0; \
+    } while (0)
 
     while (i < len && n < max_ops) {
         uint8_t b = data[i];
 
-        if (b == 0x0A) { // LF
-            EMIT(((draw_op_t){ .kind = OP_FEED, .feed = { LINE_FEED_DOTS } }));
+        if (b == 0x0A) { // LF -> end of text line
+            FLUSH_RUN();
+            EMIT(((draw_op_t){ .kind = OP_LINE_BREAK }));
             i++;
         } else if (b == 0x1B) { // ESC ...
+            FLUSH_RUN();
             if (i + 1 >= len) break;
             uint8_t c = data[i + 1];
-            if (c == 0x40) { // ESC @ reset
+            if (c == 0x40) {             // ESC @ reset
+                t_sx = 1; t_sy = 1; t_bold = 0;
                 EMIT(((draw_op_t){ .kind = OP_ALIGN, .align = { ALIGN_LEFT } }));
                 i += 2;
-            } else if (c == 0x61) { // ESC a n  align
+            } else if (c == 0x45) {      // ESC E n  bold
+                if (i + 2 >= len) break;
+                t_bold = data[i + 2] & 1;
+                i += 3;
+            } else if (c == 0x21) {      // ESC ! n  print mode
+                if (i + 2 >= len) break;
+                uint8_t m = data[i + 2];
+                t_bold = (m & 0x08) ? 1 : 0;
+                t_sx = (m & 0x20) ? 2 : 1;
+                t_sy = (m & 0x10) ? 2 : 1;
+                i += 3;
+            } else if (c == 0x61) {      // ESC a n  align
                 if (i + 2 >= len) break;
                 uint8_t nn = data[i + 2];
                 align_t a = (nn == 1 || nn == 49) ? ALIGN_CENTER
                           : (nn == 2 || nn == 50) ? ALIGN_RIGHT : ALIGN_LEFT;
                 EMIT(((draw_op_t){ .kind = OP_ALIGN, .align = { a } }));
                 i += 3;
-            } else if (c == 0x4A) { // ESC J n  feed n dots
+            } else if (c == 0x4A) {      // ESC J n  feed n dots
                 if (i + 2 >= len) break;
                 EMIT(((draw_op_t){ .kind = OP_FEED, .feed = { data[i + 2] } }));
                 i += 3;
-            } else if (c == 0x64) { // ESC d n  feed n lines
+            } else if (c == 0x64) {      // ESC d n  feed n lines
                 if (i + 2 >= len) break;
                 EMIT(((draw_op_t){ .kind = OP_FEED, .feed = { data[i + 2] * LINE_FEED_DOTS } }));
                 i += 3;
             } else {
-                ESP_LOGW(TAG, "skip ESC 0x%02x", c);
-                i += 2; // best-effort (M4c hardens unknown-command skipping)
+                int adv = esc_cmd_len(c);
+                ESP_LOGW(TAG, "skip ESC 0x%02x (+%d)", c, adv ? adv : 2);
+                i += adv ? adv : 2;
             }
         } else if (b == 0x1D) { // GS ...
+            FLUSH_RUN();
             if (i + 1 >= len) break;
             uint8_t c = data[i + 1];
             if (c == 0x28 && i + 2 < len && data[i + 2] == 0x6B) { // GS ( k
@@ -78,6 +125,13 @@ int escpos_parse(const uint8_t *data, size_t len, draw_op_t *ops, int max_ops)
                     ESP_LOGW(TAG, "GS ( k cn=%u ignored", cn);
                 }
                 i += 5 + (size_t)L;
+            } else if (c == 0x21) {      // GS ! n  character size
+                if (i + 2 >= len) break;
+                uint8_t m = data[i + 2];
+                int w = ((m >> 4) & 0x07) + 1; if (w > 4) w = 4;
+                int h = (m & 0x07) + 1;        if (h > 4) h = 4;
+                t_sx = (uint8_t)w; t_sy = (uint8_t)h;
+                i += 3;
             } else if (c == 0x76 && i + 2 < len && data[i + 2] == 0x30) { // GS v 0  raster
                 if (i + 7 >= len) break;
                 // GS v 0 m xL xH yL yH d1..dk
@@ -96,14 +150,19 @@ int escpos_parse(const uint8_t *data, size_t len, draw_op_t *ops, int max_ops)
                 ESP_LOGI(TAG, "cut (end of job)");
                 break;
             } else {
-                ESP_LOGW(TAG, "skip GS 0x%02x", c);
-                i += 2;
+                int adv = gs_cmd_len(c);
+                ESP_LOGW(TAG, "skip GS 0x%02x (+%d)", c, adv ? adv : 2);
+                i += adv ? adv : 2;
             }
         } else {
-            // Printable/text bytes are ignored in M4a (text is M4c). Skip.
+            if (b < 0x20) { FLUSH_RUN(); i++; continue; } // skip control bytes (CR/TAB/etc.)
+            if (!run_active) { run_start = i; run_active = 1; }
             i++;
         }
     }
+
+    FLUSH_RUN();
+    #undef FLUSH_RUN
     #undef EMIT
     ESP_LOGI(TAG, "parsed %d ops from %u bytes", n, (unsigned)len);
     return n;
