@@ -58,3 +58,31 @@ int cloud_get_commands(char *out, int cap)
     esp_http_client_cleanup(c);
     return status;
 }
+
+int cloud_ack_command(const char *command_id, bool ok)
+{
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/device/commands/ack", appcfg_base_url());
+    char auth[96];
+    snprintf(auth, sizeof(auth), "Bearer %s", appcfg_device_key());
+    char payload[160];
+    snprintf(payload, sizeof(payload), "{\"commandId\":\"%s\",\"ok\":%s}",
+             command_id, ok ? "true" : "false");
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .method = HTTP_METHOD_POST,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 10000,
+    };
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    esp_http_client_set_header(c, "Authorization", auth);
+    esp_http_client_set_header(c, "Content-Type", "application/json");
+    esp_http_client_set_post_field(c, payload, strlen(payload));
+
+    int status = -1;
+    if (esp_http_client_perform(c) == ESP_OK) status = esp_http_client_get_status_code(c);
+    else ESP_LOGE(TAG, "ack %s failed", command_id);
+    esp_http_client_cleanup(c);
+    return status;
+}

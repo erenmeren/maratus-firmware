@@ -9,3 +9,6 @@
 // transport error. The poll itself is the heartbeat (server marks the device
 // online + records firmwareVersion from the x-device-version header).
 int cloud_get_commands(char *out, int cap);
+
+// POST /api/device/commands/ack with { commandId, ok }. Returns HTTP status or -1.
+int cloud_ack_command(const char *command_id, bool ok);

@@ -1,5 +1,6 @@
 #include "ui.h"
 #include "lvgl.h"
+#include "esp_lvgl_port.h"   // lvgl_port_lock/unlock — the standard ESP-IDF LVGL port.
 
 // Brand palette (mirrors ditto-admin defaults: brandColor #10A765).
 #define DITTO_GREEN   0x10A765
@@ -39,21 +40,27 @@ static lv_obj_t *make_idle_screen(void)
 
 void ui_init(void)
 {
+    lvgl_port_lock(0);
     s_idle_screen = make_idle_screen();
+    lvgl_port_unlock();
 }
 
 void ui_show(ui_screen_t screen)
 {
     // M2: only IDLE exists; later milestones add the rest.
     if (screen == UI_SCREEN_IDLE && s_idle_screen) {
+        lvgl_port_lock(0);
         lv_screen_load(s_idle_screen);
+        lvgl_port_unlock();
     }
 }
 
 void ui_set_online(bool online)
 {
     if (s_status_dot) {
+        lvgl_port_lock(0);
         lv_obj_set_style_bg_color(s_status_dot,
             lv_color_hex(online ? DITTO_ONLINE : DITTO_GREY), LV_PART_MAIN);
+        lvgl_port_unlock();
     }
 }
