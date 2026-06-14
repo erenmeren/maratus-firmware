@@ -1,0 +1,21 @@
+## Managed component dependencies.
+##
+## `lvgl` is pinned to v9.x. The board BSP supplies the MIPI-DSI panel + touch
+## init and the LVGL port (bsp_display_start / bsp_display_lock / unlock). Set the
+## BSP entry below to the EXACT component + version the Waveshare demo uses —
+## copy it from the demo's `dependencies.lock` (or its `main/idf_component.yml`).
+##
+## Two cases:
+##  1. The demo pulls its BSP from the component registry → uncomment + set the
+##     line below to that component (e.g. `waveshare/esp32_p4_*: "==x.y.z"`).
+##  2. The demo ships its BSP as a LOCAL `components/<bsp>` folder → copy that
+##     folder into `ditto-firmware/components/` instead and leave the line off.
+##
+## The BSP must expose the esp-bsp convention used in app_main.c:
+##   bsp_display_start(), bsp_display_lock(0), bsp_display_unlock()
+## (built on espressif/esp_lvgl_port). If the demo instead wires esp_lcd +
+## esp_lvgl_port directly, swap those three calls in app_main.c accordingly.
+dependencies:
+  idf: ">=5.4"
+  lvgl/lvgl: "~9.2.0"
+  # <waveshare-bsp-component>: "<version-from-demo-dependencies.lock>"

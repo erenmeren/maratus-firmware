@@ -4,6 +4,10 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_SPIRAM=y
 CONFIG_FREERTOS_HZ=1000
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# LVGL fonts used by the idle screen (ui.c). Enabled here so the build is
+# deterministic without a menuconfig step.
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_48=y
 # --- append from docs/bsp-notes.md (Task 1): PSRAM mode/speed, the C6 Wi-Fi
 #     transport (esp_wifi_remote / esp-hosted) options, and the MIPI-DSI display
 #     options that the Waveshare demo's sdkconfig enables. ---
