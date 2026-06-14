@@ -6,6 +6,8 @@
 #include "state.h"
 #include "escpos_server.h"
 #include "render_job.h"
+#include "render.h"
+#include "appcfg.h"
 
 static const char *TAG = "ditto";
 
@@ -15,6 +17,7 @@ void app_main(void)
 
     // 1) Bring up display + LVGL via the board BSP.
     bsp_display_start();
+    render_set_roll_width(appcfg_roll_width());
 
     // 2) Build + show the idle screen (ui takes the LVGL lock internally).
     ui_init();

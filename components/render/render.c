@@ -8,40 +8,63 @@
 
 static const char *TAG = "render";
 
-#define MAX_HEIGHT 20000   // bound memory; over-long jobs truncate
-#define QR_QUIET   4       // quiet-zone modules each side (QR spec minimum)
+#define MAX_HEIGHT 20000
+#define QR_QUIET   4
 
-static int x_offset(align_t a, int w)
+static int s_roll_width = RENDER_ROLL_WIDTH;
+void render_set_roll_width(int dots) { if (dots >= 128 && dots <= 2048) s_roll_width = dots; }
+
+// ---- growable grayscale canvas (white background) ----
+typedef struct { uint8_t *px; int W; int cur_y; int cap; bool oom; } canvas_t;
+
+static bool canvas_ensure(canvas_t *c, int rows_needed)
 {
-    if (w >= RENDER_ROLL_WIDTH) return 0;
-    if (a == ALIGN_CENTER) return (RENDER_ROLL_WIDTH - w) / 2;
-    if (a == ALIGN_RIGHT)  return RENDER_ROLL_WIDTH - w;
+    int want = c->cur_y + rows_needed;
+    if (want <= c->cap) return true;
+    if (want > MAX_HEIGHT) want = MAX_HEIGHT;
+    int ncap = c->cap ? c->cap : 256;
+    while (ncap < want) ncap *= 2;
+    if (ncap > MAX_HEIGHT) ncap = MAX_HEIGHT;
+    uint8_t *np = heap_caps_malloc((size_t)c->W * ncap, MALLOC_CAP_SPIRAM);
+    if (!np) np = malloc((size_t)c->W * ncap);
+    if (!np) { c->oom = true; return false; }
+    memset(np, 0xFF, (size_t)c->W * ncap);
+    if (c->px) { memcpy(np, c->px, (size_t)c->W * c->cur_y); free(c->px); }
+    c->px = np; c->cap = ncap;
+    return true;
+}
+
+static void canvas_set(canvas_t *c, int x, int y, uint8_t v)
+{
+    if (x < 0 || x >= c->W || y < 0 || y >= c->cap) return;
+    c->px[(size_t)y * c->W + x] = v;
+}
+
+static int x_offset(align_t a, int w, int W)
+{
+    if (w >= W) return 0;
+    if (a == ALIGN_CENTER) return (W - w) / 2;
+    if (a == ALIGN_RIGHT)  return W - w;
     return 0;
 }
 
+// ---- QR ----
 typedef struct {
     uint8_t qr[qrcodegen_BUFFER_LEN_FOR_VERSION(qrcodegen_VERSION_MAX)];
-    int side;        // modules per side (0 = encode failed)
-    int module_px;
+    int side; int module_px;
 } qr_enc_t;
 
 static enum qrcodegen_Ecc ecc_of(uint8_t e)
 {
-    switch (e) {
-        case 1: return qrcodegen_Ecc_MEDIUM;
-        case 2: return qrcodegen_Ecc_QUARTILE;
-        case 3: return qrcodegen_Ecc_HIGH;
-        default: return qrcodegen_Ecc_LOW;
-    }
+    switch (e) { case 1: return qrcodegen_Ecc_MEDIUM; case 2: return qrcodegen_Ecc_QUARTILE;
+                 case 3: return qrcodegen_Ecc_HIGH; default: return qrcodegen_Ecc_LOW; }
 }
 
-// Encode one OP_QR into *enc. Returns true on success.
 static bool qr_encode(const draw_op_t *op, qr_enc_t *enc)
 {
     char text[512];
     int n = op->qr.len; if (n > (int)sizeof(text) - 1) n = sizeof(text) - 1;
     memcpy(text, op->qr.data, n); text[n] = '\0';
-
     static uint8_t tmp[qrcodegen_BUFFER_LEN_FOR_VERSION(qrcodegen_VERSION_MAX)];
     bool ok = qrcodegen_encodeText(text, tmp, enc->qr, ecc_of(op->qr.ecc),
                                    qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
@@ -51,89 +74,52 @@ static bool qr_encode(const draw_op_t *op, qr_enc_t *enc)
     return ok;
 }
 
-static int qr_px(const qr_enc_t *e) { return (e->side + 2 * QR_QUIET) * e->module_px; }
-
 bool render_ops_to_png(const draw_op_t *ops, int n_ops,
                        uint8_t **png_out, size_t *png_len, int *out_w, int *out_h)
 {
-    const int W = RENDER_ROLL_WIDTH;
-
-    // Pre-encode every QR op once (indexed by op position; NULL entry = not a QR).
-    qr_enc_t **qrs = calloc(n_ops, sizeof(qr_enc_t *));
-    if (!qrs) return false;
-    for (int i = 0; i < n_ops; i++) {
-        if (ops[i].kind != OP_QR) continue;
-        qr_enc_t *e = malloc(sizeof(qr_enc_t));
-        if (e && qr_encode(&ops[i], e)) qrs[i] = e;
-        else { free(e); ESP_LOGW(TAG, "QR encode failed"); }
-    }
-
-    // Height: rasters + feeds + QR boxes.
-    int H = 0;
-    for (int i = 0; i < n_ops; i++) {
-        if (ops[i].kind == OP_RASTER) H += ops[i].raster.height;
-        else if (ops[i].kind == OP_FEED) H += ops[i].feed.dots;
-        else if (ops[i].kind == OP_QR && qrs[i]) H += qr_px(qrs[i]);
-    }
-    if (H < 1) H = 1;
-    if (H > MAX_HEIGHT) H = MAX_HEIGHT;
-
-    size_t fb_len = (size_t)W * H;
-    uint8_t *fb = heap_caps_malloc(fb_len, MALLOC_CAP_SPIRAM);
-    if (!fb) fb = malloc(fb_len);
-    if (!fb) {
-        ESP_LOGE(TAG, "fb alloc failed (%dx%d)", W, H);
-        for (int i = 0; i < n_ops; i++) free(qrs[i]);
-        free(qrs);
-        return false;
-    }
-    memset(fb, 0xFF, fb_len); // white
-
-    int cur_y = 0;
+    canvas_t c = { .W = s_roll_width };
     align_t align = ALIGN_LEFT;
-    for (int i = 0; i < n_ops && cur_y < H; i++) {
+
+    for (int i = 0; i < n_ops && !c.oom; i++) {
         const draw_op_t *op = &ops[i];
         if (op->kind == OP_ALIGN) {
             align = op->align.align;
         } else if (op->kind == OP_FEED) {
-            cur_y += op->feed.dots;
+            if (canvas_ensure(&c, op->feed.dots)) c.cur_y += op->feed.dots;
         } else if (op->kind == OP_RASTER) {
-            int xo = x_offset(align, op->raster.width_px);
-            for (int y = 0; y < op->raster.height && (cur_y + y) < H; y++) {
+            int h = op->raster.height;
+            if (!canvas_ensure(&c, h)) break;
+            int xo = x_offset(align, op->raster.width_px, c.W);
+            for (int y = 0; y < h; y++) {
                 const uint8_t *row = op->raster.bits + (size_t)y * op->raster.width_bytes;
-                for (int x = 0; x < op->raster.width_px; x++) {
-                    int px = xo + x;
-                    if (px < 0 || px >= W) continue;
-                    if (row[x >> 3] & (0x80 >> (x & 7))) fb[(size_t)(cur_y + y) * W + px] = 0x00;
-                }
+                for (int x = 0; x < op->raster.width_px; x++)
+                    if (row[x >> 3] & (0x80 >> (x & 7))) canvas_set(&c, xo + x, c.cur_y + y, 0x00);
             }
-            cur_y += op->raster.height;
-        } else if (op->kind == OP_QR && qrs[i]) {
-            qr_enc_t *e = qrs[i];
-            int box = qr_px(e);
-            int xo = x_offset(align, box);
-            for (int my = 0; my < e->side; my++) {
-                for (int mx = 0; mx < e->side; mx++) {
-                    if (!qrcodegen_getModule(e->qr, mx, my)) continue;
-                    int bx = xo + (QR_QUIET + mx) * e->module_px;
-                    int by = cur_y + (QR_QUIET + my) * e->module_px;
-                    for (int dy = 0; dy < e->module_px; dy++) {
-                        int yy = by + dy; if (yy < 0 || yy >= H) continue;
-                        for (int dx = 0; dx < e->module_px; dx++) {
-                            int xx = bx + dx; if (xx < 0 || xx >= W) continue;
-                            fb[(size_t)yy * W + xx] = 0x00;
-                        }
-                    }
-                }
-            }
-            cur_y += box;
+            c.cur_y += h;
+        } else if (op->kind == OP_QR) {
+            qr_enc_t *e = malloc(sizeof(qr_enc_t));
+            if (!e || !qr_encode(op, e)) { free(e); ESP_LOGW(TAG, "QR encode failed"); continue; }
+            int box = (e->side + 2 * QR_QUIET) * e->module_px;
+            if (!canvas_ensure(&c, box)) { free(e); break; }
+            int xo = x_offset(align, box, c.W);
+            for (int my = 0; my < e->side; my++)
+                for (int mx = 0; mx < e->side; mx++)
+                    if (qrcodegen_getModule(e->qr, mx, my))
+                        for (int dy = 0; dy < e->module_px; dy++)
+                            for (int dx = 0; dx < e->module_px; dx++)
+                                canvas_set(&c, xo + (QR_QUIET + mx) * e->module_px + dx,
+                                               c.cur_y + (QR_QUIET + my) * e->module_px + dy, 0x00);
+            c.cur_y += box;
+            free(e);
         }
     }
 
-    bool ok = png_encode_gray8(fb, W, H, png_out, png_len);
-    free(fb);
-    for (int i = 0; i < n_ops; i++) free(qrs[i]);
-    free(qrs);
-    if (ok) { if (out_w) *out_w = W; if (out_h) *out_h = H; }
+    if (c.oom || !c.px) { free(c.px); ESP_LOGE(TAG, "canvas alloc failed"); return false; }
+    int H = c.cur_y > 0 ? c.cur_y : 1;
+    if (H > c.cap) H = c.cap;
+
+    bool ok = png_encode_gray8(c.px, c.W, H, png_out, png_len);
+    free(c.px);
+    if (ok) { if (out_w) *out_w = c.W; if (out_h) *out_h = H; }
     return ok;
 }
