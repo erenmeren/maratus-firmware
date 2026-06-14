@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "qrcodegen.h"
+#include "font8x8_basic.h"
 
 static const char *TAG = "render";
 
@@ -74,19 +75,87 @@ static bool qr_encode(const draw_op_t *op, qr_enc_t *enc)
     return ok;
 }
 
+// ---- text: glyph blit + monospace line layout ----
+#define GLYPH_W 8
+#define GLYPH_H 8
+#define LINE_PAD 4
+#define MAX_LINE_GLYPHS 256
+
+typedef struct { uint8_t ch, sx, sy, bold; } glyph_t;
+typedef struct { glyph_t g[MAX_LINE_GLYPHS]; int n; int width; } line_t;
+
+static void blit_glyph(canvas_t *c, int x, int y, uint8_t ch, int sx, int sy, bool bold)
+{
+    if (ch < 0x20 || ch > 0x7e) ch = 0x20;
+    const char *g = font8x8_basic[(int)ch];
+    for (int row = 0; row < GLYPH_H; row++) {
+        uint8_t bits = (uint8_t)g[row];
+        for (int col = 0; col < GLYPH_W; col++) {
+            if (!(bits & (1 << col))) continue;   // font8x8: bit0 = leftmost
+            for (int dy = 0; dy < sy; dy++)
+                for (int dx = 0; dx < sx; dx++) {
+                    canvas_set(c, x + col * sx + dx, y + row * sy + dy, 0x00);
+                    if (bold) canvas_set(c, x + col * sx + dx + 1, y + row * sy + dy, 0x00);
+                }
+        }
+    }
+}
+
+static void flush_line(canvas_t *c, line_t *ln, align_t align)
+{
+    if (ln->n == 0) {
+        int lh = GLYPH_H + LINE_PAD;
+        if (canvas_ensure(c, lh)) c->cur_y += lh;
+        return;
+    }
+    int max_sy = 1;
+    for (int i = 0; i < ln->n; i++) if (ln->g[i].sy > max_sy) max_sy = ln->g[i].sy;
+    int line_h = GLYPH_H * max_sy + LINE_PAD;
+    if (!canvas_ensure(c, line_h)) { ln->n = 0; ln->width = 0; return; }
+
+    int x = x_offset(align, ln->width, c->W);
+    for (int i = 0; i < ln->n; i++) {
+        glyph_t *g = &ln->g[i];
+        blit_glyph(c, x, c->cur_y, g->ch, g->sx, g->sy, g->bold);
+        x += GLYPH_W * g->sx;
+    }
+    c->cur_y += line_h;
+    ln->n = 0; ln->width = 0;
+}
+
+static void line_putc(canvas_t *c, line_t *ln, align_t align, uint8_t ch, int sx, int sy, bool bold)
+{
+    int gw = GLYPH_W * sx;
+    if (ln->n > 0 && (ln->width + gw > c->W || ln->n >= MAX_LINE_GLYPHS)) flush_line(c, ln, align);
+    if (ln->n < MAX_LINE_GLYPHS) {
+        ln->g[ln->n++] = (glyph_t){ ch, (uint8_t)sx, (uint8_t)sy, (uint8_t)bold };
+        ln->width += gw;
+    }
+}
+
 bool render_ops_to_png(const draw_op_t *ops, int n_ops,
                        uint8_t **png_out, size_t *png_len, int *out_w, int *out_h)
 {
     canvas_t c = { .W = s_roll_width };
     align_t align = ALIGN_LEFT;
+    static line_t ln; ln.n = 0; ln.width = 0;
 
     for (int i = 0; i < n_ops && !c.oom; i++) {
         const draw_op_t *op = &ops[i];
         if (op->kind == OP_ALIGN) {
             align = op->align.align;
+        } else if (op->kind == OP_TEXT) {
+            int sx = op->text.sx < 1 ? 1 : (op->text.sx > 4 ? 4 : op->text.sx);
+            int sy = op->text.sy < 1 ? 1 : (op->text.sy > 4 ? 4 : op->text.sy);
+            for (int k = 0; k < op->text.len; k++)
+                line_putc(&c, &ln, align, (uint8_t)op->text.text[k], sx, sy, op->text.bold);
+        } else if (op->kind == OP_LINE_BREAK) {
+            flush_line(&c, &ln, align);
         } else if (op->kind == OP_FEED) {
+            flush_line(&c, &ln, align);
             if (canvas_ensure(&c, op->feed.dots)) c.cur_y += op->feed.dots;
         } else if (op->kind == OP_RASTER) {
+            flush_line(&c, &ln, align);
             int h = op->raster.height;
             if (!canvas_ensure(&c, h)) break;
             int xo = x_offset(align, op->raster.width_px, c.W);
@@ -97,6 +166,7 @@ bool render_ops_to_png(const draw_op_t *ops, int n_ops,
             }
             c.cur_y += h;
         } else if (op->kind == OP_QR) {
+            flush_line(&c, &ln, align);
             qr_enc_t *e = malloc(sizeof(qr_enc_t));
             if (!e || !qr_encode(op, e)) { free(e); ESP_LOGW(TAG, "QR encode failed"); continue; }
             int box = (e->side + 2 * QR_QUIET) * e->module_px;
@@ -113,6 +183,8 @@ bool render_ops_to_png(const draw_op_t *ops, int n_ops,
             free(e);
         }
     }
+
+    flush_line(&c, &ln, align);
 
     if (c.oom || !c.px) { free(c.px); ESP_LOGE(TAG, "canvas alloc failed"); return false; }
     int H = c.cur_y > 0 ? c.cur_y : 1;

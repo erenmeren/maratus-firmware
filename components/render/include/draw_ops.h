@@ -10,6 +10,8 @@ typedef enum {
     OP_FEED,     // vertical whitespace, in dots
     OP_ALIGN,    // set alignment for subsequent rasters
     OP_QR,       // a QR code (GS ( k)
+    OP_TEXT,     // a styled run of printable characters
+    OP_LINE_BREAK, // end the current text line (LF)
 } op_kind_t;
 
 typedef struct {
@@ -29,5 +31,11 @@ typedef struct {
             int module_px;     // dots per QR module (1..16)
             uint8_t ecc;       // 0=L, 1=M, 2=Q, 3=H
         } qr;
+        struct {
+            const char *text;  // points INTO the job buffer
+            int len;
+            uint8_t sx, sy;    // size multipliers (1..4)
+            uint8_t bold;
+        } text;
     };
 } draw_op_t;
