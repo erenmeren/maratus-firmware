@@ -31,4 +31,10 @@ menu "Ditto firmware (dev)"
         help
             Sent as the x-device-version header and shown in the admin device list.
 
+    config DITTO_ROLL_WIDTH
+        int "Receipt roll width in dots"
+        default 576
+        help
+            Printable width of the paper roll in dots (576 = 80mm, 384 = 58mm).
+
 endmenu
