@@ -12,4 +12,23 @@ menu "Ditto firmware (dev)"
         help
             Wi-Fi password used during development. Replaced by on-screen provisioning in M6.
 
+    config DITTO_API_BASE_URL
+        string "Ditto Cloud base URL"
+        default "https://your-ditto-deployment.vercel.app"
+        help
+            Base URL of the Ditto Cloud deployment (no trailing slash).
+
+    config DITTO_DEVICE_KEY
+        string "Dev device key (raw, 40-char)"
+        default "changeme"
+        help
+            Raw device bearer key. Dev-only shortcut; M6 sources this from NVS after
+            on-screen claim. Obtain one by claiming a seeded device in the admin UI.
+
+    config DITTO_FW_VERSION
+        string "Reported firmware version"
+        default "0.2.0-m2"
+        help
+            Sent as the x-device-version header and shown in the admin device list.
+
 endmenu
