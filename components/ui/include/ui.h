@@ -27,3 +27,10 @@ void ui_show(ui_screen_t screen);
 
 // Set the connectivity status dot on the idle screen (true = online/green).
 void ui_set_online(bool online);
+
+// Show the QR screen rendering `url` as a scannable QR code. Thread-safe.
+void ui_show_qr(const char *url);
+
+// True (once) if the screen was tapped since the last call. Used to trigger a
+// test ingest in M3. Cleared on read.
+bool ui_consume_tap(void);

@@ -8,6 +8,8 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 # deterministic without a menuconfig step.
 CONFIG_LV_FONT_MONTSERRAT_28=y
 CONFIG_LV_FONT_MONTSERRAT_48=y
+# LVGL QR code widget (QR receipt screen).
+CONFIG_LV_USE_QRCODE=y
 # --- append from docs/bsp-notes.md (Task 1): PSRAM mode/speed, the C6 Wi-Fi
 #     transport (esp_wifi_remote / esp-hosted) options, and the MIPI-DSI display
 #     options that the Waveshare demo's sdkconfig enables. ---
