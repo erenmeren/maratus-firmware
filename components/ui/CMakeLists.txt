@@ -1,3 +1,3 @@
 idf_component_register(SRCS "ui.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES lvgl esp_lvgl_port)
+                       REQUIRES lvgl esp_lvgl_port devcfg)

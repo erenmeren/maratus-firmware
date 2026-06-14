@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include "device_config.h"
 
 // Ditto on-screen UI (target "B" in the spec): the LVGL screens shown on the
 // 720x720 LCD. Mirrors PRINTER_SCREENS in ditto-admin. M2 only renders IDLE;
@@ -34,3 +35,7 @@ void ui_show_qr(const char *url);
 // True (once) if the screen was tapped since the last call. Used to trigger a
 // test ingest in M3. Cleared on read.
 bool ui_consume_tap(void);
+
+// Rebuild the idle screen from a fetched config (brand background + text objects).
+// If cfg is NULL or invalid, the idle screen keeps the built-in default. Thread-safe.
+void ui_render_idle(const device_config_t *cfg);

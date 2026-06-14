@@ -2,6 +2,7 @@
 #include <string.h>
 #include "lvgl.h"
 #include "esp_lvgl_port.h"   // lvgl_port_lock/unlock — the standard ESP-IDF LVGL port.
+#include "device_config.h"
 
 // Brand palette (mirrors ditto-admin defaults: brandColor #10A765).
 #define DITTO_GREEN   0x10A765
@@ -83,6 +84,53 @@ static lv_obj_t *make_qr_screen(void)
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(scr, on_screen_click, LV_EVENT_CLICKED, NULL);
     return scr;
+}
+
+static const lv_font_t *font_for(int px)
+{
+    if (px <= 15) return &lv_font_montserrat_14;
+    if (px <= 18) return &lv_font_montserrat_16;
+    if (px <= 24) return &lv_font_montserrat_20;
+    if (px <= 32) return &lv_font_montserrat_28;
+    if (px <= 42) return &lv_font_montserrat_36;
+    return &lv_font_montserrat_48;
+}
+
+void ui_render_idle(const device_config_t *cfg)
+{
+    if (!cfg || !cfg->valid) return;
+    lvgl_port_lock(0);
+
+    // Rebuild a fresh idle screen so repeated calls don't leak old children.
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(cfg->brand_bg), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(scr, on_screen_click, LV_EVENT_CLICKED, NULL);
+
+    for (int i = 0; i < cfg->n_texts; i++) {
+        const cfg_text_t *t = &cfg->texts[i];
+        lv_obj_t *lbl = lv_label_create(scr);
+        lv_label_set_text(lbl, t->text);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(cfg->brand_fg), LV_PART_MAIN);
+        lv_obj_set_style_text_font(lbl, font_for(t->font_size), LV_PART_MAIN);
+        lv_obj_set_pos(lbl, (int)(t->x * 720.0f), (int)(t->y * 720.0f)); // top-left, 720 ref
+    }
+
+    // Status dot (re-created on the new screen).
+    s_status_dot = lv_obj_create(scr);
+    lv_obj_set_size(s_status_dot, 20, 20);
+    lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_status_dot, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_status_dot, lv_color_hex(DITTO_ONLINE), LV_PART_MAIN);
+    lv_obj_align(s_status_dot, LV_ALIGN_TOP_RIGHT, -16, 16);
+
+    lv_obj_t *old = s_idle_screen;
+    s_idle_screen = scr;
+    if (lv_screen_active() == old) lv_screen_load(scr);
+    if (old) lv_obj_delete(old);
+
+    lvgl_port_unlock();
 }
 
 void ui_init(void)
