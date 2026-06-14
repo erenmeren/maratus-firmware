@@ -52,6 +52,10 @@ void app_main(void)
     // wired for SDIO, so net_start() -> esp_wifi_init -> esp_hosted asserts in
     // spi_drv.c ("mempool create failed: no mem") and reboot-loops. Re-enable
     // once esp_hosted is configured for SDIO with the board's pin map.
+    // Networking still deferred — esp_wifi_remote on IDF 5.4.4 won't select the C6
+    // SDIO transport (slave-select Kconfig not sourced → co-proc target falls to
+    // ESP32-H2 → SPI → crash). The Waveshare display+Wi-Fi demo (brookesia) uses
+    // IDF 5.5; re-enable this block once on IDF 5.5 with SLAVE_IDF_TARGET=C6/SDIO.
 #if 0
     net_start();
     ESP_LOGI(TAG, "Wi-Fi connected=%d", net_is_connected());
@@ -60,5 +64,5 @@ void app_main(void)
     escpos_server_start(render_job_handle);
     ESP_LOGI(TAG, "print server up on :9100");
 #endif
-    ESP_LOGI(TAG, "display bring-up mode (networking deferred: esp_hosted SDIO)");
+    ESP_LOGI(TAG, "display bring-up mode (networking deferred: needs IDF 5.5 + C6 SDIO)");
 }
