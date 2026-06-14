@@ -297,3 +297,7 @@ int cloud_get_config(device_config_t *cfg)
     esp_http_client_cleanup(c);
     return status;
 }
+
+static void (*s_cfg_changed_cb)(void);
+void cloud_set_config_changed_cb(void (*cb)(void)) { s_cfg_changed_cb = cb; }
+void (*cloud_config_changed_handler(void))(void) { return s_cfg_changed_cb; }

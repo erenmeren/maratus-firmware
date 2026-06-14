@@ -30,3 +30,8 @@ int cloud_get_config(device_config_t *cfg);
 
 // Load the last config persisted in NVS into *cfg (cfg->valid = false if none).
 void cloud_config_load_cached(device_config_t *cfg);
+
+// Register a hook invoked when a config-changed command arrives (set by main).
+void cloud_set_config_changed_cb(void (*cb)(void));
+// Internal: the registered hook (NULL if none). Used by commands.c.
+void (*cloud_config_changed_handler(void))(void);

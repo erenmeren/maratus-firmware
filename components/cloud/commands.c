@@ -43,8 +43,12 @@ void commands_handle_body(const char *json_body)
             ESP_LOGI(TAG, "rebooting");
             vTaskDelay(pdMS_TO_TICKS(300));
             esp_restart();                 // does not return
+        } else if (strcmp(type, "config-changed") == 0) {
+            void (*cb)(void) = cloud_config_changed_handler();
+            if (cb) cb();
+            cloud_ack_command(id, true);
         } else {
-            // refresh / config-changed / unknown: ack now; behavior lands in later milestones.
+            // refresh / unknown: ack now; behavior lands in later milestones.
             cloud_ack_command(id, true);
         }
     }

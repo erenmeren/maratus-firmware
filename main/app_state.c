@@ -7,9 +7,14 @@
 #include "net.h"
 #include "ui.h"
 #include "assets.h"
+#include "device_config.h"
 
 static const char *TAG = "state";
 static dev_state_t s_state = DEV_BOOT;
+static device_config_t s_cfg;
+static volatile bool s_config_dirty = true;   // fetch once after first connect
+
+void app_state_request_config(void) { s_config_dirty = true; }
 
 #define POLL_IDLE_MS     12000
 #define POLL_BACKOFF_MIN 2000
@@ -58,6 +63,11 @@ static void poll_task(void *arg)
         if (status == 200) {
             ui_set_online(true);
             commands_handle_body(body);   // may esp_restart() on reboot
+            if (s_config_dirty) {
+                s_config_dirty = false;
+                int cs = cloud_get_config(&s_cfg);   // s_cfg keeps the ETag between calls
+                if (cs == 200 && s_cfg.valid) ui_render_idle(&s_cfg);
+            }
             backoff = POLL_BACKOFF_MIN;
             vTaskDelay(pdMS_TO_TICKS(POLL_IDLE_MS));
         } else {
@@ -71,5 +81,6 @@ static void poll_task(void *arg)
 
 void app_state_run(void)
 {
+    cloud_config_load_cached(&s_cfg);   // seed ETag so the first fetch can 304
     xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, NULL);
 }

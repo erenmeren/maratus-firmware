@@ -8,12 +8,21 @@
 #include "render_job.h"
 #include "render.h"
 #include "appcfg.h"
+#include "nvs_flash.h"
+#include "cloud.h"
+#include "device_config.h"
 
 static const char *TAG = "ditto";
 
 void app_main(void)
 {
     ESP_LOGI(TAG, "Ditto firmware boot (M2 skeleton)");
+
+    // 0) Initialize NVS (device config cache lives here).
+    esp_err_t nvs_err = nvs_flash_init();
+    if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        nvs_flash_erase(); nvs_flash_init();
+    }
 
     // 1) Bring up display + LVGL via the board BSP.
     bsp_display_start();
@@ -24,12 +33,18 @@ void app_main(void)
     ui_show(UI_SCREEN_IDLE);
     ESP_LOGI(TAG, "Idle screen shown");
 
+    // 2b) Render any cached config immediately (before Wi-Fi).
+    static device_config_t g_cfg;
+    cloud_config_load_cached(&g_cfg);
+    if (g_cfg.valid) ui_render_idle(&g_cfg);
+
     // 3) Connect to Wi-Fi via the C6 radio.
     net_start();
     ESP_LOGI(TAG, "Wi-Fi connected=%d", net_is_connected());
 
     // 4) Start the continuous poll loop + device state machine.
     app_state_run();
+    cloud_set_config_changed_cb(app_state_request_config);
     ESP_LOGI(TAG, "entered IDLE; polling");
 
     // 5) Start the ESC/POS print-job listener on TCP:9100.
