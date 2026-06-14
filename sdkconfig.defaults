@@ -1,0 +1,9 @@
+CONFIG_IDF_TARGET="esp32p4"
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_SPIRAM=y
+CONFIG_FREERTOS_HZ=1000
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# --- append from docs/bsp-notes.md (Task 1): PSRAM mode/speed, the C6 Wi-Fi
+#     transport (esp_wifi_remote / esp-hosted) options, and the MIPI-DSI display
+#     options that the Waveshare demo's sdkconfig enables. ---
