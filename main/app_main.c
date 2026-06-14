@@ -3,6 +3,7 @@
                             // header, change this include to match (see idf_component.yml).
 #include "ui.h"
 #include "net.h"
+#include "cloud.h"
 
 static const char *TAG = "ditto";
 
@@ -36,4 +37,10 @@ void app_main(void)
     ui_set_online(net_is_connected());
     bsp_display_unlock();
     ESP_LOGI(TAG, "Wi-Fi connected=%d", net_is_connected());
+
+    // 4) One boot poll of the cloud to prove the device-key seam. The continuous
+    //    poll task + command dispatch land in Tasks 7-8.
+    static char body[1024];
+    int status = cloud_get_commands(body, sizeof(body));
+    ESP_LOGI(TAG, "first poll status=%d", status);
 }
