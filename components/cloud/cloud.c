@@ -1,9 +1,12 @@
 #include "cloud.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "esp_log.h"
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
+#include "esp_heap_caps.h"
+#include "cJSON.h"
 #include "appcfg.h"
 
 static const char *TAG = "cloud";
@@ -84,5 +87,81 @@ int cloud_ack_command(const char *command_id, bool ok)
     if (esp_http_client_perform(c) == ESP_OK) status = esp_http_client_get_status_code(c);
     else ESP_LOGE(TAG, "ack %s failed", command_id);
     esp_http_client_cleanup(c);
+    return status;
+}
+
+int cloud_post_receipt(const uint8_t *png, size_t png_len, char *url_out, int url_cap)
+{
+    if (url_out && url_cap > 0) url_out[0] = '\0';
+    if (!png || png_len == 0) return -1;
+
+    const char *boundary = "----dittoBoundaryM3xKt7Qw";
+
+    char meta[96];
+    snprintf(meta, sizeof(meta), "{\"firmwareVersion\":\"%s\"}", appcfg_fw_version());
+
+    char head[256];
+    int head_len = snprintf(head, sizeof(head),
+        "--%s\r\n"
+        "Content-Disposition: form-data; name=\"file\"; filename=\"receipt.png\"\r\n"
+        "Content-Type: image/png\r\n\r\n", boundary);
+
+    char tail[256];
+    int tail_len = snprintf(tail, sizeof(tail),
+        "\r\n--%s\r\n"
+        "Content-Disposition: form-data; name=\"metadata\"\r\n\r\n"
+        "%s"
+        "\r\n--%s--\r\n", boundary, meta, boundary);
+
+    size_t total = (size_t)head_len + png_len + (size_t)tail_len;
+    char *body = heap_caps_malloc(total, MALLOC_CAP_SPIRAM);
+    if (!body) body = malloc(total);
+    if (!body) { ESP_LOGE(TAG, "ingest body alloc failed (%u bytes)", (unsigned)total); return -1; }
+    memcpy(body, head, head_len);
+    memcpy(body + head_len, png, png_len);
+    memcpy(body + head_len + png_len, tail, tail_len);
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/ingest", appcfg_base_url());
+    char auth[96];
+    snprintf(auth, sizeof(auth), "Bearer %s", appcfg_device_key());
+    char ctype[96];
+    snprintf(ctype, sizeof(ctype), "multipart/form-data; boundary=%s", boundary);
+
+    char respbuf[512];
+    respbuf[0] = '\0';
+    resp_t resp = { .buf = respbuf, .cap = sizeof(respbuf), .len = 0 };
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .method = HTTP_METHOD_POST,
+        .event_handler = on_evt,
+        .user_data = &resp,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 15000,
+    };
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    esp_http_client_set_header(c, "Authorization", auth);
+    esp_http_client_set_header(c, "Content-Type", ctype);
+    esp_http_client_set_post_field(c, body, total);
+
+    int status = -1;
+    if (esp_http_client_perform(c) == ESP_OK) {
+        status = esp_http_client_get_status_code(c);
+        respbuf[resp.len] = '\0';
+        ESP_LOGI(TAG, "POST /ingest -> %d, body: %s", status, respbuf);
+        if (status == 201 && url_out) {
+            cJSON *root = cJSON_Parse(respbuf);
+            if (root) {
+                const char *u = cJSON_GetStringValue(cJSON_GetObjectItem(root, "url"));
+                if (u) { strncpy(url_out, u, url_cap - 1); url_out[url_cap - 1] = '\0'; }
+                cJSON_Delete(root);
+            }
+        }
+    } else {
+        ESP_LOGE(TAG, "POST /ingest failed");
+    }
+    esp_http_client_cleanup(c);
+    free(body);
     return status;
 }

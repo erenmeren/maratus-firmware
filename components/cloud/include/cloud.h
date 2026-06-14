@@ -1,6 +1,8 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 // HTTPS client for the Ditto M1 device contract (bearer device-key auth).
 
@@ -12,3 +14,8 @@ int cloud_get_commands(char *out, int cap);
 
 // POST /api/device/commands/ack with { commandId, ok }. Returns HTTP status or -1.
 int cloud_ack_command(const char *command_id, bool ok);
+
+// POST /api/ingest with a PNG image (multipart field "file") + minimal metadata.
+// On HTTP 201, copies the returned receipt URL into `url_out` (NUL-terminated,
+// up to url_cap-1). Returns the HTTP status, or -1 on transport/allocation error.
+int cloud_post_receipt(const uint8_t *png, size_t png_len, char *url_out, int url_cap);
