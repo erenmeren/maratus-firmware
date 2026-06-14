@@ -1,0 +1,7 @@
+{
+  "name": "ditto-escpos-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "ditto-send": "send.js" }
+}
