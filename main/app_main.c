@@ -1,6 +1,6 @@
 #include "esp_log.h"
-#include "bsp/esp-bsp.h"   // bsp_display_start(); if the demo's BSP uses a different
-                            // header/init, change this (see idf_component.yml).
+#include "bsp/esp-bsp.h"   // Waveshare board BSP (waveshare/esp32_p4_wifi6_touch_lcd_4b)
+#include "bsp/display.h"
 #include "ui.h"
 #include "net.h"
 #include "state.h"
@@ -24,8 +24,15 @@ void app_main(void)
         nvs_flash_erase(); nvs_flash_init();
     }
 
-    // 1) Bring up display + LVGL via the board BSP.
-    bsp_display_start();
+    // 1) Bring up display + LVGL via the Waveshare board BSP (matches the demo).
+    bsp_display_cfg_t disp_cfg = {
+        .lvgl_port_cfg = ESP_LVGL_PORT_INIT_CONFIG(),
+        .buffer_size = BSP_LCD_DRAW_BUFF_SIZE,
+        .double_buffer = BSP_LCD_DRAW_BUFF_DOUBLE,
+        .flags = { .buff_dma = true, .buff_spiram = false, .sw_rotate = false },
+    };
+    bsp_display_start_with_config(&disp_cfg);
+    bsp_display_backlight_on();
     render_set_roll_width(appcfg_roll_width());
 
     // 2) Build + show the idle screen (ui takes the LVGL lock internally).
