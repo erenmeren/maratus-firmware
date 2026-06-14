@@ -6,6 +6,7 @@
 #include "commands.h"
 #include "net.h"
 #include "ui.h"
+#include "assets.h"
 
 static const char *TAG = "state";
 static dev_state_t s_state = DEV_BOOT;
@@ -14,6 +15,29 @@ static dev_state_t s_state = DEV_BOOT;
 #define POLL_BACKOFF_MIN 2000
 #define POLL_BACKOFF_MAX 60000
 
+// M3: upload the bundled test PNG and show the returned receipt URL as a QR.
+// Replaced by the live ESC/POS render path in M4.
+static void run_test_ingest(void)
+{
+    ui_show(UI_SCREEN_PROCESSING);
+    s_state = DEV_PROCESSING;
+
+    size_t len = 0;
+    const uint8_t *png = assets_test_png(&len);
+
+    static char url[256];
+    int status = cloud_post_receipt(png, len, url, sizeof(url));
+    if (status == 201 && url[0]) {
+        ESP_LOGI(TAG, "receipt ready: %s", url);
+        s_state = DEV_QR;
+        ui_show_qr(url);
+    } else {
+        ESP_LOGW(TAG, "ingest failed (status=%d)", status);
+        s_state = DEV_IDLE;
+        ui_show(UI_SCREEN_IDLE);
+    }
+}
+
 static void poll_task(void *arg)
 {
     static char body[1024];
@@ -21,6 +45,10 @@ static void poll_task(void *arg)
     s_state = DEV_IDLE;
 
     for (;;) {
+        if (ui_consume_tap() && net_is_connected()) {
+            run_test_ingest();
+            continue;
+        }
         if (!net_is_connected()) {
             ui_set_online(false);
             vTaskDelay(pdMS_TO_TICKS(2000));
