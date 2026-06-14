@@ -10,6 +10,11 @@ int escpos_parse(const uint8_t *data, size_t len, draw_op_t *ops, int max_ops)
     int n = 0;
     size_t i = 0;
 
+    // QR accumulation state (GS ( k cn=49).
+    const uint8_t *qr_data = NULL; int qr_len = 0;
+    int qr_module = 4;     // default module size (dots)
+    uint8_t qr_ecc = 0;    // default ECC = L
+
     #define EMIT(op) do { if (n < max_ops) ops[n++] = (op); } while (0)
 
     while (i < len && n < max_ops) {
@@ -46,7 +51,34 @@ int escpos_parse(const uint8_t *data, size_t len, draw_op_t *ops, int max_ops)
         } else if (b == 0x1D) { // GS ...
             if (i + 1 >= len) break;
             uint8_t c = data[i + 1];
-            if (c == 0x76 && i + 2 < len && data[i + 2] == 0x30) { // GS v 0  raster
+            if (c == 0x28 && i + 2 < len && data[i + 2] == 0x6B) { // GS ( k
+                if (i + 4 >= len) break;
+                int L = data[i + 3] + (data[i + 4] << 8); // bytes following pH (cn fn params)
+                if (i + 5 + (size_t)L > len) { ESP_LOGW(TAG, "GS ( k truncated"); break; }
+                uint8_t cn = data[i + 5];
+                uint8_t fn = (L >= 2) ? data[i + 6] : 0;
+                if (cn == 49) { // QR code
+                    if (fn == 67 && L >= 3) {            // set module size: n
+                        qr_module = data[i + 7];
+                    } else if (fn == 69 && L >= 3) {     // set ECC: 48=L,49=M,50=Q,51=H
+                        uint8_t en = data[i + 7];
+                        qr_ecc = (en >= 48 && en <= 51) ? (uint8_t)(en - 48) : 0;
+                    } else if (fn == 80 && L >= 3) {     // store data: m d1..dk
+                        qr_data = &data[i + 8];          // skip cn fn m
+                        qr_len  = L - 3;
+                    } else if (fn == 81) {               // print
+                        if (qr_data && qr_len > 0) {
+                            EMIT(((draw_op_t){ .kind = OP_QR, .qr = {
+                                .data = (const char *)qr_data, .len = qr_len,
+                                .module_px = qr_module, .ecc = qr_ecc } }));
+                        }
+                    }
+                    // fn==65 (model) and others: accepted, no action.
+                } else {
+                    ESP_LOGW(TAG, "GS ( k cn=%u ignored", cn);
+                }
+                i += 5 + (size_t)L;
+            } else if (c == 0x76 && i + 2 < len && data[i + 2] == 0x30) { // GS v 0  raster
                 if (i + 7 >= len) break;
                 // GS v 0 m xL xH yL yH d1..dk
                 int width_bytes = data[i + 4] + (data[i + 5] << 8);
