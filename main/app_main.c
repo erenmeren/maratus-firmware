@@ -4,6 +4,8 @@
 #include "ui.h"
 #include "net.h"
 #include "state.h"
+#include "escpos_server.h"
+#include "render_job.h"
 
 static const char *TAG = "ditto";
 
@@ -26,4 +28,8 @@ void app_main(void)
     // 4) Start the continuous poll loop + device state machine.
     app_state_run();
     ESP_LOGI(TAG, "entered IDLE; polling");
+
+    // 5) Start the ESC/POS print-job listener on TCP:9100.
+    escpos_server_start(render_job_handle);
+    ESP_LOGI(TAG, "print server up on :9100");
 }
