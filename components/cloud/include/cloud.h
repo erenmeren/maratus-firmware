@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "device_config.h"
 
 // HTTPS client for the Ditto M1 device contract (bearer device-key auth).
 
@@ -19,3 +20,13 @@ int cloud_ack_command(const char *command_id, bool ok);
 // On HTTP 201, copies the returned receipt URL into `url_out` (NUL-terminated,
 // up to url_cap-1). Returns the HTTP status, or -1 on transport/allocation error.
 int cloud_post_receipt(const uint8_t *png, size_t png_len, char *url_out, int url_cap);
+
+// GET /api/device/config with the stored ETag (cfg->etag) as If-None-Match.
+//  - 200: parses brand colors + idle text objects into *cfg (cfg->valid = true,
+//         cfg->etag updated) and persists raw JSON + ETag to NVS. Returns 200.
+//  - 304: leaves *cfg unchanged. Returns 304.
+//  - else: returns the HTTP status or -1.
+int cloud_get_config(device_config_t *cfg);
+
+// Load the last config persisted in NVS into *cfg (cfg->valid = false if none).
+void cloud_config_load_cached(device_config_t *cfg);
