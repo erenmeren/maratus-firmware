@@ -6,6 +6,7 @@
 #include "esp_heap_caps.h"
 #include "qrcodegen.h"
 #include "font8x8_basic.h"
+#include "barcode.h"
 
 static const char *TAG = "render";
 
@@ -133,6 +134,42 @@ static void line_putc(canvas_t *c, line_t *ln, align_t align, uint8_t ch, int sx
     }
 }
 
+// ---- Code128 barcode (bars + HRI digits) ----
+#define BC_QUIET 10          // quiet-zone modules each side
+#define BC_MAX_MODULES 1200
+
+static void render_barcode(canvas_t *c, align_t align, const draw_op_t *op)
+{
+    static unsigned char bits[BC_MAX_MODULES];
+    int m = code128b_encode(op->barcode.data, op->barcode.len, bits, BC_MAX_MODULES);
+    if (m <= 0) { ESP_LOGW(TAG, "barcode encode failed"); return; }
+
+    int mw = op->barcode.module_w < 2 ? 2 : (op->barcode.module_w > 6 ? 6 : op->barcode.module_w);
+    int bh = op->barcode.height < 16 ? 16 : (op->barcode.height > 400 ? 400 : op->barcode.height);
+    int total_w = (m + 2 * BC_QUIET) * mw;
+    int hri_h = op->barcode.hri ? (GLYPH_H + 4) : 0;
+    if (!canvas_ensure(c, bh + hri_h)) return;
+
+    int x = x_offset(align, total_w, c->W) + BC_QUIET * mw;
+    for (int k = 0; k < m; k++) {
+        if (bits[k])
+            for (int dx = 0; dx < mw; dx++)
+                for (int y = 0; y < bh; y++)
+                    canvas_set(c, x + dx, c->cur_y + y, 0x00);
+        x += mw;
+    }
+
+    if (op->barcode.hri) {
+        int text_w = op->barcode.len * GLYPH_W;
+        int tx = (text_w < total_w)
+               ? x_offset(align, total_w, c->W) + (total_w - text_w) / 2
+               : x_offset(align, text_w, c->W);
+        for (int k = 0; k < op->barcode.len; k++)
+            blit_glyph(c, tx + k * GLYPH_W, c->cur_y + bh + 2, (uint8_t)op->barcode.data[k], 1, 1, false);
+    }
+    c->cur_y += bh + hri_h;
+}
+
 bool render_ops_to_png(const draw_op_t *ops, int n_ops,
                        uint8_t **png_out, size_t *png_len, int *out_w, int *out_h)
 {
@@ -151,6 +188,9 @@ bool render_ops_to_png(const draw_op_t *ops, int n_ops,
                 line_putc(&c, &ln, align, (uint8_t)op->text.text[k], sx, sy, op->text.bold);
         } else if (op->kind == OP_LINE_BREAK) {
             flush_line(&c, &ln, align);
+        } else if (op->kind == OP_BARCODE) {
+            flush_line(&c, &ln, align);
+            render_barcode(&c, align, op);
         } else if (op->kind == OP_FEED) {
             flush_line(&c, &ln, align);
             if (canvas_ensure(&c, op->feed.dots)) c.cur_y += op->feed.dots;
