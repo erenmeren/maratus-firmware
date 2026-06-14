@@ -46,16 +46,19 @@ void app_main(void)
     cloud_config_load_cached(&g_cfg);
     if (g_cfg.valid) ui_render_idle(&g_cfg);
 
-    // 3) Connect to Wi-Fi via the C6 radio.
+    // 3-5) Networking — TEMPORARILY DISABLED for display bring-up.
+    // esp_hosted defaults to the SPI transport (its Kconfig selects SPI unless a
+    // P4 dev-board with SDIO is chosen — this board is NONE), but the C6 here is
+    // wired for SDIO, so net_start() -> esp_wifi_init -> esp_hosted asserts in
+    // spi_drv.c ("mempool create failed: no mem") and reboot-loops. Re-enable
+    // once esp_hosted is configured for SDIO with the board's pin map.
+#if 0
     net_start();
     ESP_LOGI(TAG, "Wi-Fi connected=%d", net_is_connected());
-
-    // 4) Start the continuous poll loop + device state machine.
     app_state_run();
     cloud_set_config_changed_cb(app_state_request_config);
-    ESP_LOGI(TAG, "entered IDLE; polling");
-
-    // 5) Start the ESC/POS print-job listener on TCP:9100.
     escpos_server_start(render_job_handle);
     ESP_LOGI(TAG, "print server up on :9100");
+#endif
+    ESP_LOGI(TAG, "display bring-up mode (networking deferred: esp_hosted SDIO)");
 }
