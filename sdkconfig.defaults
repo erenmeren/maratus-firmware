@@ -42,3 +42,9 @@ CONFIG_LV_FONT_MONTSERRAT_36=y
 # --- append from docs/bsp-notes.md (Task 1): PSRAM mode/speed, the C6 Wi-Fi
 #     transport (esp_wifi_remote / esp-hosted) options, and the MIPI-DSI display
 #     options that the Waveshare demo's sdkconfig enables. ---
+# IDF 5.4 -> 5.5 migration: the 5.5 bootloader grew to 0x60c0 bytes, which
+# exceeds the 0x6000 (24KB) gap between BOOTLOADER_OFFSET_IN_FLASH (0x2000) and
+# the default partition-table offset (0x8000). Move the partition table to
+# 0xA000 so the bootloader has 0x8000 (32KB) of room. Safe: secure boot and
+# flash encryption are both disabled.
+CONFIG_PARTITION_TABLE_OFFSET=0xA000
