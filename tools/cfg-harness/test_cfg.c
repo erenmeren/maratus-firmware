@@ -53,8 +53,49 @@ static void test_parse(void) {
     printf("test_parse OK\n");
 }
 
+static void test_geom(void) {
+    assert(geom_frac_to_px(0.0f) == 0);
+    assert(geom_frac_to_px(1.0f) == 720);
+    assert(geom_frac_to_px(0.5f) == 360);
+    assert(geom_frac_to_px(-1.0f) == 0);     // clamp low
+    assert(geom_frac_to_px(2.0f) == 720);    // clamp high
+
+    cfg_object_t o = { .x = 0.1f, .y = 0.2f, .w = 0.8f, .h = 0.15f };
+    px_box_t b = geom_box(&o);
+    assert(b.x == 72 && b.y == 144 && b.w == 576 && b.h == 108);
+    printf("test_geom OK\n");
+}
+
+static void test_zsort(void) {
+    cfg_object_t objs[3];
+    memset(objs, 0, sizeof(objs));
+    objs[0].z = 5; objs[1].z = 1; objs[2].z = 5;   // ties keep input order
+    int order[3];
+    cfg_sort_by_z(objs, 3, order);
+    assert(order[0] == 1);   // z=1 first
+    assert(order[1] == 0);   // z=5, input index 0 before...
+    assert(order[2] == 2);   // ...z=5, input index 2 (stable)
+    printf("test_zsort OK\n");
+}
+
+static void test_map(void) {
+    assert(screen_for_state(DEV_IDLE)       == SCREEN_IDLE);
+    assert(screen_for_state(DEV_PROCESSING) == SCREEN_PROCESSING);
+    assert(screen_for_state(DEV_UPLOADING)  == SCREEN_PROCESSING);   // shares processing
+    assert(screen_for_state(DEV_QR)         == SCREEN_QR);
+    assert(screen_for_state(DEV_SENT)       == SCREEN_SENT);
+    assert(screen_for_state(DEV_ERROR)      == SCREEN_ERROR);
+    assert(screen_for_state(DEV_PAUSED)     == SCREEN_PAUSED);
+    assert(screen_for_state(DEV_SETUP)      == SCREEN_SETUP);
+    assert(screen_for_state(DEV_BOOT)       == SCREEN_IDLE);         // boot fallback
+    printf("test_map OK\n");
+}
+
 int main(void) {
     test_parse();
+    test_geom();
+    test_zsort();
+    test_map();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
