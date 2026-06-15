@@ -77,6 +77,7 @@ static void render_placeholder(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg
 }
 
 static lv_obj_t *build_splash(void) {
+    font_cache_begin_pass();
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, lv_color_hex(DITTO_GREEN), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
@@ -91,6 +92,7 @@ static lv_obj_t *build_splash(void) {
 }
 
 static lv_obj_t *build_screen(dev_screen_t screen) {
+    font_cache_begin_pass();
     if (!s_cfg || !s_cfg->valid) return build_splash();
     const cfg_screen_t *sc = &s_cfg->screens[screen];
 
@@ -130,6 +132,7 @@ void ui_set_config(const device_config_t *cfg) { s_cfg = cfg; }
 void ui_render_state(dev_state_t st) {
     dev_screen_t screen = screen_for_state(st);
     lvgl_port_lock(0);
+    s_status_dot = NULL;   // cleared each render; build_screen reinstalls it, splash leaves it NULL
     lv_obj_t *scr = (st == DEV_BOOT) ? build_splash() : build_screen(screen);
     lv_obj_t *old = s_active;
     s_active = scr;
@@ -145,13 +148,13 @@ void ui_set_qr_url(const char *url) {
 }
 
 void ui_set_online(bool online) {
+    lvgl_port_lock(0);
     s_online = online;
     if (s_status_dot) {
-        lvgl_port_lock(0);
         lv_obj_set_style_bg_color(s_status_dot,
             lv_color_hex(online ? DITTO_ONLINE : DITTO_GREY), LV_PART_MAIN);
-        lvgl_port_unlock();
     }
+    lvgl_port_unlock();
 }
 
 bool ui_consume_tap(void) {
