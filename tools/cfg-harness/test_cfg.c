@@ -40,7 +40,7 @@ static void test_parse(void) {
     assert(idle->objects[0].type == OBJ_TEXT);
     assert(strcmp(idle->objects[0].text, "Welcome") == 0);
     assert(idle->objects[0].font_size == 64);
-    assert(idle->objects[0].align == ALIGN_CENTER);
+    assert(idle->objects[0].align == CFG_ALIGN_CENTER);
 
     // qr: a qr widget + a text.
     cfg_screen_t *qr = &cfg.screens[SCREEN_QR];
