@@ -24,7 +24,7 @@ void app_state_request_config(void) { s_config_dirty = true; }
 // Replaced by the live ESC/POS render path in M4.
 static void run_test_ingest(void)
 {
-    ui_show(UI_SCREEN_PROCESSING);
+    ui_render_state(DEV_PROCESSING);
     s_state = DEV_PROCESSING;
 
     size_t len = 0;
@@ -35,11 +35,11 @@ static void run_test_ingest(void)
     if (status == 201 && url[0]) {
         ESP_LOGI(TAG, "receipt ready: %s", url);
         s_state = DEV_QR;
-        ui_show_qr(url);
+        ui_set_qr_url(url); ui_render_state(DEV_QR);
     } else {
         ESP_LOGW(TAG, "ingest failed (status=%d)", status);
         s_state = DEV_IDLE;
-        ui_show(UI_SCREEN_IDLE);
+        ui_render_state(DEV_IDLE);
     }
 }
 
@@ -66,7 +66,10 @@ static void poll_task(void *arg)
             if (s_config_dirty) {
                 s_config_dirty = false;
                 int cs = cloud_get_config(&s_cfg);   // s_cfg keeps the ETag between calls
-                if (cs == 200 && s_cfg.valid) ui_render_idle(&s_cfg);
+                if (cs == 200 && s_cfg.valid) {
+                    ui_set_config(&s_cfg);
+                    ui_render_state(s_state);        // re-render current screen with new config
+                }
             }
             backoff = POLL_BACKOFF_MIN;
             vTaskDelay(pdMS_TO_TICKS(POLL_IDLE_MS));
@@ -82,5 +85,6 @@ static void poll_task(void *arg)
 void app_state_run(void)
 {
     cloud_config_load_cached(&s_cfg);   // seed ETag so the first fetch can 304
+    ui_set_config(&s_cfg);
     xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, NULL);
 }

@@ -22,7 +22,7 @@ typedef enum {
     OBJ_UNKNOWN
 } cfg_obj_type_t;
 
-typedef enum { ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT } cfg_align_t;
+typedef enum { CFG_ALIGN_LEFT, CFG_ALIGN_CENTER, CFG_ALIGN_RIGHT } cfg_align_t;
 typedef enum { ICON_PRESET, ICON_UPLOAD } cfg_icon_src_t;
 typedef enum { TINT_ACCENT, TINT_MUTED, TINT_WARN, TINT_NONE } cfg_tint_t;
 

@@ -1,5 +1,5 @@
 #include "font_cache.h"
-#include "lv_tiny_ttf.h"
+#include "src/libs/tiny_ttf/lv_tiny_ttf.h"
 
 #define FONT_CACHE_MAX 8
 
@@ -16,7 +16,8 @@ void font_cache_init(const void *ttf, size_t len) {
 }
 
 const lv_font_t *font_cache_get(int px) {
-    if (px < 8) px = 8; if (px > 160) px = 160;
+    if (px < 8) px = 8;
+    if (px > 160) px = 160;
     s_tick++;
     int free_i = -1, lru_i = 0;
     for (int i = 0; i < FONT_CACHE_MAX; i++) {

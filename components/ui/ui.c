@@ -21,8 +21,8 @@ static volatile bool s_tap_requested;
 static void on_screen_click(lv_event_t *e) { (void)e; s_tap_requested = true; }
 
 static lv_text_align_t lv_align_of(cfg_align_t a) {
-    if (a == ALIGN_CENTER) return LV_TEXT_ALIGN_CENTER;
-    if (a == ALIGN_RIGHT)  return LV_TEXT_ALIGN_RIGHT;
+    if (a == CFG_ALIGN_CENTER) return LV_TEXT_ALIGN_CENTER;
+    if (a == CFG_ALIGN_RIGHT)  return LV_TEXT_ALIGN_RIGHT;
     return LV_TEXT_ALIGN_LEFT;
 }
 

@@ -27,9 +27,9 @@ static uint32_t parse_hex_color(const char *s, uint32_t dflt) {
 }
 
 static cfg_align_t align_of(const char *s) {
-    if (s && strcmp(s, "center") == 0) return ALIGN_CENTER;
-    if (s && strcmp(s, "right")  == 0) return ALIGN_RIGHT;
-    return ALIGN_LEFT;
+    if (s && strcmp(s, "center") == 0) return CFG_ALIGN_CENTER;
+    if (s && strcmp(s, "right")  == 0) return CFG_ALIGN_RIGHT;
+    return CFG_ALIGN_LEFT;
 }
 
 static cfg_obj_type_t type_of(const char *s) {

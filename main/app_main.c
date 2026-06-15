@@ -38,13 +38,13 @@ void app_main(void)
 
     // 2) Build + show the idle screen (ui takes the LVGL lock internally).
     ui_init();
-    ui_show(UI_SCREEN_IDLE);
-    ESP_LOGI(TAG, "Idle screen shown");
 
-    // 2b) Render any cached config immediately (before Wi-Fi).
+    // 2b) Render any cached config immediately (before Wi-Fi); else built-in splash.
     static device_config_t g_cfg;
     cloud_config_load_cached(&g_cfg);
-    if (g_cfg.valid) ui_render_idle(&g_cfg);
+    ui_set_config(&g_cfg);
+    ui_render_state(g_cfg.valid ? DEV_IDLE : DEV_BOOT);
+    ESP_LOGI(TAG, "initial screen shown (valid_cfg=%d)", g_cfg.valid);
 
     // 3) Connect to Wi-Fi via the C6 (SDIO/esp-hosted).
     net_start();
