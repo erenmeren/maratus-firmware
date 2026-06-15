@@ -57,17 +57,25 @@ CONFIG_PARTITION_TABLE_OFFSET=0xA000
 CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
 CONFIG_ESP32P4_REV_MIN_100=y
 
-# IDF 5.5 / esp_hosted SDIO: the host-side SDIO transport mempool is allocated
-# from DMA-capable memory. By default that's INTERNAL DMA RAM, which the MIPI-DSI
-# display + LVGL buffers have already exhausted on this board -> esp_hosted
-# asserts at boot ("HS_MP: mempool create failed: no mem", sdio_drv.c:255) and
-# reboot-loops. The ESP32-P4 GDMA can reach PSRAM through cache, so route the
-# transport buffers to DMA-capable SPIRAM (falls back to internal on failure).
-CONFIG_ESP_HOSTED_MEMPOOL_PREFER_SPIRAM=y
-
-# SDIO data path: at the 40MHz P4 max, the C6 link inits + associates fine but
-# the first sustained data traffic (DHCP/cloud poll) hits a write timeout
-# ("H_SDIO_DRV: Failed to send data: 258" = ESP_ERR_TIMEOUT -> "Unrecoverable
-# host sdio state" -> host self-restart loop). Drop to 20MHz for signal-integrity
-# margin on this board's routing; revisit 40MHz only if throughput demands it.
-CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ=20000
+# IDF 5.5 / esp_hosted SDIO memory + stability (root cause + fix, validated on HW):
+#
+# The host-side SDIO transport mempool MUST live in INTERNAL DMA RAM. When it is
+# routed to PSRAM, the link inits + associates + does ONE data exchange, then the
+# host CMD53 write to the C6 times out the moment the radio passes sustained
+# traffic ("H_SDIO_DRV: Failed to send data: 258" = ESP_ERR_TIMEOUT ->
+# "Unrecoverable host sdio state" -> host self-restart loop). PSRAM-backed DMA is
+# unreliable for SDIO under RF load; internal DMA RAM is solid (proven against the
+# Waveshare brookesia demo + our display-less slave-OTA host, both stable).
+#
+# The catch: the default 48KB mempool (rx_q 20 + 11 min) * 1536B) does NOT fit in
+# the internal DMA RAM left after our MIPI-DSI + LVGL static footprint -> boot
+# assert "HS_MP: mempool create failed: no mem". Fix = shrink the SDIO queues so
+# the ~26KB pool (rx_q 6 + 11) * 1536B) fits internally. Our traffic is light
+# (JSON polling + occasional receipt upload), so small queues cost nothing.
+# Do NOT re-enable MEMPOOL_PREFER_SPIRAM — it boots but reboot-loops under Wi-Fi.
+CONFIG_ESP_HOSTED_SDIO_TX_Q_SIZE=6
+CONFIG_ESP_HOSTED_SDIO_RX_Q_SIZE=6
+# Keep esp_hosted/SDIO-critical task stacks in internal RAM too (match brookesia).
+# CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM is not set
+# SDIO clock left at the IDF default 40MHz (the P4 max); 20MHz did not affect the
+# timeout — it was a memory-placement issue, not signal integrity.
