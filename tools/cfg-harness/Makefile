@@ -14,5 +14,6 @@ test: run
 
 clean:
 	rm -f run
+	rm -rf run.dSYM
 
 .PHONY: test clean

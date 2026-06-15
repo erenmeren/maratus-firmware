@@ -9,7 +9,12 @@ static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
     assert(f && "fixture not found");
     fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
-    char *b = malloc(n + 1); fread(b, 1, n, f); b[n] = '\0'; fclose(f);
+    char *b = malloc((size_t)n + 1);
+    assert(b && "malloc failed");
+    size_t rd = fread(b, 1, (size_t)n, f);
+    assert(rd == (size_t)n && "fread short");
+    b[n] = '\0';
+    fclose(f);
     return b;
 }
 

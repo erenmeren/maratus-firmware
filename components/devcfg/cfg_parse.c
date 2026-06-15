@@ -5,10 +5,14 @@
 static const char *SCREEN_NAMES[SCREEN_COUNT] = {
     "idle", "processing", "qr", "sent", "error", "paused", "setup"
 };
+_Static_assert(
+    sizeof(SCREEN_NAMES) / sizeof(SCREEN_NAMES[0]) == SCREEN_COUNT,
+    "SCREEN_NAMES must match dev_screen_t");
 
 static uint32_t parse_hex_color(const char *s, uint32_t dflt) {
     if (!s) return dflt;
     if (*s == '#') s++;
+    // Accept exactly 6 hex digits; any suffix (e.g. 8-char RGBA) is ignored.
     if (strlen(s) < 6) return dflt;
     uint32_t v = 0;
     for (int i = 0; i < 6; i++) {
@@ -56,6 +60,7 @@ static float fnum(cJSON *o, const char *k) {
 }
 
 static void copy_str(char *dst, size_t cap, const char *src) {
+    if (cap == 0) return;
     if (!src) { dst[0] = '\0'; return; }
     strncpy(dst, src, cap - 1); dst[cap - 1] = '\0';
 }
@@ -106,8 +111,9 @@ static void parse_screen(cJSON *objs, cfg_screen_t *out) {
 }
 
 bool cfg_parse_json(const char *json, device_config_t *cfg) {
+    memset(cfg, 0, sizeof(*cfg));   // safe defaults; valid stays false until we finish
     cJSON *root = cJSON_Parse(json);
-    if (!root) { cfg->valid = false; return false; }
+    if (!root) return false;
 
     const char *ver = cJSON_GetStringValue(cJSON_GetObjectItem(root, "version"));
     copy_str(cfg->etag, sizeof(cfg->etag), ver);
@@ -125,6 +131,8 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
     cfg->clock_24h = config ? cJSON_IsTrue(cJSON_GetObjectItem(config, "clock24h")) : false;
     cJSON *wl = config ? cJSON_GetObjectItem(config, "wifiLevel") : NULL;
     cfg->wifi_level = cJSON_IsNumber(wl) ? (int)wl->valuedouble : 0;
+    if (cfg->wifi_level < 0) cfg->wifi_level = 0;
+    if (cfg->wifi_level > 4) cfg->wifi_level = 4;
 
     cJSON *screens = config ? cJSON_GetObjectItem(config, "screens") : NULL;
     for (int i = 0; i < SCREEN_COUNT; i++) {

@@ -5,3 +5,5 @@ managed_components/
 dependencies.lock
 *.bin
 .DS_Store
+tools/cfg-harness/run
+tools/cfg-harness/run.dSYM/
