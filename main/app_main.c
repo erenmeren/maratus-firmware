@@ -12,8 +12,33 @@
 #include "cloud.h"
 #include "device_config.h"
 #include "esp_heap_caps.h"
+#include "esp_littlefs.h"
 
 static const char *TAG = "ditto";
+
+// Mount the on-flash asset cache (the `assets` LittleFS partition) at /assets.
+// Failure is non-fatal: the rest of boot continues, asset_cache_get just misses.
+static void assets_fs_mount(void)
+{
+    esp_vfs_littlefs_conf_t conf = {
+        .base_path = "/assets",
+        .partition_label = "assets",
+        .format_if_mount_failed = true,
+        .dont_mount = false,
+    };
+    esp_err_t err = esp_vfs_littlefs_register(&conf);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "assets LittleFS mount failed: %s", esp_err_to_name(err));
+        return;
+    }
+    size_t total = 0, used = 0;
+    if (esp_littlefs_info("assets", &total, &used) == ESP_OK) {
+        ESP_LOGI(TAG, "assets LittleFS mounted at /assets (%u/%u bytes used)",
+                 (unsigned)used, (unsigned)total);
+    } else {
+        ESP_LOGI(TAG, "assets LittleFS mounted at /assets");
+    }
+}
 
 void app_main(void)
 {
@@ -57,6 +82,9 @@ void app_main(void)
     // 3) Connect to Wi-Fi via the C6 (SDIO/esp-hosted).
     net_start();
     ESP_LOGI(TAG, "Wi-Fi connected=%d", net_is_connected());
+
+    // 3b) Mount the on-flash asset-cache filesystem (non-fatal on failure).
+    assets_fs_mount();
 
     // 4) Continuous poll loop + device state machine.
     app_state_run();

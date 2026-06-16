@@ -169,6 +169,77 @@ int cloud_post_receipt(const uint8_t *png, size_t png_len, char *url_out, int ur
     return status;
 }
 
+// ---- raw asset fetch (presigned absolute URL → PSRAM buffer) ----
+
+#define ASSET_MAX_BYTES (256 * 1024)
+
+// Accumulates the response body into a growable PSRAM buffer, capped at
+// ASSET_MAX_BYTES. On overflow it sets cap=-1 (sticky) so the perform aborts logic.
+typedef struct { uint8_t *buf; size_t len; size_t cap; bool overflow; } asset_resp_t;
+
+static esp_err_t on_asset_evt(esp_http_client_event_t *e)
+{
+    if (e->event_id != HTTP_EVENT_ON_DATA) return ESP_OK;
+    asset_resp_t *r = (asset_resp_t *)e->user_data;
+    if (!r || r->overflow) return ESP_OK;
+    if (r->len + (size_t)e->data_len > ASSET_MAX_BYTES) { r->overflow = true; return ESP_OK; }
+    // Grow geometrically (start 16 KB) to avoid per-chunk reallocs.
+    if (r->len + (size_t)e->data_len > r->cap) {
+        size_t ncap = r->cap ? r->cap : 16 * 1024;
+        while (ncap < r->len + (size_t)e->data_len) ncap *= 2;
+        if (ncap > ASSET_MAX_BYTES) ncap = ASSET_MAX_BYTES;
+        uint8_t *nb = heap_caps_realloc(r->buf, ncap, MALLOC_CAP_SPIRAM);
+        if (!nb) { r->overflow = true; return ESP_OK; }
+        r->buf = nb; r->cap = ncap;
+    }
+    memcpy(r->buf + r->len, e->data, e->data_len);
+    r->len += e->data_len;
+    return ESP_OK;
+}
+
+esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len)
+{
+    if (!url || !out || !out_len) return ESP_ERR_INVALID_ARG;
+    *out = NULL;
+    *out_len = 0;
+
+    asset_resp_t resp = { 0 };
+
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .method = HTTP_METHOD_GET,
+        .event_handler = on_asset_evt,
+        .user_data = &resp,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .timeout_ms = 15000,
+    };
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    if (!c) return ESP_FAIL;
+
+    esp_err_t ret = ESP_FAIL;
+    esp_err_t err = esp_http_client_perform(c);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "asset GET failed: %s", esp_err_to_name(err));
+    } else if (resp.overflow) {
+        ESP_LOGE(TAG, "asset too large (> %d bytes)", ASSET_MAX_BYTES);
+    } else {
+        int status = esp_http_client_get_status_code(c);
+        if (status == 200 && resp.buf && resp.len > 0) {
+            ESP_LOGI(TAG, "asset GET -> 200, %u bytes", (unsigned)resp.len);
+            *out = resp.buf;
+            *out_len = resp.len;
+            resp.buf = NULL;   // ownership transferred to caller
+            ret = ESP_OK;
+        } else {
+            ESP_LOGE(TAG, "asset GET -> %d (len %u)", status, (unsigned)resp.len);
+        }
+    }
+
+    esp_http_client_cleanup(c);
+    if (resp.buf) heap_caps_free(resp.buf);
+    return ret;
+}
+
 // ---- device config (GET /api/device/config) ----
 
 #define CFG_NVS_NS "ditto"

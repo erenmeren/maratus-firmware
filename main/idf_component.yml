@@ -23,6 +23,9 @@ dependencies:
   idf: ">=5.4"
   lvgl/lvgl: "~9.3.0"
   espressif/esp_lvgl_port: "*"
+  # esp_littlefs: on-flash asset cache filesystem (the `assets` partition,
+  # mounted at /assets in app_main; see components/assetcache).
+  joltwallet/littlefs: "^1.14"
   # esp_wifi_remote 0.x — the line the Waveshare brookesia (display+Wi-Fi) demo uses;
   # it pulls a compatible esp_hosted and avoids the 1.6.x WIFI_RMT Kconfig breakage.
   espressif/esp_wifi_remote: "0.*"
