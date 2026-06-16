@@ -7,7 +7,8 @@
 #define CFG_TEXT_LEN    80    // matches MAX_TEXT_LEN in ditto-admin printer-layout
 #define CFG_PRESET_LEN  24
 #define CFG_TZ_LEN      64
-#define CFG_URL_LEN     256
+#define CFG_URL_LEN     768   // must hold a full presigned R2 URL (~500 chars + headroom);
+                              // config lives in PSRAM so the per-object cost is fine
 
 // Mirrors PRINTER_SCREENS in ditto-admin. Order is the array index — do not reorder.
 typedef enum {
