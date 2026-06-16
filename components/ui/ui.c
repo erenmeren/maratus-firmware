@@ -1,11 +1,14 @@
 #include "ui.h"
 #include <string.h>
 #include "lvgl.h"
+#include "draw/lv_draw_buf_private.h"   // lv_draw_buf_handlers_t fields (swap image alloc → PSRAM)
 #include "esp_lvgl_port.h"
+#include "esp_heap_caps.h"
 #include "device_config.h"
 #include "render_geom.h"
 #include "font_cache.h"
 #include "assets.h"
+#include "asset_cache.h"
 
 #define DITTO_GREEN   0x10A765
 #define DITTO_ONLINE  0x37C871
@@ -19,6 +22,37 @@ static bool       s_online;
 static volatile bool s_tap_requested;
 
 static void on_screen_click(lv_event_t *e) { (void)e; s_tap_requested = true; }
+
+// --- PNG image decode → PSRAM ---------------------------------------------
+// LVGL's lodepng decoder allocates the decoded ARGB8888 bitmap through the image
+// draw-buf handlers (LV_GLOBAL_DEFAULT()->image_cache_draw_buf_handlers). We route
+// those allocations to PSRAM: a 720-reference logo can be ~hundreds of KB and
+// internal DRAM is reserved for Wi-Fi/SDIO/TLS (see the M5a TLS fix). Installed
+// once in ui_init under the LVGL lock; the align/stride/cache callbacks keep their
+// defaults. (Image cache is disabled — CONFIG_LV_CACHE_DEF_SIZE=0 — so each draw
+// decodes then frees this buffer; nothing lingers in PSRAM between draws.)
+static void *img_psram_malloc(size_t size, lv_color_format_t cf)
+{
+    (void)cf;
+    return heap_caps_malloc(size + LV_DRAW_BUF_ALIGN - 1, MALLOC_CAP_SPIRAM);
+}
+static void img_psram_free(void *buf) { heap_caps_free(buf); }
+
+// Source bytes for one rendered image, freed when the lv_image object is deleted.
+// We keep the encoded PNG + descriptor alive for the object's lifetime because the
+// (uncached) decoder re-reads them on every redraw via the dsc src pointer.
+typedef struct {
+    lv_image_dsc_t dsc;
+    uint8_t       *png;   // heap_caps PSRAM, owned here
+} img_src_t;
+
+static void on_image_delete(lv_event_t *e)
+{
+    img_src_t *s = (img_src_t *)lv_event_get_user_data(e);
+    if (!s) return;
+    heap_caps_free(s->png);
+    heap_caps_free(s);
+}
 
 static lv_text_align_t lv_align_of(cfg_align_t a) {
     if (a == CFG_ALIGN_CENTER) return LV_TEXT_ALIGN_CENTER;
@@ -76,6 +110,50 @@ static void render_placeholder(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg
     lv_obj_clear_flag(ph, LV_OBJ_FLAG_SCROLLABLE);
 }
 
+// Uploaded logo/icon images. URL comes from the top-level logo_url (OBJ_LOGO) or
+// the object's icon_url (OBJ_ICON + ICON_UPLOAD). Render-thread safe: reads the
+// asset cache-ONLY (asset_cache_read_cached, never networks) — a not-yet-prefetched
+// or offline asset misses and falls back to the placeholder outline rather than
+// blocking. On a hit, the cached PNG is wrapped as an in-memory LVGL image source;
+// lodepng decodes it into PSRAM at draw time. Fit inside the geom box preserving
+// aspect (LV_IMAGE_ALIGN_CONTAIN); icons with icon_circle get a circular clip.
+static void render_image(lv_obj_t *scr, const cfg_object_t *o) {
+    const char *url = (o->type == OBJ_LOGO) ? s_cfg->logo_url : o->icon_url;
+    if (!url || url[0] == '\0') { render_placeholder(scr, o, s_cfg->brand_fg); return; }
+
+    uint8_t *png = NULL;
+    size_t   png_len = 0;
+    if (asset_cache_read_cached(url, &png, &png_len) != ESP_OK || png_len < 8) {
+        if (png) heap_caps_free(png);
+        render_placeholder(scr, o, s_cfg->brand_fg);   // not cached yet → outline
+        return;
+    }
+
+    img_src_t *s = heap_caps_malloc(sizeof(img_src_t), MALLOC_CAP_SPIRAM);
+    if (!s) { heap_caps_free(png); render_placeholder(scr, o, s_cfg->brand_fg); return; }
+    memset(s, 0, sizeof(*s));
+    s->png = png;
+    // Variable (in-memory) image source: data points at the encoded PNG bytes;
+    // the lodepng decoder reads dims from the PNG header and decodes on draw.
+    // header.magic keeps the first byte < 0x20 so LVGL treats this as a variable
+    // source (not a file path / symbol).
+    s->dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+    s->dsc.data         = png;
+    s->dsc.data_size    = png_len;
+
+    px_box_t b = geom_box(o);
+    lv_obj_t *img = lv_image_create(scr);
+    lv_obj_set_pos(img, b.x, b.y);
+    lv_obj_set_size(img, b.w > 0 ? b.w : 40, b.h > 0 ? b.h : 40);
+    lv_image_set_inner_align(img, LV_IMAGE_ALIGN_CONTAIN);   // fit inside, keep aspect
+    if (o->type == OBJ_ICON && o->icon_circle) {
+        lv_obj_set_style_radius(img, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+        lv_obj_set_style_clip_corner(img, true, LV_PART_MAIN);
+    }
+    lv_obj_add_event_cb(img, on_image_delete, LV_EVENT_DELETE, s);
+    lv_image_set_src(img, &s->dsc);   // last: triggers decode-info while src lives
+}
+
 static lv_obj_t *build_splash(void) {
     font_cache_begin_pass();
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -110,6 +188,11 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
         switch (o->type) {
             case OBJ_TEXT: render_text(scr, o, s_cfg->brand_fg); break;
             case OBJ_QR:   render_qr(scr, o); break;
+            case OBJ_LOGO: render_image(scr, o); break;
+            case OBJ_ICON:
+                if (o->icon_src == ICON_UPLOAD) render_image(scr, o);
+                else render_placeholder(scr, o, s_cfg->brand_fg);  // preset sprites: M5c
+                break;
             default:       render_placeholder(scr, o, s_cfg->brand_fg); break;  // M5b/M5c
         }
     }
@@ -122,6 +205,11 @@ void ui_init(void) {
     const uint8_t *ttf = assets_font(&flen);
     lvgl_port_lock(0);
     font_cache_init(ttf, flen);
+    // Route decoded image bitmaps (lodepng output) to PSRAM. The widget/font
+    // handlers are untouched.
+    lv_draw_buf_handlers_t *ih = lv_draw_buf_get_image_handlers();
+    ih->buf_malloc_cb = img_psram_malloc;
+    ih->buf_free_cb   = img_psram_free;
     s_active = build_splash();
     lv_screen_load(s_active);
     lvgl_port_unlock();

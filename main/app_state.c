@@ -8,6 +8,8 @@
 #include "ui.h"
 #include "assets.h"
 #include "device_config.h"
+#include "asset_cache.h"
+#include "asset_key.h"
 #include "esp_heap_caps.h"
 
 static const char *TAG = "state";
@@ -48,6 +50,53 @@ static void run_test_ingest(void)
     }
 }
 
+// Most configs reference only a logo + a handful of uploaded icons; cap well
+// under CFG_MAX_OBJECTS * SCREEN_COUNT to bound stack use in the prefetch frame.
+#define MAX_ASSET_REFS 16
+
+// Collect the uploaded-image asset URLs a config references: the top-level
+// logo_url, plus every visible OBJ_ICON with icon_src==ICON_UPLOAD across all
+// screens. urls[] alias into cfg (no copy). Returns the count (<= cap).
+static int gather_asset_urls(const device_config_t *cfg, const char *urls[], int cap)
+{
+    int n = 0;
+    if (cfg->logo_url[0] && n < cap) urls[n++] = cfg->logo_url;
+    for (int s = 0; s < SCREEN_COUNT && n < cap; s++) {
+        const cfg_screen_t *sc = &cfg->screens[s];
+        for (int i = 0; i < sc->n && n < cap; i++) {
+            const cfg_object_t *o = &sc->objects[i];
+            if (o->type == OBJ_ICON && o->icon_src == ICON_UPLOAD &&
+                o->visible && o->icon_url[0]) {
+                urls[n++] = o->icon_url;
+            }
+        }
+    }
+    return n;
+}
+
+// On config apply (poll task — network OK here): fetch+store every referenced
+// uploaded image so the cache-only render path gets hits, then evict any cached
+// asset the new config no longer references (rebrand cleanup). Individual fetch
+// failures are ignored: offline assets simply stay placeholders on screen.
+static void prefetch_and_evict_assets(const device_config_t *cfg)
+{
+    const char *urls[MAX_ASSET_REFS];
+    int n = gather_asset_urls(cfg, urls, MAX_ASSET_REFS);
+
+    static char keys[MAX_ASSET_REFS][41];
+    const char *key_ptrs[MAX_ASSET_REFS];
+    for (int i = 0; i < n; i++) {
+        uint8_t *buf = NULL;
+        size_t   len = 0;
+        if (asset_cache_get(urls[i], &buf, &len) == ESP_OK) {
+            heap_caps_free(buf);   // we only needed it persisted to flash
+        }
+        asset_key(urls[i], keys[i]);
+        key_ptrs[i] = keys[i];
+    }
+    asset_cache_evict(key_ptrs, n);
+}
+
 static void poll_task(void *arg)
 {
     static char body[1024];
@@ -74,9 +123,10 @@ static void poll_task(void *arg)
                 *s_cfg_buf[next] = *s_cfg_buf[s_cfg_live];   // seed ETag + 304 fallback from the live config
                 int cs = cloud_get_config(s_cfg_buf[next]);  // parses into the idle buffer; renderer never sees it half-written
                 if (cs == 200 && s_cfg_buf[next]->valid) {
+                    prefetch_and_evict_assets(s_cfg_buf[next]);  // fill/prune flash cache before render
                     ui_set_config(s_cfg_buf[next]);     // publish under the LVGL lock (pointer swap)
                     s_cfg_live = next;
-                    ui_render_state(s_state);           // re-render current screen with new config
+                    ui_render_state(s_state);           // re-render current screen with new config (cache hits)
                 }
             }
             backoff = POLL_BACKOFF_MIN;

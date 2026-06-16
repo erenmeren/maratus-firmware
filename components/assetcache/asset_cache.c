@@ -104,6 +104,23 @@ esp_err_t asset_cache_get(const char *url, uint8_t **out, size_t *out_len)
     return ESP_OK;
 }
 
+esp_err_t asset_cache_read_cached(const char *url, uint8_t **out, size_t *out_len)
+{
+    if (!url || !out || !out_len) return ESP_ERR_INVALID_ARG;
+    *out = NULL;
+    *out_len = 0;
+
+    char key[41];
+    asset_key(url, key);
+    if (key[0] == '\0') return ESP_ERR_INVALID_ARG;
+
+    char path[PATH_MAX_LEN];
+    key_path(key, path, 0);
+
+    // Flash only — no cloud_fetch_asset fallback. Miss => ESP_ERR_NOT_FOUND.
+    return read_file(path, out, out_len);
+}
+
 // Is `key` present in referenced[0..n)?
 static int is_referenced(const char *key, const char *const *referenced, int n)
 {
