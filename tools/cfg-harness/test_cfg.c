@@ -4,6 +4,8 @@
 #include <assert.h>
 #include "cfg_parse.h"
 #include "render_geom.h"
+#include "asset_key.h"
+#include "asset_evict.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -91,11 +93,106 @@ static void test_map(void) {
     printf("test_map OK\n");
 }
 
+static void test_asset_key(void) {
+    // Presigned R2 URLs for the same object differ ONLY in the query string
+    // (X-Amz-*). Stripping the query yields an identical, stable key.
+    char k1[41], k2[41];
+    asset_key("https://r2.example.com/branding/org_1/logo.png"
+              "?X-Amz-Signature=aaaa&X-Amz-Date=20260616T000000Z", k1);
+    asset_key("https://r2.example.com/branding/org_1/logo.png"
+              "?X-Amz-Signature=bbbb&X-Amz-Date=20260617T120000Z", k2);
+    assert(strcmp(k1, k2) == 0 && "same object -> same key regardless of query");
+    assert(strlen(k1) == 40 && "key is exactly 40 hex chars");
+
+    // A bare URL (no query) hashes the same as the same URL WITH a query.
+    char k3[41];
+    asset_key("https://r2.example.com/branding/org_1/logo.png", k3);
+    assert(strcmp(k1, k3) == 0 && "no-query URL matches query-stripped key");
+
+    // Different paths -> different keys.
+    char ka[41], kb[41];
+    asset_key("https://x.test/a", ka);
+    asset_key("https://x.test/b", kb);
+    assert(strcmp(ka, kb) != 0 && "different paths -> different keys");
+
+    // Known-answer: sha1("https://x.test/a") computed independently.
+    assert(strcmp(ka, "264344770ca8cf985c7e0b079449f649f7c8ba9c") == 0
+           && "stable SHA-1 known-answer");
+
+    // Output is lowercase hex, exactly 40 chars + NUL.
+    assert(strlen(ka) == 40);
+    for (int i = 0; i < 40; i++) {
+        char c = ka[i];
+        assert((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
+    }
+    assert(ka[40] == '\0');
+
+    // A query-only-differing URL where the query contains a '?'-like '/' path
+    // is not confused: only the FIRST '?' splits.
+    char kq1[41], kq2[41];
+    asset_key("https://x.test/a?foo=1", kq1);
+    asset_key("https://x.test/a?bar=2&baz=3", kq2);
+    assert(strcmp(kq1, kq2) == 0 && strcmp(kq1, ka) == 0);
+
+    // NULL and "" -> empty out, no crash.
+    char kn[41]; kn[0] = 'Z';
+    asset_key(NULL, kn);
+    assert(kn[0] == '\0' && "NULL url -> empty key");
+    char ke[41]; ke[0] = 'Z';
+    asset_key("", ke);
+    assert(ke[0] == '\0' && "empty url -> empty key");
+
+    printf("test_asset_key OK\n");
+}
+
+static void test_asset_evict(void) {
+    // on_flash that are NOT referenced should be returned for deletion.
+    const char *flash[] = { "aaa", "bbb", "ccc", "ddd" };
+    const char *ref[]   = { "bbb", "ddd" };
+    const char *out[8];
+
+    int n = asset_evict_list(flash, 4, ref, 2, out, 8);
+    assert(n == 2 && "two unreferenced keys");
+    // Order preserved from on_flash: aaa then ccc.
+    assert(strcmp(out[0], "aaa") == 0);
+    assert(strcmp(out[1], "ccc") == 0);
+    // Returned pointers come from on_flash array.
+    assert(out[0] == flash[0] && out[1] == flash[2]);
+
+    // Empty referenced -> everything is evicted.
+    int all = asset_evict_list(flash, 4, NULL, 0, out, 8);
+    assert(all == 4);
+
+    // All referenced -> nothing evicted.
+    const char *refall[] = { "aaa", "bbb", "ccc", "ddd" };
+    int none = asset_evict_list(flash, 4, refall, 4, out, 8);
+    assert(none == 0);
+
+    // Duplicate on_flash keys: each unreferenced occurrence reported once it is
+    // not in referenced; a referenced dup is kept. Dedup of referenced handled.
+    const char *dupflash[] = { "x", "x", "y" };
+    const char *dupref[]   = { "y", "y" };   // duplicate reference deduped sensibly
+    int dn = asset_evict_list(dupflash, 3, dupref, 2, out, 8);
+    assert(dn == 2 && "both 'x' entries evicted, 'y' kept");
+    assert(strcmp(out[0], "x") == 0 && strcmp(out[1], "x") == 0);
+
+    // max_out clamp respected.
+    int clamped = asset_evict_list(flash, 4, NULL, 0, out, 2);
+    assert(clamped == 2 && "clamped to max_out");
+
+    // Zero-size flash -> nothing.
+    assert(asset_evict_list(NULL, 0, ref, 2, out, 8) == 0);
+
+    printf("test_asset_evict OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
     test_zsort();
     test_map();
+    test_asset_key();
+    test_asset_evict();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
