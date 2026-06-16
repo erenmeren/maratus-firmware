@@ -127,7 +127,11 @@ void ui_init(void) {
     lvgl_port_unlock();
 }
 
-void ui_set_config(const device_config_t *cfg) { s_cfg = cfg; }
+void ui_set_config(const device_config_t *cfg) {
+    lvgl_port_lock(0);
+    s_cfg = cfg;
+    lvgl_port_unlock();
+}
 
 void ui_render_state(dev_state_t st) {
     dev_screen_t screen = screen_for_state(st);
@@ -142,9 +146,14 @@ void ui_render_state(dev_state_t st) {
 }
 
 void ui_set_qr_url(const char *url) {
-    if (!url) { s_qr_url[0] = '\0'; return; }
-    strncpy(s_qr_url, url, sizeof(s_qr_url) - 1);
-    s_qr_url[sizeof(s_qr_url) - 1] = '\0';
+    lvgl_port_lock(0);
+    if (!url) {
+        s_qr_url[0] = '\0';
+    } else {
+        strncpy(s_qr_url, url, sizeof(s_qr_url) - 1);
+        s_qr_url[sizeof(s_qr_url) - 1] = '\0';
+    }
+    lvgl_port_unlock();
 }
 
 void ui_set_online(bool online) {
