@@ -8,10 +8,14 @@
 #include "ui.h"
 #include "assets.h"
 #include "device_config.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "state";
 static dev_state_t s_state = DEV_BOOT;
-static device_config_t s_cfg_buf[2];   // double-buffered: parse into the idle buffer, publish under the LVGL lock
+// Double-buffered config (parse into the idle buffer, publish under the LVGL lock).
+// Each device_config_t is ~67KB, so both live in PSRAM (CPU-read only, no DMA) to
+// keep internal DRAM free for Wi-Fi/SDIO/TLS buffers — allocated in app_state_run().
+static device_config_t *s_cfg_buf[2];
 static int s_cfg_live = 0;             // index of the buffer the renderer currently points at
 static volatile bool s_config_dirty = true;   // fetch once after first connect
 
@@ -67,10 +71,10 @@ static void poll_task(void *arg)
             if (s_config_dirty) {
                 s_config_dirty = false;
                 int next = s_cfg_live ^ 1;
-                s_cfg_buf[next] = s_cfg_buf[s_cfg_live];   // seed ETag + 304 fallback from the live config
-                int cs = cloud_get_config(&s_cfg_buf[next]);   // parses into the idle buffer; renderer never sees it half-written
-                if (cs == 200 && s_cfg_buf[next].valid) {
-                    ui_set_config(&s_cfg_buf[next]);    // publish under the LVGL lock (pointer swap)
+                *s_cfg_buf[next] = *s_cfg_buf[s_cfg_live];   // seed ETag + 304 fallback from the live config
+                int cs = cloud_get_config(s_cfg_buf[next]);  // parses into the idle buffer; renderer never sees it half-written
+                if (cs == 200 && s_cfg_buf[next]->valid) {
+                    ui_set_config(s_cfg_buf[next]);     // publish under the LVGL lock (pointer swap)
                     s_cfg_live = next;
                     ui_render_state(s_state);           // re-render current screen with new config
                 }
@@ -88,7 +92,14 @@ static void poll_task(void *arg)
 
 void app_state_run(void)
 {
-    cloud_config_load_cached(&s_cfg_buf[s_cfg_live]);   // seed ETag so the first fetch can 304
-    ui_set_config(&s_cfg_buf[s_cfg_live]);
+    // Allocate both config buffers in PSRAM (each ~67KB; too big for internal .bss).
+    s_cfg_buf[0] = heap_caps_calloc(1, sizeof(device_config_t), MALLOC_CAP_SPIRAM);
+    s_cfg_buf[1] = heap_caps_calloc(1, sizeof(device_config_t), MALLOC_CAP_SPIRAM);
+    if (!s_cfg_buf[0] || !s_cfg_buf[1]) {
+        ESP_LOGE(TAG, "config buffer PSRAM alloc failed; running without live config");
+        return;   // boot splash/cached config from app_main stays on screen; no poll task
+    }
+    cloud_config_load_cached(s_cfg_buf[s_cfg_live]);   // seed ETag so the first fetch can 304
+    ui_set_config(s_cfg_buf[s_cfg_live]);
     xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, NULL);
 }

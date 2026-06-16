@@ -11,6 +11,7 @@
 #include "nvs_flash.h"
 #include "cloud.h"
 #include "device_config.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "ditto";
 
@@ -40,11 +41,18 @@ void app_main(void)
     ui_init();
 
     // 2b) Render any cached config immediately (before Wi-Fi); else built-in splash.
-    static device_config_t g_cfg;
-    cloud_config_load_cached(&g_cfg);
-    ui_set_config(&g_cfg);
-    ui_render_state(g_cfg.valid ? DEV_IDLE : DEV_BOOT);
-    ESP_LOGI(TAG, "initial screen shown (valid_cfg=%d)", g_cfg.valid);
+    // device_config_t is ~67KB; keep it out of internal .bss (PSRAM, CPU-read only, no DMA).
+    static device_config_t *g_cfg = NULL;
+    g_cfg = heap_caps_calloc(1, sizeof(*g_cfg), MALLOC_CAP_SPIRAM);
+    if (g_cfg) {
+        cloud_config_load_cached(g_cfg);
+        ui_set_config(g_cfg);
+        ui_render_state(g_cfg->valid ? DEV_IDLE : DEV_BOOT);
+        ESP_LOGI(TAG, "initial screen shown (valid_cfg=%d)", g_cfg->valid);
+    } else {
+        ESP_LOGE(TAG, "g_cfg PSRAM alloc failed; showing splash");
+        ui_render_state(DEV_BOOT);
+    }
 
     // 3) Connect to Wi-Fi via the C6 (SDIO/esp-hosted).
     net_start();
