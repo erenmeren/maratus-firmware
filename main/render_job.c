@@ -12,15 +12,15 @@ static const char *TAG = "job";
 
 void render_job_handle(const uint8_t *data, size_t len)
 {
-    ui_show(UI_SCREEN_PROCESSING);
+    ui_render_state(DEV_PROCESSING);
 
     static draw_op_t ops[MAX_OPS];
     int n = escpos_parse(data, len, ops, MAX_OPS);
-    if (n <= 0) { ESP_LOGW(TAG, "no drawable ops; ignoring job"); ui_show(UI_SCREEN_IDLE); return; }
+    if (n <= 0) { ESP_LOGW(TAG, "no drawable ops; ignoring job"); ui_render_state(DEV_IDLE); return; }
 
     uint8_t *png = NULL; size_t png_len = 0; int w = 0, h = 0;
     if (!render_ops_to_png(ops, n, &png, &png_len, &w, &h)) {
-        ESP_LOGE(TAG, "render failed"); ui_show(UI_SCREEN_IDLE); return;
+        ESP_LOGE(TAG, "render failed"); ui_render_state(DEV_IDLE); return;
     }
     ESP_LOGI(TAG, "rendered %dx%d -> PNG %u bytes", w, h, (unsigned)png_len);
 
@@ -30,9 +30,9 @@ void render_job_handle(const uint8_t *data, size_t len)
 
     if (status == 201 && url[0]) {
         ESP_LOGI(TAG, "receipt ready: %s", url);
-        ui_show_qr(url);
+        ui_set_qr_url(url); ui_render_state(DEV_QR);
     } else {
         ESP_LOGW(TAG, "upload failed (status=%d)", status);
-        ui_show(UI_SCREEN_IDLE);
+        ui_render_state(DEV_IDLE);
     }
 }

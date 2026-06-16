@@ -92,3 +92,23 @@ acks `identify`/`reboot`/`config-changed` commands, and accepts ESC/POS print jo
 TCP `:9100` → renders → uploads to R2 → returns a public `/r/<token>` receipt URL.
 The ESC/POS sender (`tools/escpos-harness/send.js`) must be on the **same LAN subnet**
 as the device.
+
+## Hardware validation log
+
+**M5a config-driven renderer — verified on hardware 2026-06-16** (ESP32-P4 Waveshare 4B,
+IDF 5.5, prod `ditto-admin-brown.vercel.app`):
+- Boot → splash → config-driven render from cached/fetched config.
+- Branding parity: edit brand colors + add a text object in admin → device repaints within
+  a poll cycle (`config-changed` → refetch → re-render). Brand bg + **TTF text** render
+  correctly; text crisp at large/small sizes.
+- Receipt flow: `send.js` → render 576-wide PNG → `POST /api/ingest` 201 → on-screen QR →
+  `/r/<token>` resolves (cert validated). Cycle idle → processing → qr confirmed live.
+- Online status dot (firmware chrome) tracks connectivity.
+- logo/icon/image objects render as faint placeholder outlines (real decode + asset cache
+  is M5b); sent/error/paused/setup screens render from config but aren't yet driven by the
+  state machine (later milestones).
+- Memory-safety fixes that made this stable: status-dot cleared per render, locked
+  `ui_set_online`/`ui_set_qr_url`/`ui_set_config`, per-build font-cache pinning, config
+  scratch-swap double-buffer, and **`device_config_t` copies moved to PSRAM** (3×67KB in
+  internal `.bss` had starved mbedtls → `-0x7F00` TLS alloc failures; PSRAM dropped DIRAM
+  use 82%→36%).

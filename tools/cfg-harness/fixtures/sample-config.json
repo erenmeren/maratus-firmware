@@ -1,0 +1,35 @@
+{
+  "version": "abc123",
+  "brandColor": "#10A765",
+  "brandBg": "#0B5D3B",
+  "brandFg": "#FFFFFF",
+  "brandMuted": "#9CA3AF",
+  "logoUrl": "https://r2.example.com/branding/org_1/logo.png?sig=ROTATES",
+  "config": {
+    "version": 3,
+    "clockTimezone": "America/New_York",
+    "clock24h": false,
+    "wifiLevel": 3,
+    "screens": {
+      "idle": { "objects": [
+        { "id": "t1", "type": "text", "x": 0.1, "y": 0.2, "w": 0.8, "h": 0.15, "visible": true, "z": 1, "text": "Welcome", "fontSize": 64, "align": "center" },
+        { "id": "t2", "type": "text", "x": 0.1, "y": 0.5, "w": 0.8, "h": 0.1, "visible": false, "z": 2, "text": "Hidden", "fontSize": 28, "align": "left" }
+      ]},
+      "processing": { "objects": [
+        { "id": "s1", "type": "spinner", "x": 0.4, "y": 0.4, "w": 0.2, "h": 0.2, "visible": true, "z": 1 }
+      ]},
+      "qr": { "objects": [
+        { "id": "q1", "type": "qr", "x": 0.25, "y": 0.3, "w": 0.5, "h": 0.5, "visible": true, "z": 2 },
+        { "id": "qt", "type": "text", "x": 0.1, "y": 0.08, "w": 0.8, "h": 0.1, "visible": true, "z": 1, "text": "Scan me", "fontSize": 32, "align": "center" }
+      ]},
+      "sent": { "objects": [] },
+      "error": { "objects": [
+        { "id": "e1", "type": "text", "x": 0.1, "y": 0.4, "w": 0.8, "h": 0.2, "visible": true, "z": 1, "text": "Offline", "fontSize": 40, "align": "center" }
+      ]},
+      "paused": { "objects": [] },
+      "setup": { "objects": [
+        { "id": "p1", "type": "pairingCode", "x": 0.2, "y": 0.6, "w": 0.6, "h": 0.1, "visible": true, "z": 1 }
+      ]}
+    }
+  }
+}

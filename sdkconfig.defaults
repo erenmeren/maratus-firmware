@@ -79,3 +79,7 @@ CONFIG_ESP_HOSTED_SDIO_RX_Q_SIZE=6
 # CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM is not set
 # SDIO clock left at the IDF default 40MHz (the P4 max); 20MHz did not affect the
 # timeout — it was a memory-placement issue, not signal integrity.
+
+# lv_tiny_ttf: enable runtime TrueType rasterisation (no file-system support needed).
+CONFIG_LV_USE_TINY_TTF=y
+CONFIG_LV_TINY_TTF_FILE_SUPPORT=n

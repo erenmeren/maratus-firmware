@@ -1,0 +1,147 @@
+#include "cfg_parse.h"
+#include <string.h>
+#include "cJSON.h"
+
+static const char *SCREEN_NAMES[SCREEN_COUNT] = {
+    "idle", "processing", "qr", "sent", "error", "paused", "setup"
+};
+_Static_assert(
+    sizeof(SCREEN_NAMES) / sizeof(SCREEN_NAMES[0]) == SCREEN_COUNT,
+    "SCREEN_NAMES must match dev_screen_t");
+
+static uint32_t parse_hex_color(const char *s, uint32_t dflt) {
+    if (!s) return dflt;
+    if (*s == '#') s++;
+    // Accept exactly 6 hex digits; any suffix (e.g. 8-char RGBA) is ignored.
+    if (strlen(s) < 6) return dflt;
+    uint32_t v = 0;
+    for (int i = 0; i < 6; i++) {
+        char c = s[i]; int d;
+        if      (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        else return dflt;
+        v = (v << 4) | (uint32_t)d;
+    }
+    return v;
+}
+
+static cfg_align_t align_of(const char *s) {
+    if (s && strcmp(s, "center") == 0) return CFG_ALIGN_CENTER;
+    if (s && strcmp(s, "right")  == 0) return CFG_ALIGN_RIGHT;
+    return CFG_ALIGN_LEFT;
+}
+
+static cfg_obj_type_t type_of(const char *s) {
+    if (!s) return OBJ_UNKNOWN;
+    if (!strcmp(s, "text"))        return OBJ_TEXT;
+    if (!strcmp(s, "icon"))        return OBJ_ICON;
+    if (!strcmp(s, "logo"))        return OBJ_LOGO;
+    if (!strcmp(s, "clock"))       return OBJ_CLOCK;
+    if (!strcmp(s, "wifi"))        return OBJ_WIFI;
+    if (!strcmp(s, "qr"))          return OBJ_QR;
+    if (!strcmp(s, "spinner"))     return OBJ_SPINNER;
+    if (!strcmp(s, "countdown"))   return OBJ_COUNTDOWN;
+    if (!strcmp(s, "pairingCode")) return OBJ_PAIRING_CODE;
+    if (!strcmp(s, "steps"))       return OBJ_STEPS;
+    return OBJ_UNKNOWN;
+}
+
+static cfg_tint_t tint_of(const char *s) {
+    if (s && !strcmp(s, "accent")) return TINT_ACCENT;
+    if (s && !strcmp(s, "muted"))  return TINT_MUTED;
+    if (s && !strcmp(s, "warn"))   return TINT_WARN;
+    return TINT_NONE;
+}
+
+static float fnum(cJSON *o, const char *k) {
+    cJSON *v = cJSON_GetObjectItem(o, k);
+    return cJSON_IsNumber(v) ? (float)v->valuedouble : 0.0f;
+}
+
+static void copy_str(char *dst, size_t cap, const char *src) {
+    if (cap == 0) return;
+    if (!src) { dst[0] = '\0'; return; }
+    strncpy(dst, src, cap - 1); dst[cap - 1] = '\0';
+}
+
+static void parse_screen(cJSON *objs, cfg_screen_t *out) {
+    out->n = 0;
+    int n = cJSON_IsArray(objs) ? cJSON_GetArraySize(objs) : 0;
+    for (int i = 0; i < n && out->n < CFG_MAX_OBJECTS; i++) {
+        cJSON *o = cJSON_GetArrayItem(objs, i);
+        cJSON *vis = cJSON_GetObjectItem(o, "visible");
+        if (cJSON_IsBool(vis) && !cJSON_IsTrue(vis)) continue;   // skip hidden
+        cfg_obj_type_t type = type_of(cJSON_GetStringValue(cJSON_GetObjectItem(o, "type")));
+        if (type == OBJ_UNKNOWN) continue;                        // drop unknowns
+
+        cfg_object_t *t = &out->objects[out->n++];
+        memset(t, 0, sizeof(*t));
+        t->type = type;
+        t->visible = true;
+        t->x = fnum(o, "x"); t->y = fnum(o, "y");
+        t->w = fnum(o, "w"); t->h = fnum(o, "h");
+        cJSON *z = cJSON_GetObjectItem(o, "z");
+        t->z = cJSON_IsNumber(z) ? (int)z->valuedouble : 0;
+
+        if (type == OBJ_TEXT) {
+            copy_str(t->text, CFG_TEXT_LEN, cJSON_GetStringValue(cJSON_GetObjectItem(o, "text")));
+            cJSON *fs = cJSON_GetObjectItem(o, "fontSize");
+            t->font_size = cJSON_IsNumber(fs) ? (int)fs->valuedouble : 28;
+            if (t->font_size < 8)   t->font_size = 8;
+            if (t->font_size > 160) t->font_size = 160;
+            t->align = align_of(cJSON_GetStringValue(cJSON_GetObjectItem(o, "align")));
+        } else if (type == OBJ_ICON) {
+            cJSON *icon = cJSON_GetObjectItem(o, "icon");
+            const char *src = icon ? cJSON_GetStringValue(cJSON_GetObjectItem(icon, "source")) : NULL;
+            t->icon_src = (src && !strcmp(src, "upload")) ? ICON_UPLOAD : ICON_PRESET;
+            copy_str(t->icon_preset, CFG_PRESET_LEN, icon ? cJSON_GetStringValue(cJSON_GetObjectItem(icon, "preset")) : NULL);
+            copy_str(t->icon_url, CFG_URL_LEN, icon ? cJSON_GetStringValue(cJSON_GetObjectItem(icon, "signedUrl")) : NULL);
+            t->icon_tint = tint_of(icon ? cJSON_GetStringValue(cJSON_GetObjectItem(icon, "tint")) : NULL);
+            cJSON *circ = icon ? cJSON_GetObjectItem(icon, "circle") : NULL;
+            t->icon_circle = cJSON_IsTrue(circ);
+        } else if (type == OBJ_CLOCK) {
+            cJSON *clk = cJSON_GetObjectItem(o, "clock");
+            cJSON *sd = clk ? cJSON_GetObjectItem(clk, "showDate") : NULL;
+            cJSON *sw = clk ? cJSON_GetObjectItem(clk, "showWeekday") : NULL;
+            t->clock_show_date    = sd ? cJSON_IsTrue(sd) : true;
+            t->clock_show_weekday = sw ? cJSON_IsTrue(sw) : true;
+        }
+    }
+}
+
+bool cfg_parse_json(const char *json, device_config_t *cfg) {
+    memset(cfg, 0, sizeof(*cfg));   // safe defaults; valid stays false until we finish
+    cJSON *root = cJSON_Parse(json);
+    if (!root) return false;
+
+    const char *ver = cJSON_GetStringValue(cJSON_GetObjectItem(root, "version"));
+    copy_str(cfg->etag, sizeof(cfg->etag), ver);
+
+    cfg->brand_bg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandBg")),     0x10A765);
+    cfg->brand_fg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandFg")),     0xFFFFFF);
+    cfg->brand_accent = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandColor")),  0x10A765);
+    cfg->brand_muted  = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandMuted")),  0x9CA3AF);
+    cfg->brand_warn   = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandWarn")),   0xF59E0B);
+    copy_str(cfg->logo_url, CFG_URL_LEN, cJSON_GetStringValue(cJSON_GetObjectItem(root, "logoUrl")));
+
+    cJSON *config = cJSON_GetObjectItem(root, "config");
+    copy_str(cfg->clock_timezone, CFG_TZ_LEN,
+             config ? cJSON_GetStringValue(cJSON_GetObjectItem(config, "clockTimezone")) : NULL);
+    cfg->clock_24h = config ? cJSON_IsTrue(cJSON_GetObjectItem(config, "clock24h")) : false;
+    cJSON *wl = config ? cJSON_GetObjectItem(config, "wifiLevel") : NULL;
+    cfg->wifi_level = cJSON_IsNumber(wl) ? (int)wl->valuedouble : 0;
+    if (cfg->wifi_level < 0) cfg->wifi_level = 0;
+    if (cfg->wifi_level > 4) cfg->wifi_level = 4;
+
+    cJSON *screens = config ? cJSON_GetObjectItem(config, "screens") : NULL;
+    for (int i = 0; i < SCREEN_COUNT; i++) {
+        cJSON *scr = screens ? cJSON_GetObjectItem(screens, SCREEN_NAMES[i]) : NULL;
+        cJSON *objs = scr ? cJSON_GetObjectItem(scr, "objects") : NULL;
+        parse_screen(objs, &cfg->screens[i]);
+    }
+
+    cfg->valid = true;
+    cJSON_Delete(root);
+    return true;
+}
