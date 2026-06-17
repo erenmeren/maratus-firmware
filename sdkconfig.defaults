@@ -83,3 +83,9 @@ CONFIG_ESP_HOSTED_SDIO_RX_Q_SIZE=6
 # lv_tiny_ttf: enable runtime TrueType rasterisation (no file-system support needed).
 CONFIG_LV_USE_TINY_TTF=y
 CONFIG_LV_TINY_TTF_FILE_SUPPORT=n
+
+# M5b: LVGL bundled lodepng PNG decoder for config-driven logo/icon images.
+# We decode from an in-memory PNG buffer (LV_IMAGE_SRC_VARIABLE), so no LVGL FS
+# driver is needed. The decoded ARGB8888 bitmap is routed to PSRAM via custom
+# image draw-buf handlers (ui.c) — internal DRAM stays reserved for Wi-Fi/SDIO/TLS.
+CONFIG_LV_USE_LODEPNG=y

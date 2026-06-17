@@ -112,3 +112,20 @@ IDF 5.5, prod `ditto-admin-brown.vercel.app`):
   scratch-swap double-buffer, and **`device_config_t` copies moved to PSRAM** (3×67KB in
   internal `.bss` had starved mbedtls → `-0x7F00` TLS alloc failures; PSRAM dropped DIRAM
   use 82%→36%).
+
+**M5b uploaded logo/icon images — verified on hardware 2026-06-17** (same board/IDF/prod):
+- Upload a PNG logo in admin branding → `config-changed` → device prefetches the presigned
+  R2 asset to the `/assets` LittleFS partition → `render_image` decodes (lodepng → PSRAM via
+  swapped image draw-buf handlers) → renders scaled-in-box (CONTAIN). Confirmed by eye.
+- **Offline render-from-cache**: with the asset cached, dropping the network keeps the logo
+  on screen — the render path is cache-only (`asset_cache_read_cached`, never networks).
+- **Receipt-flow regression**: tap → idle→processing→QR→`/r/<token>` still resolves; M5b
+  image work didn't disturb the M5a/M4 path.
+- Decode is memory-bound: decoded bitmap = w·h·4 in PSRAM, so logos must be modestly sized.
+  The admin now downscales uploads to ≤512px PNG server-side (ditto-admin) so the device
+  always gets a decodable asset; oversized/SVG no longer reach the device.
+- Gotchas fixed en route: `CFG_URL_LEN` 256→768 (presigned R2 URLs ~500 chars were truncated
+  → R2 400), and `CONFIG_SPIRAM_USE_MALLOC=y` so the lodepng intermediate scanline buffer
+  spills to PSRAM instead of failing on internal-RAM fragmentation. Online status dot removed
+  (connectivity moves to the M5c wifi widget). Preset icons (src=PRESET) remain placeholders
+  (deferred — needs an embedded sprite set).

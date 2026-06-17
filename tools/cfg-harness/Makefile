@@ -1,10 +1,14 @@
 # Host unit-test harness for the pure devcfg core (no ESP-IDF).
 CC      ?= cc
 CFLAGS  := -std=c11 -Wall -Wextra -g -O0 \
-           -I../../components/devcfg/include -Ivendor
+           -I../../components/devcfg/include -Ivendor \
+           -I../../components/assetcache/include
 SRCS    := test_cfg.c vendor/cJSON.c \
            ../../components/devcfg/cfg_parse.c \
-           ../../components/devcfg/render_geom.c
+           ../../components/devcfg/render_geom.c \
+           ../../components/assetcache/asset_key.c \
+           ../../components/assetcache/asset_evict.c \
+           vendor/sha1.c
 
 run: $(SRCS)
 	$(CC) $(CFLAGS) $(SRCS) -o run

@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "esp_err.h"
 #include "device_config.h"
 
 // HTTPS client for the Ditto M1 device contract (bearer device-key auth).
@@ -30,6 +31,12 @@ int cloud_get_config(device_config_t *cfg);
 
 // Load the last config persisted in NVS into *cfg (cfg->valid = false if none).
 void cloud_config_load_cached(device_config_t *cfg);
+
+// HTTPS GET an already-presigned, absolute asset URL into a freshly allocated
+// PSRAM buffer (MALLOC_CAP_SPIRAM). On ESP_OK, *out points to *out_len bytes the
+// CALLER must heap_caps_free. Response is capped at 256 KB; cap-exceed, non-200,
+// or transport error frees any partial buffer and returns an esp_err_t != ESP_OK.
+esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len);
 
 // Register a hook invoked when a config-changed command arrives (set by main).
 void cloud_set_config_changed_cb(void (*cb)(void));
