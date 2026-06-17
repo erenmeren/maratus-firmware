@@ -196,7 +196,9 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
             default:       render_placeholder(scr, o, s_cfg->brand_fg); break;  // M5b/M5c
         }
     }
-    add_status_dot(scr);
+    // Online status dot removed per product decision; connectivity will be shown
+    // by the wifi widget (M5c). add_status_dot() retained but unused.
+    (void)add_status_dot;
     return scr;
 }
 
