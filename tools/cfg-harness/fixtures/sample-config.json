@@ -22,7 +22,9 @@
         { "id": "q1", "type": "qr", "x": 0.25, "y": 0.3, "w": 0.5, "h": 0.5, "visible": true, "z": 2 },
         { "id": "qt", "type": "text", "x": 0.1, "y": 0.08, "w": 0.8, "h": 0.1, "visible": true, "z": 1, "text": "Scan me", "fontSize": 32, "align": "center" }
       ]},
-      "sent": { "objects": [] },
+      "sent": { "objects": [
+        { "id": "clk", "type": "clock", "x": 0.25, "y": 0.5, "w": 0.5, "h": 0.18, "visible": true, "z": 1 }
+      ]},
       "error": { "objects": [
         { "id": "e1", "type": "text", "x": 0.1, "y": 0.4, "w": 0.8, "h": 0.2, "visible": true, "z": 1, "text": "Offline", "fontSize": 40, "align": "center" }
       ]},
