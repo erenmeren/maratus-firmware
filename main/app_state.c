@@ -118,13 +118,16 @@ static int rssi_to_level(int rssi) {
 // the receipt screen when its countdown expires. Avoids extra cloud polls.
 static void idle_wait_or_qr_expiry(int total_ms) {
     const int slice = 500;
-    for (int waited = 0; waited < total_ms; waited += slice) {
+    // Check at 0, slice, 2*slice, ... and once more at total_ms (delay between
+    // checks, but not after the last). The trailing check catches an expiry that
+    // lands in the final slice, instead of waiting a whole cloud poll round-trip.
+    for (int waited = 0; waited <= total_ms; waited += slice) {
         if (ui_consume_countdown_expired()) {
             s_state = DEV_IDLE;
             ui_render_state(DEV_IDLE);
             return;
         }
-        vTaskDelay(pdMS_TO_TICKS(slice));
+        if (waited < total_ms) vTaskDelay(pdMS_TO_TICKS(slice));
     }
 }
 
