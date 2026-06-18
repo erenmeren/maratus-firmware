@@ -145,3 +145,16 @@ IDF 5.5, prod `ditto-admin-brown.vercel.app`):
   on-screen clock within a poll cycle.
 - Widget lifecycle is concurrency-safe (clock timer deleted before screen free; wifi handle
   nulled per render — same pattern as the status dot). State→screen routing unchanged (M5a).
+
+**M5c-2 receipt countdown + auto-return — verified on hardware 2026-06-18** (same board/IDF):
+- The receipt/QR screen shows a live "Code expires M:SS" countdown + a depleting `lv_bar`
+  (1 Hz LVGL timer); at 0:00 the device **auto-returns to idle**. Confirmed ticking +
+  auto-return on device.
+- Duration is tenant-configurable: admin `qrTimeoutSeconds` (15–180, default 60) →
+  `device_config.qr_timeout_seconds`; the countdown widget + auto-return use it.
+- Auto-return is driven by a UI expired-flag (`ui_consume_countdown_expired`), polled on a
+  500 ms slice in `idle_wait_or_qr_expiry` (POLL_IDLE_MS is 12 s), NOT by `s_state` — so it
+  works for both the tap-test path and the real ESC/POS `render_job` path. `s_cd_pending` is
+  kept current by arming on every config apply.
+- Known follow-up (pre-existing, M5d): `render_job_handle` doesn't set `s_state`, so a
+  config-changed arriving during a live ESC/POS receipt QR can re-render it to idle early.
