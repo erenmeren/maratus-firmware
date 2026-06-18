@@ -11,6 +11,8 @@
 #include "asset_cache.h"
 #include "asset_key.h"
 #include "esp_heap_caps.h"
+#include "time_sync.h"
+#include "esp_wifi.h"
 
 static const char *TAG = "state";
 static dev_state_t s_state = DEV_BOOT;
@@ -97,6 +99,15 @@ static void prefetch_and_evict_assets(const device_config_t *cfg)
     asset_cache_evict(key_ptrs, n);
 }
 
+// Map RSSI (dBm) to 0..4 signal bars.
+static int rssi_to_level(int rssi) {
+    if (rssi >= -55) return 4;
+    if (rssi >= -65) return 3;
+    if (rssi >= -75) return 2;
+    if (rssi >= -85) return 1;
+    return 0;
+}
+
 static void poll_task(void *arg)
 {
     static char body[1024];
@@ -116,6 +127,9 @@ static void poll_task(void *arg)
         int status = cloud_get_commands(body, sizeof(body));
         if (status == 200) {
             ui_set_online(true);
+            time_sync_start();                 // idempotent; SNTP runs once Wi-Fi is up
+            int rssi = 0;
+            if (esp_wifi_sta_get_rssi(&rssi) == ESP_OK) ui_set_wifi_level(rssi_to_level(rssi));
             commands_handle_body(body);   // may esp_restart() on reboot
             if (s_config_dirty) {
                 s_config_dirty = false;
@@ -125,6 +139,7 @@ static void poll_task(void *arg)
                 if (cs == 200 && s_cfg_buf[next]->valid) {
                     prefetch_and_evict_assets(s_cfg_buf[next]);  // fill/prune flash cache before render
                     ui_set_config(s_cfg_buf[next]);     // publish under the LVGL lock (pointer swap)
+                    time_sync_set_tz(s_cfg_buf[next]->clock_timezone);  // POSIX TZ from payload
                     s_cfg_live = next;
                     ui_render_state(s_state);           // re-render current screen with new config (cache hits)
                 }

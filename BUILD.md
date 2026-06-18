@@ -129,3 +129,19 @@ IDF 5.5, prod `ditto-admin-brown.vercel.app`):
   spills to PSRAM instead of failing on internal-RAM fragmentation. Online status dot removed
   (connectivity moves to the M5c wifi widget). Preset icons (src=PRESET) remain placeholders
   (deferred — needs an embedded sprite set).
+
+**M5c-1 live widgets (clock/wifi/spinner) — verified on hardware 2026-06-18** (same board/IDF):
+- **Clock + wifi confirmed on device.** Clock label ticks every second via an LVGL timer
+  (`--:--` until SNTP syncs), formatted by the pure host-tested `format_clock`; time comes
+  from SNTP (`time_sync` component, `esp_netif_sntp`), displayed in the tenant's timezone.
+  Wifi bars track live RSSI (`esp_wifi_sta_get_rssi` → 0–4, pushed via `ui_set_wifi_level`);
+  the branding wifi slider is preview-only.
+- Spinner (`lv_spinner` on the processing screen) builds + is wired but was not eyeballed this
+  pass (low-risk pure animation); confirm opportunistically on the next receipt.
+- **Timezone needs the admin POSIX change deployed:** the device does `setenv(TZ, …)` with the
+  payload's `clockTimezone`, which ditto-admin now converts IANA→POSIX in `getDeviceConfig`
+  (`lib/posix-tz.ts`). Until that admin deploy lands, the device receives an IANA name newlib
+  can't parse and the clock runs UTC. After deploy, changing the tenant timezone shifts the
+  on-screen clock within a poll cycle.
+- Widget lifecycle is concurrency-safe (clock timer deleted before screen free; wifi handle
+  nulled per render — same pattern as the status dot). State→screen routing unchanged (M5a).

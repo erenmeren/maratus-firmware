@@ -6,6 +6,7 @@ CFLAGS  := -std=c11 -Wall -Wextra -g -O0 \
 SRCS    := test_cfg.c vendor/cJSON.c \
            ../../components/devcfg/cfg_parse.c \
            ../../components/devcfg/render_geom.c \
+           ../../components/devcfg/clock_format.c \
            ../../components/assetcache/asset_key.c \
            ../../components/assetcache/asset_evict.c \
            vendor/sha1.c

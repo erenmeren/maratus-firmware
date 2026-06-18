@@ -6,6 +6,7 @@
 #include "render_geom.h"
 #include "asset_key.h"
 #include "asset_evict.h"
+#include "clock_format.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -186,6 +187,31 @@ static void test_asset_evict(void) {
     printf("test_asset_evict OK\n");
 }
 
+static void test_clock(void) {
+    struct tm t = {0};
+    t.tm_hour = 14; t.tm_min = 5; t.tm_wday = 3; t.tm_mday = 17; t.tm_mon = 5; // Wed 17 Jun
+    char buf[64];
+
+    format_clock(&t, true, false, false, buf, sizeof(buf));
+    assert(strcmp(buf, "14:05") == 0);
+
+    format_clock(&t, false, false, false, buf, sizeof(buf));
+    assert(strcmp(buf, "2:05 PM") == 0);
+
+    struct tm noon = {0}; noon.tm_hour = 12; noon.tm_min = 0;
+    format_clock(&noon, false, false, false, buf, sizeof(buf));
+    assert(strcmp(buf, "12:00 PM") == 0);
+
+    struct tm midnight = {0}; midnight.tm_hour = 0; midnight.tm_min = 0;
+    format_clock(&midnight, false, false, false, buf, sizeof(buf));
+    assert(strcmp(buf, "12:00 AM") == 0);
+
+    format_clock(&t, true, true, true, buf, sizeof(buf));
+    assert(strcmp(buf, "14:05\nWed 17 Jun") == 0);
+
+    printf("test_clock OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -193,6 +219,7 @@ int main(void) {
     test_map();
     test_asset_key();
     test_asset_evict();
+    test_clock();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
