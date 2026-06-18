@@ -32,6 +32,13 @@ static bool       s_clock_weekday;
 static lv_obj_t  *s_wifi_obj;          // active-screen wifi widget (NULL if none)
 static int        s_wifi_level = 0;
 
+static lv_obj_t  *s_cd_time;           // "M:SS" remaining label (NULL if none)
+static lv_obj_t  *s_cd_bar;            // progress bar (NULL if none)
+static lv_timer_t *s_cd_timer;         // 1 Hz tick
+static int        s_cd_pending = 60;   // duration the next render should arm
+static int        s_cd_remaining;      // seconds left on the active widget
+static bool       s_cd_expired;        // set at 0, consumed by the state machine
+
 static void on_screen_click(lv_event_t *e) { (void)e; s_tap_requested = true; }
 
 // --- PNG image decode → PSRAM ---------------------------------------------
@@ -236,6 +243,58 @@ static void render_spinner(lv_obj_t *scr, const cfg_object_t *o, uint32_t accent
     lv_obj_set_style_arc_opa(sp,   LV_OPA_30,            LV_PART_MAIN);
 }
 
+static void cd_tick_cb(lv_timer_t *t) {
+    (void)t;
+    if (s_cd_remaining > 0) {
+        s_cd_remaining--;
+        if (s_cd_time) {
+            char buf[16];
+            format_mmss(s_cd_remaining, buf, sizeof(buf));
+            lv_label_set_text(s_cd_time, buf);
+        }
+        if (s_cd_bar) lv_bar_set_value(s_cd_bar, s_cd_remaining, LV_ANIM_OFF);
+        if (s_cd_remaining == 0) s_cd_expired = true;
+    }
+}
+
+static void render_countdown(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg, uint32_t accent) {
+    px_box_t b = geom_box(o);
+    int total = s_cd_pending;
+    s_cd_remaining = total;
+
+    lv_obj_t *label = lv_label_create(scr);
+    lv_label_set_text(label, "Code expires");
+    lv_obj_set_style_text_color(label, lv_color_hex(fg), LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, font_cache_get(o->font_size > 0 ? o->font_size : 18), LV_PART_MAIN);
+    lv_obj_set_pos(label, b.x, b.y);
+
+    char buf[16];
+    format_mmss(total, buf, sizeof(buf));
+    lv_obj_t *tlbl = lv_label_create(scr);
+    lv_label_set_text(tlbl, buf);
+    lv_obj_set_style_text_color(tlbl, lv_color_hex(fg), LV_PART_MAIN);
+    lv_obj_set_style_text_font(tlbl, font_cache_get(o->font_size > 0 ? o->font_size : 18), LV_PART_MAIN);
+    lv_obj_set_style_text_align(tlbl, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    lv_obj_set_width(tlbl, b.w > 0 ? b.w : 120);
+    lv_obj_set_pos(tlbl, b.x, b.y);
+    s_cd_time = tlbl;
+
+    lv_obj_t *bar = lv_bar_create(scr);
+    int barh = 8;
+    lv_obj_set_size(bar, b.w > 0 ? b.w : 160, barh);
+    lv_obj_set_pos(bar, b.x, b.y + (b.h > 0 ? b.h - barh : 28));
+    lv_bar_set_range(bar, 0, total > 0 ? total : 1);
+    lv_bar_set_value(bar, total, LV_ANIM_OFF);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_30, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(fg), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(accent), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
+    s_cd_bar = bar;
+
+    if (s_cd_timer) { lv_timer_delete(s_cd_timer); s_cd_timer = NULL; }
+    s_cd_timer = lv_timer_create(cd_tick_cb, 1000, NULL);
+}
+
 static lv_obj_t *build_splash(void) {
     font_cache_begin_pass();
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -277,7 +336,8 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
                 break;
             case OBJ_CLOCK:   render_clock(scr, o, s_cfg->brand_fg); break;
             case OBJ_WIFI:    render_wifi(scr, o, s_cfg->brand_fg); break;
-            case OBJ_SPINNER: render_spinner(scr, o, s_cfg->brand_accent); break;
+            case OBJ_SPINNER:   render_spinner(scr, o, s_cfg->brand_accent); break;
+            case OBJ_COUNTDOWN: render_countdown(scr, o, s_cfg->brand_fg, s_cfg->brand_accent); break;
             default:       render_placeholder(scr, o, s_cfg->brand_fg); break;  // M5c remaining
         }
     }
@@ -312,9 +372,12 @@ void ui_render_state(dev_state_t st) {
     dev_screen_t screen = screen_for_state(st);
     lvgl_port_lock(0);
     if (s_clock_timer) { lv_timer_delete(s_clock_timer); s_clock_timer = NULL; }
+    if (s_cd_timer)   { lv_timer_delete(s_cd_timer);   s_cd_timer   = NULL; }
     s_status_dot = NULL;   // cleared each render; build_screen reinstalls it
     s_clock_lbl  = NULL;
     s_wifi_obj   = NULL;
+    s_cd_time    = NULL;
+    s_cd_bar     = NULL;
     lv_obj_t *scr = (st == DEV_BOOT) ? build_splash() : build_screen(screen);
     lv_obj_t *old = s_active;
     s_active = scr;
@@ -357,6 +420,23 @@ void ui_set_wifi_level(int level) {
         }
     }
     lvgl_port_unlock();
+}
+
+void ui_set_countdown(int seconds) {
+    if (seconds < 15) seconds = 15;
+    if (seconds > 180) seconds = 180;
+    lvgl_port_lock(0);
+    s_cd_pending = seconds;
+    s_cd_expired = false;
+    lvgl_port_unlock();
+}
+
+bool ui_consume_countdown_expired(void) {
+    lvgl_port_lock(0);
+    bool e = s_cd_expired;
+    s_cd_expired = false;
+    lvgl_port_unlock();
+    return e;
 }
 
 bool ui_consume_tap(void) {
