@@ -172,18 +172,28 @@ static void render_image(lv_obj_t *scr, const cfg_object_t *o) {
     lv_image_set_src(img, &s->dsc);   // last: triggers decode-info while src lives
 }
 
+static char s_clock_last[64];          // last text pushed to the clock label
+
 static void clock_tick_cb(lv_timer_t *t) {
     (void)t;
     if (!s_clock_lbl) return;
     char buf[64];
     if (!time_is_synced()) {
-        lv_label_set_text(s_clock_lbl, "--:--");
-        return;
+        strncpy(buf, "--:--", sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+    } else {
+        time_t now = time(NULL);
+        struct tm lt;
+        localtime_r(&now, &lt);
+        format_clock(&lt, s_clock_24h, s_clock_date, s_clock_weekday, buf, sizeof(buf));
     }
-    time_t now = time(NULL);
-    struct tm lt;
-    localtime_r(&now, &lt);
-    format_clock(&lt, s_clock_24h, s_clock_date, s_clock_weekday, buf, sizeof(buf));
+    // The clock shows HH:MM (no seconds), so its text changes once a MINUTE — but this
+    // tick fires every second. lv_label_set_text unconditionally invalidates+redraws the
+    // label (no equality check), so pushing it every second is ~60 wasted repaints/min.
+    // Repaint only when the text actually changed.
+    if (strcmp(buf, s_clock_last) == 0) return;
+    strncpy(s_clock_last, buf, sizeof(s_clock_last) - 1);
+    s_clock_last[sizeof(s_clock_last) - 1] = '\0';
     lv_label_set_text(s_clock_lbl, buf);
 }
 
@@ -193,12 +203,16 @@ static void render_clock(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
     lv_obj_set_pos(lbl, b.x, b.y);
     lv_obj_set_width(lbl, b.w > 0 ? b.w : LV_SIZE_CONTENT);
     lv_obj_set_style_text_color(lbl, lv_color_hex(fg), LV_PART_MAIN);
-    lv_obj_set_style_text_font(lbl, font_cache_get(o->font_size), LV_PART_MAIN);
+    // Admin never sends a fontSize for the clock widget, so o->font_size is 0 here
+    // (parser only fills it for text objects). Fall back to a readable default
+    // sized for the clock box rather than rendering at the font-cache minimum.
+    lv_obj_set_style_text_font(lbl, font_cache_get(o->font_size > 0 ? o->font_size : 40), LV_PART_MAIN);
     lv_obj_set_style_text_align(lbl, lv_align_of(o->align), LV_PART_MAIN);
     s_clock_lbl     = lbl;
     s_clock_24h     = s_cfg->clock_24h;
     s_clock_date    = o->clock_show_date;
     s_clock_weekday = o->clock_show_weekday;
+    s_clock_last[0] = '\0';  // new label: force the first paint regardless of cached text
     clock_tick_cb(NULL);  // paint immediately
     if (s_clock_timer) { lv_timer_delete(s_clock_timer); s_clock_timer = NULL; }
     s_clock_timer = lv_timer_create(clock_tick_cb, 1000, NULL);
@@ -413,6 +427,12 @@ void ui_set_wifi_level(int level) {
     if (level < 0) level = 0;
     if (level > 4) level = 4;
     lvgl_port_lock(0);
+    // The poll task pushes the level every cycle. lv_obj_set_style_bg_opa always
+    // invalidates+redraws the bar (no equality check in LVGL), so repainting the
+    // bars on every poll is wasted work when the level is unchanged. Only touch the
+    // bars when the level actually changed. render_wifi paints from s_wifi_level
+    // directly when a screen is (re)built, so a skipped no-op update is safe.
+    if (level == s_wifi_level) { lvgl_port_unlock(); return; }
     s_wifi_level = level;
     if (s_wifi_obj) {
         uint32_t childcnt = lv_obj_get_child_count(s_wifi_obj);
