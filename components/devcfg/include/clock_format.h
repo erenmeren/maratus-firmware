@@ -10,3 +10,7 @@
 // and a "Weekday DD Month" date line (matching the branding preview's clock).
 void format_clock(const struct tm *tm, bool h24, bool date, bool weekday,
                   char *out, int outlen);
+
+// Format a remaining-seconds count as "M:SS" (e.g. 48 -> "0:48", 125 -> "2:05").
+// Negative inputs clamp to 0. Writes into out (size outlen).
+void format_mmss(int seconds, char *out, int outlen);

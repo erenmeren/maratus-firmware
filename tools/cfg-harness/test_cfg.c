@@ -212,6 +212,16 @@ static void test_clock(void) {
     printf("test_clock OK\n");
 }
 
+static void test_mmss(void) {
+    char buf[16];
+    format_mmss(0, buf, sizeof(buf));   assert(strcmp(buf, "0:00") == 0);
+    format_mmss(48, buf, sizeof(buf));  assert(strcmp(buf, "0:48") == 0);
+    format_mmss(125, buf, sizeof(buf)); assert(strcmp(buf, "2:05") == 0);
+    format_mmss(600, buf, sizeof(buf)); assert(strcmp(buf, "10:00") == 0);
+    format_mmss(-5, buf, sizeof(buf));  assert(strcmp(buf, "0:00") == 0);
+    printf("test_mmss OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -220,6 +230,7 @@ int main(void) {
     test_asset_key();
     test_asset_evict();
     test_clock();
+    test_mmss();
     printf("ALL TESTS PASSED\n");
     return 0;
 }

@@ -29,3 +29,9 @@ void format_clock(const struct tm *tm, bool h24, bool date, bool weekday,
         snprintf(out + n, outlen - n, "\n%d %s", tm->tm_mday, MON[mo]);
     }
 }
+
+void format_mmss(int seconds, char *out, int outlen) {
+    if (outlen <= 0) return;
+    if (seconds < 0) seconds = 0;
+    snprintf(out, outlen, "%d:%02d", seconds / 60, seconds % 60);
+}
