@@ -101,6 +101,11 @@ static void parse_screen(cJSON *objs, cfg_screen_t *out) {
             cJSON *circ = icon ? cJSON_GetObjectItem(icon, "circle") : NULL;
             t->icon_circle = cJSON_IsTrue(circ);
         } else if (type == OBJ_CLOCK) {
+            // Admin/preview default the clock alignment to "center"; honor a stored
+            // align but default to center (not the align_of() left fallback) so the
+            // device matches the branding preview.
+            cJSON *al = cJSON_GetObjectItem(o, "align");
+            t->align = al ? align_of(cJSON_GetStringValue(al)) : CFG_ALIGN_CENTER;
             cJSON *clk = cJSON_GetObjectItem(o, "clock");
             cJSON *sd = clk ? cJSON_GetObjectItem(clk, "showDate") : NULL;
             cJSON *sw = clk ? cJSON_GetObjectItem(clk, "showWeekday") : NULL;

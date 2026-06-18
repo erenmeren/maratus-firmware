@@ -49,6 +49,12 @@ static void test_parse(void) {
     cfg_screen_t *qr = &cfg.screens[SCREEN_QR];
     assert(qr->n == 2);
 
+    // sent: clock widget with no align -> defaults to center (matches branding preview).
+    cfg_screen_t *sent = &cfg.screens[SCREEN_SENT];
+    assert(sent->n == 1);
+    assert(sent->objects[0].type == OBJ_CLOCK);
+    assert(sent->objects[0].align == CFG_ALIGN_CENTER);
+
     // setup: pairingCode widget parsed.
     assert(cfg.screens[SCREEN_SETUP].objects[0].type == OBJ_PAIRING_CODE);
 
