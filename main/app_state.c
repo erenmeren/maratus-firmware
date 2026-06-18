@@ -44,7 +44,9 @@ static void run_test_ingest(void)
     if (status == 201 && url[0]) {
         ESP_LOGI(TAG, "receipt ready: %s", url);
         s_state = DEV_QR;
-        ui_set_qr_url(url); ui_render_state(DEV_QR);
+        ui_set_qr_url(url);
+        ui_set_countdown(s_cfg_buf[s_cfg_live]->qr_timeout_seconds);
+        ui_render_state(DEV_QR);
     } else {
         ESP_LOGW(TAG, "ingest failed (status=%d)", status);
         s_state = DEV_IDLE;
@@ -108,6 +110,20 @@ static int rssi_to_level(int rssi) {
     return 0;
 }
 
+// Wait up to total_ms, but break early (~500ms granularity) to auto-return from
+// the receipt screen when its countdown expires. Avoids extra cloud polls.
+static void idle_wait_or_qr_expiry(int total_ms) {
+    const int slice = 500;
+    for (int waited = 0; waited < total_ms; waited += slice) {
+        if (s_state == DEV_QR && ui_consume_countdown_expired()) {
+            s_state = DEV_IDLE;
+            ui_render_state(DEV_IDLE);
+            return;
+        }
+        vTaskDelay(pdMS_TO_TICKS(slice));
+    }
+}
+
 static void poll_task(void *arg)
 {
     static char body[1024];
@@ -145,7 +161,7 @@ static void poll_task(void *arg)
                 }
             }
             backoff = POLL_BACKOFF_MIN;
-            vTaskDelay(pdMS_TO_TICKS(POLL_IDLE_MS));
+            idle_wait_or_qr_expiry(POLL_IDLE_MS);
         } else {
             ESP_LOGW(TAG, "poll failed (status=%d), backoff=%dms", status, backoff);
             ui_set_online(false);
