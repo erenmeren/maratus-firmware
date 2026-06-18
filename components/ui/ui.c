@@ -1,5 +1,6 @@
 #include "ui.h"
 #include <string.h>
+#include <time.h>
 #include "lvgl.h"
 #include "draw/lv_draw_buf_private.h"   // lv_draw_buf_handlers_t fields (swap image alloc → PSRAM)
 #include "esp_lvgl_port.h"
@@ -9,6 +10,8 @@
 #include "font_cache.h"
 #include "assets.h"
 #include "asset_cache.h"
+#include "clock_format.h"
+#include "time_sync.h"
 
 #define DITTO_GREEN   0x10A765
 #define DITTO_ONLINE  0x37C871
@@ -20,6 +23,14 @@ static lv_obj_t  *s_status_dot;        // chrome dot on the active screen
 static char       s_qr_url[256];
 static bool       s_online;
 static volatile bool s_tap_requested;
+
+static lv_obj_t  *s_clock_lbl;         // active-screen clock label (NULL if none)
+static lv_timer_t *s_clock_timer;      // 1 Hz tick for the clock label
+static bool       s_clock_24h;
+static bool       s_clock_date;
+static bool       s_clock_weekday;
+static lv_obj_t  *s_wifi_obj;          // active-screen wifi widget (NULL if none)
+static int        s_wifi_level = 0;
 
 static void on_screen_click(lv_event_t *e) { (void)e; s_tap_requested = true; }
 
@@ -154,6 +165,74 @@ static void render_image(lv_obj_t *scr, const cfg_object_t *o) {
     lv_image_set_src(img, &s->dsc);   // last: triggers decode-info while src lives
 }
 
+static void clock_tick_cb(lv_timer_t *t) {
+    (void)t;
+    if (!s_clock_lbl) return;
+    char buf[64];
+    if (!time_is_synced()) {
+        lv_label_set_text(s_clock_lbl, "--:--");
+        return;
+    }
+    time_t now = time(NULL);
+    struct tm lt;
+    localtime_r(&now, &lt);
+    format_clock(&lt, s_clock_24h, s_clock_date, s_clock_weekday, buf, sizeof(buf));
+    lv_label_set_text(s_clock_lbl, buf);
+}
+
+static void render_clock(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
+    px_box_t b = geom_box(o);
+    lv_obj_t *lbl = lv_label_create(scr);
+    lv_obj_set_pos(lbl, b.x, b.y);
+    lv_obj_set_width(lbl, b.w > 0 ? b.w : LV_SIZE_CONTENT);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(fg), LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, font_cache_get(o->font_size), LV_PART_MAIN);
+    lv_obj_set_style_text_align(lbl, lv_align_of(o->align), LV_PART_MAIN);
+    s_clock_lbl     = lbl;
+    s_clock_24h     = s_cfg->clock_24h;
+    s_clock_date    = o->clock_show_date;
+    s_clock_weekday = o->clock_show_weekday;
+    clock_tick_cb(NULL);  // paint immediately
+    s_clock_timer = lv_timer_create(clock_tick_cb, 1000, NULL);
+}
+
+static void render_wifi(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
+    px_box_t b = geom_box(o);
+    lv_obj_t *cont = lv_obj_create(scr);
+    lv_obj_set_pos(cont, b.x, b.y);
+    lv_obj_set_size(cont, b.w > 0 ? b.w : 40, b.h > 0 ? b.h : 24);
+    lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(cont, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(cont, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+    int n = 4;
+    int gap = 3;
+    int barw = ((b.w > 0 ? b.w : 40) - gap * (n - 1)) / n;
+    int maxh = (b.h > 0 ? b.h : 24);
+    for (int i = 0; i < n; i++) {
+        lv_obj_t *bar = lv_obj_create(cont);
+        int bh = maxh * (i + 1) / n;
+        lv_obj_set_size(bar, barw, bh);
+        lv_obj_set_pos(bar, i * (barw + gap), maxh - bh);
+        lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);
+        lv_obj_set_style_radius(bar, 1, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(bar, lv_color_hex(fg), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(bar, i < s_wifi_level ? LV_OPA_COVER : LV_OPA_30, LV_PART_MAIN);
+        lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    s_wifi_obj = cont;
+}
+
+static void render_spinner(lv_obj_t *scr, const cfg_object_t *o, uint32_t accent) {
+    px_box_t b = geom_box(o);
+    int side = (b.w < b.h ? b.w : b.h);
+    if (side < 24) side = 24;
+    lv_obj_t *sp = lv_spinner_create(scr);
+    lv_obj_set_size(sp, side, side);
+    lv_obj_set_pos(sp, b.x, b.y);
+    lv_obj_set_style_arc_color(sp, lv_color_hex(accent), LV_PART_INDICATOR);
+}
+
 static lv_obj_t *build_splash(void) {
     font_cache_begin_pass();
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -193,7 +272,10 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
                 if (o->icon_src == ICON_UPLOAD) render_image(scr, o);
                 else render_placeholder(scr, o, s_cfg->brand_fg);  // preset sprites: M5c
                 break;
-            default:       render_placeholder(scr, o, s_cfg->brand_fg); break;  // M5b/M5c
+            case OBJ_CLOCK:   render_clock(scr, o, s_cfg->brand_fg); break;
+            case OBJ_WIFI:    render_wifi(scr, o, s_cfg->brand_fg); break;
+            case OBJ_SPINNER: render_spinner(scr, o, s_cfg->brand_accent); break;
+            default:       render_placeholder(scr, o, s_cfg->brand_fg); break;  // M5c remaining
         }
     }
     // Online status dot removed per product decision; connectivity will be shown
@@ -226,7 +308,10 @@ void ui_set_config(const device_config_t *cfg) {
 void ui_render_state(dev_state_t st) {
     dev_screen_t screen = screen_for_state(st);
     lvgl_port_lock(0);
-    s_status_dot = NULL;   // cleared each render; build_screen reinstalls it, splash leaves it NULL
+    if (s_clock_timer) { lv_timer_delete(s_clock_timer); s_clock_timer = NULL; }
+    s_status_dot = NULL;   // cleared each render; build_screen reinstalls it
+    s_clock_lbl  = NULL;
+    s_wifi_obj   = NULL;
     lv_obj_t *scr = (st == DEV_BOOT) ? build_splash() : build_screen(screen);
     lv_obj_t *old = s_active;
     s_active = scr;
@@ -252,6 +337,21 @@ void ui_set_online(bool online) {
     if (s_status_dot) {
         lv_obj_set_style_bg_color(s_status_dot,
             lv_color_hex(online ? DITTO_ONLINE : DITTO_GREY), LV_PART_MAIN);
+    }
+    lvgl_port_unlock();
+}
+
+void ui_set_wifi_level(int level) {
+    if (level < 0) level = 0;
+    if (level > 4) level = 4;
+    lvgl_port_lock(0);
+    s_wifi_level = level;
+    if (s_wifi_obj) {
+        uint32_t childcnt = lv_obj_get_child_count(s_wifi_obj);
+        for (uint32_t i = 0; i < childcnt; i++) {
+            lv_obj_t *bar = lv_obj_get_child(s_wifi_obj, i);
+            lv_obj_set_style_bg_opa(bar, (int)i < s_wifi_level ? LV_OPA_COVER : LV_OPA_30, LV_PART_MAIN);
+        }
     }
     lvgl_port_unlock();
 }

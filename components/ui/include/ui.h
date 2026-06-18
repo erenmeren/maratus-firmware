@@ -27,5 +27,8 @@ void ui_set_qr_url(const char *url);
 // every screen; not a branding object.
 void ui_set_online(bool online);
 
+// Set the wifi widget signal strength (0..4 bars). Clamped. From live RSSI.
+void ui_set_wifi_level(int level);
+
 // True (once) if the screen was tapped since the last call. Cleared on read.
 bool ui_consume_tap(void);
