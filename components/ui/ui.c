@@ -318,21 +318,33 @@ static void render_countdown(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg, 
     px_box_t b = geom_box(o);
     int total = s_cd_pending;
     s_cd_remaining = total;
-
-    lv_obj_t *label = lv_label_create(scr);
-    lv_label_set_text(label, "Code expires");
-    lv_obj_set_style_text_color(label, lv_color_hex(fg), LV_PART_MAIN);
-    lv_obj_set_style_text_font(label, font_cache_get(o->font_size > 0 ? o->font_size : 18, false), LV_PART_MAIN);
-    lv_obj_set_pos(label, b.x, b.y);
+    int box_w = b.w > 0 ? b.w : 160;
+    const lv_font_t *font = font_cache_get(o->font_size > 0 ? o->font_size : 18, false);
 
     char buf[16];
     format_mmss(total, buf, sizeof(buf));
+
+    // Caption ("Code expires", left) and time ("M:SS", right) share one row. On a
+    // box too narrow to fit both they would overlap, so only show the caption when
+    // there's room; otherwise center the time on its own.
+    int cap_w  = lv_text_get_width("Code expires", 12, font, 0);
+    int time_w = lv_text_get_width("00:00", 5, font, 0);
+    bool show_caption = box_w >= cap_w + time_w + 12;
+
+    if (show_caption) {
+        lv_obj_t *label = lv_label_create(scr);
+        lv_label_set_text(label, "Code expires");
+        lv_obj_set_style_text_color(label, lv_color_hex(fg), LV_PART_MAIN);
+        lv_obj_set_style_text_font(label, font, LV_PART_MAIN);
+        lv_obj_set_pos(label, b.x, b.y);
+    }
+
     lv_obj_t *tlbl = lv_label_create(scr);
     lv_label_set_text(tlbl, buf);
     lv_obj_set_style_text_color(tlbl, lv_color_hex(fg), LV_PART_MAIN);
-    lv_obj_set_style_text_font(tlbl, font_cache_get(o->font_size > 0 ? o->font_size : 18, false), LV_PART_MAIN);
-    lv_obj_set_style_text_align(tlbl, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-    lv_obj_set_width(tlbl, b.w > 0 ? b.w : 120);
+    lv_obj_set_style_text_font(tlbl, font, LV_PART_MAIN);
+    lv_obj_set_style_text_align(tlbl, show_caption ? LV_TEXT_ALIGN_RIGHT : LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_width(tlbl, box_w);
     lv_obj_set_pos(tlbl, b.x, b.y);
     s_cd_time = tlbl;
 
