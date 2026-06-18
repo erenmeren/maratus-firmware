@@ -291,6 +291,7 @@ static void render_countdown(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg, 
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);
     s_cd_bar = bar;
 
+    /* only non-NULL if this screen defines >1 OBJ_COUNTDOWN; ui_render_state already NULL'd it otherwise */
     if (s_cd_timer) { lv_timer_delete(s_cd_timer); s_cd_timer = NULL; }
     s_cd_timer = lv_timer_create(cd_tick_cb, 1000, NULL);
 }
@@ -376,6 +377,7 @@ void ui_render_state(dev_state_t st) {
     s_status_dot = NULL;   // cleared each render; build_screen reinstalls it
     s_clock_lbl  = NULL;
     s_wifi_obj   = NULL;
+    s_cd_expired = false;   // re-render restarts the countdown; a pending expiry is stale
     s_cd_time    = NULL;
     s_cd_bar     = NULL;
     lv_obj_t *scr = (st == DEV_BOOT) ? build_splash() : build_screen(screen);
