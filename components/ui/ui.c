@@ -193,6 +193,7 @@ static void render_clock(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
     s_clock_date    = o->clock_show_date;
     s_clock_weekday = o->clock_show_weekday;
     clock_tick_cb(NULL);  // paint immediately
+    if (s_clock_timer) { lv_timer_delete(s_clock_timer); s_clock_timer = NULL; }
     s_clock_timer = lv_timer_create(clock_tick_cb, 1000, NULL);
 }
 
@@ -231,6 +232,8 @@ static void render_spinner(lv_obj_t *scr, const cfg_object_t *o, uint32_t accent
     lv_obj_set_size(sp, side, side);
     lv_obj_set_pos(sp, b.x, b.y);
     lv_obj_set_style_arc_color(sp, lv_color_hex(accent), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(sp, lv_color_hex(accent), LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(sp,   LV_OPA_30,            LV_PART_MAIN);
 }
 
 static lv_obj_t *build_splash(void) {
