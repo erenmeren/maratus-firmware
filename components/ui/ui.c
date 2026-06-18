@@ -24,8 +24,9 @@ static char       s_qr_url[256];
 static bool       s_online;
 static volatile bool s_tap_requested;
 
-static lv_obj_t  *s_clock_lbl;         // active-screen clock label (NULL if none)
-static lv_timer_t *s_clock_timer;      // 1 Hz tick for the clock label
+static lv_obj_t  *s_clock_time_lbl;    // active-screen clock time label (NULL if none)
+static lv_obj_t  *s_clock_date_lbl;    // active-screen clock date label (NULL if hidden/none)
+static lv_timer_t *s_clock_timer;      // 1 Hz tick for the clock labels
 static bool       s_clock_24h;
 static bool       s_clock_date;
 static bool       s_clock_weekday;
@@ -95,7 +96,7 @@ static void render_text(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
     lv_obj_set_width(lbl, b.w > 0 ? b.w : LV_SIZE_CONTENT);
     lv_label_set_text(lbl, o->text);
     lv_obj_set_style_text_color(lbl, lv_color_hex(fg), LV_PART_MAIN);
-    lv_obj_set_style_text_font(lbl, font_cache_get(o->font_size), LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, font_cache_get(o->font_size, false), LV_PART_MAIN);
     lv_obj_set_style_text_align(lbl, lv_align_of(o->align), LV_PART_MAIN);
     lv_obj_set_pos(lbl, b.x, b.y);
 }
@@ -172,47 +173,89 @@ static void render_image(lv_obj_t *scr, const cfg_object_t *o) {
     lv_image_set_src(img, &s->dsc);   // last: triggers decode-info while src lives
 }
 
-static char s_clock_last[64];          // last text pushed to the clock label
+static char s_clock_time_last[32];     // last text pushed to the time label
+static char s_clock_date_last[48];     // last text pushed to the date label
 
 static void clock_tick_cb(lv_timer_t *t) {
     (void)t;
-    if (!s_clock_lbl) return;
-    char buf[64];
+    if (!s_clock_time_lbl) return;
+    char tbuf[32], dbuf[48];
     if (!time_is_synced()) {
-        strncpy(buf, "--:--", sizeof(buf) - 1);
-        buf[sizeof(buf) - 1] = '\0';
+        strncpy(tbuf, "--:--", sizeof(tbuf) - 1);
+        tbuf[sizeof(tbuf) - 1] = '\0';
+        dbuf[0] = '\0';
     } else {
         time_t now = time(NULL);
         struct tm lt;
         localtime_r(&now, &lt);
-        format_clock(&lt, s_clock_24h, s_clock_date, s_clock_weekday, buf, sizeof(buf));
+        format_clock_time(&lt, s_clock_24h, tbuf, sizeof(tbuf));
+        if (s_clock_date) format_clock_date(&lt, s_clock_weekday, dbuf, sizeof(dbuf));
+        else              dbuf[0] = '\0';
     }
-    // The clock shows HH:MM (no seconds), so its text changes once a MINUTE — but this
-    // tick fires every second. lv_label_set_text unconditionally invalidates+redraws the
-    // label (no equality check), so pushing it every second is ~60 wasted repaints/min.
-    // Repaint only when the text actually changed.
-    if (strcmp(buf, s_clock_last) == 0) return;
-    strncpy(s_clock_last, buf, sizeof(s_clock_last) - 1);
-    s_clock_last[sizeof(s_clock_last) - 1] = '\0';
-    lv_label_set_text(s_clock_lbl, buf);
+    // Time (HH:MM) and date change at most once a minute, but this tick fires every
+    // second. lv_label_set_text always invalidates+redraws (no equality check), so
+    // repaint each label only when its own text actually changed.
+    if (strcmp(tbuf, s_clock_time_last) != 0) {
+        strncpy(s_clock_time_last, tbuf, sizeof(s_clock_time_last) - 1);
+        s_clock_time_last[sizeof(s_clock_time_last) - 1] = '\0';
+        lv_label_set_text(s_clock_time_lbl, tbuf);
+    }
+    if (s_clock_date_lbl && strcmp(dbuf, s_clock_date_last) != 0) {
+        strncpy(s_clock_date_last, dbuf, sizeof(s_clock_date_last) - 1);
+        s_clock_date_last[sizeof(s_clock_date_last) - 1] = '\0';
+        lv_label_set_text(s_clock_date_lbl, dbuf);
+    }
 }
 
+// Matches the branding preview's clock: a bold time (~half the box height) above a
+// smaller, muted date line, the whole block vertically centered in the box. Admin
+// sends no fontSize for the clock, so the time size is derived from the box height.
 static void render_clock(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
     px_box_t b = geom_box(o);
-    lv_obj_t *lbl = lv_label_create(scr);
-    lv_obj_set_pos(lbl, b.x, b.y);
-    lv_obj_set_width(lbl, b.w > 0 ? b.w : LV_SIZE_CONTENT);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(fg), LV_PART_MAIN);
-    // Admin never sends a fontSize for the clock widget, so o->font_size is 0 here
-    // (parser only fills it for text objects). Fall back to a readable default
-    // sized for the clock box rather than rendering at the font-cache minimum.
-    lv_obj_set_style_text_font(lbl, font_cache_get(o->font_size > 0 ? o->font_size : 40), LV_PART_MAIN);
-    lv_obj_set_style_text_align(lbl, lv_align_of(o->align), LV_PART_MAIN);
-    s_clock_lbl     = lbl;
+    bool show_date = o->clock_show_date;
+
+    int box_h   = b.h > 0 ? b.h : 80;
+    int time_px = o->font_size > 0 ? o->font_size : box_h / 2;   // preview: time ~ box_h * 0.5
+    if (time_px < 12) time_px = 12;
+    int date_px = (time_px * 26) / 100;                          // preview: date ~ 26% of time
+    if (date_px < 10) date_px = 10;
+    int gap     = (time_px * 10) / 100;                          // small gap between the lines
+
+    const lv_font_t *time_font = font_cache_get(time_px, /*bold*/ true);
+    const lv_font_t *date_font = show_date ? font_cache_get(date_px, /*bold*/ false) : NULL;
+    int time_lh = lv_font_get_line_height(time_font);
+    int date_lh = date_font ? lv_font_get_line_height(date_font) : 0;
+    int total_h = time_lh + (show_date ? gap + date_lh : 0);
+    int top     = b.y + (box_h - total_h) / 2;
+    if (top < b.y) top = b.y;
+    int width   = b.w > 0 ? b.w : LV_SIZE_CONTENT;
+    lv_text_align_t ta = lv_align_of(o->align);
+
+    lv_obj_t *time_lbl = lv_label_create(scr);
+    lv_obj_set_width(time_lbl, width);
+    lv_obj_set_style_text_color(time_lbl, lv_color_hex(fg), LV_PART_MAIN);
+    lv_obj_set_style_text_font(time_lbl, time_font, LV_PART_MAIN);
+    lv_obj_set_style_text_align(time_lbl, ta, LV_PART_MAIN);
+    lv_obj_set_pos(time_lbl, b.x, top);
+    s_clock_time_lbl = time_lbl;
+
+    s_clock_date_lbl = NULL;
+    if (show_date) {
+        lv_obj_t *date_lbl = lv_label_create(scr);
+        lv_obj_set_width(date_lbl, width);
+        lv_obj_set_style_text_color(date_lbl, lv_color_hex(fg), LV_PART_MAIN);
+        lv_obj_set_style_text_opa(date_lbl, LV_OPA_60, LV_PART_MAIN);  // muted (no separate muted color on device)
+        lv_obj_set_style_text_font(date_lbl, date_font, LV_PART_MAIN);
+        lv_obj_set_style_text_align(date_lbl, ta, LV_PART_MAIN);
+        lv_obj_set_pos(date_lbl, b.x, top + time_lh + gap);
+        s_clock_date_lbl = date_lbl;
+    }
+
     s_clock_24h     = s_cfg->clock_24h;
-    s_clock_date    = o->clock_show_date;
+    s_clock_date    = show_date;
     s_clock_weekday = o->clock_show_weekday;
-    s_clock_last[0] = '\0';  // new label: force the first paint regardless of cached text
+    s_clock_time_last[0] = '\0';   // new labels: force the first paint
+    s_clock_date_last[0] = '\0';
     clock_tick_cb(NULL);  // paint immediately
     if (s_clock_timer) { lv_timer_delete(s_clock_timer); s_clock_timer = NULL; }
     s_clock_timer = lv_timer_create(clock_tick_cb, 1000, NULL);
@@ -279,7 +322,7 @@ static void render_countdown(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg, 
     lv_obj_t *label = lv_label_create(scr);
     lv_label_set_text(label, "Code expires");
     lv_obj_set_style_text_color(label, lv_color_hex(fg), LV_PART_MAIN);
-    lv_obj_set_style_text_font(label, font_cache_get(o->font_size > 0 ? o->font_size : 18), LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, font_cache_get(o->font_size > 0 ? o->font_size : 18, false), LV_PART_MAIN);
     lv_obj_set_pos(label, b.x, b.y);
 
     char buf[16];
@@ -287,7 +330,7 @@ static void render_countdown(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg, 
     lv_obj_t *tlbl = lv_label_create(scr);
     lv_label_set_text(tlbl, buf);
     lv_obj_set_style_text_color(tlbl, lv_color_hex(fg), LV_PART_MAIN);
-    lv_obj_set_style_text_font(tlbl, font_cache_get(o->font_size > 0 ? o->font_size : 18), LV_PART_MAIN);
+    lv_obj_set_style_text_font(tlbl, font_cache_get(o->font_size > 0 ? o->font_size : 18, false), LV_PART_MAIN);
     lv_obj_set_style_text_align(tlbl, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     lv_obj_set_width(tlbl, b.w > 0 ? b.w : 120);
     lv_obj_set_pos(tlbl, b.x, b.y);
@@ -318,7 +361,7 @@ static lv_obj_t *build_splash(void) {
     lv_obj_t *title = lv_label_create(scr);
     lv_label_set_text(title, "Ditto");
     lv_obj_set_style_text_color(title, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, font_cache_get(64), LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, font_cache_get(64, /*bold*/ true), LV_PART_MAIN);
     lv_obj_center(title);
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(scr, on_screen_click, LV_EVENT_CLICKED, NULL);
@@ -363,10 +406,11 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
 }
 
 void ui_init(void) {
-    size_t flen = 0;
-    const uint8_t *ttf = assets_font(&flen);
+    size_t reg_len = 0, bold_len = 0;
+    const uint8_t *reg  = assets_font(&reg_len);
+    const uint8_t *bold = assets_font_bold(&bold_len);
     lvgl_port_lock(0);
-    font_cache_init(ttf, flen);
+    font_cache_init(reg, reg_len, bold, bold_len);
     // Route decoded image bitmaps (lodepng output) to PSRAM. The widget/font
     // handlers are untouched.
     lv_draw_buf_handlers_t *ih = lv_draw_buf_get_image_handlers();
@@ -389,7 +433,8 @@ void ui_render_state(dev_state_t st) {
     if (s_clock_timer) { lv_timer_delete(s_clock_timer); s_clock_timer = NULL; }
     if (s_cd_timer)   { lv_timer_delete(s_cd_timer);   s_cd_timer   = NULL; }
     s_status_dot = NULL;   // cleared each render; build_screen reinstalls it
-    s_clock_lbl  = NULL;
+    s_clock_time_lbl = NULL;
+    s_clock_date_lbl = NULL;
     s_wifi_obj   = NULL;
     s_cd_expired = false;   // re-render restarts the countdown; a pending expiry is stale
     s_cd_time    = NULL;
