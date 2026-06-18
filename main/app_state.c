@@ -115,7 +115,7 @@ static int rssi_to_level(int rssi) {
 static void idle_wait_or_qr_expiry(int total_ms) {
     const int slice = 500;
     for (int waited = 0; waited < total_ms; waited += slice) {
-        if (s_state == DEV_QR && ui_consume_countdown_expired()) {
+        if (ui_consume_countdown_expired()) {
             s_state = DEV_IDLE;
             ui_render_state(DEV_IDLE);
             return;
@@ -156,6 +156,7 @@ static void poll_task(void *arg)
                     prefetch_and_evict_assets(s_cfg_buf[next]);  // fill/prune flash cache before render
                     ui_set_config(s_cfg_buf[next]);     // publish under the LVGL lock (pointer swap)
                     time_sync_set_tz(s_cfg_buf[next]->clock_timezone);  // POSIX TZ from payload
+                    ui_set_countdown(s_cfg_buf[next]->qr_timeout_seconds);  // keep duration current for any receipt path
                     s_cfg_live = next;
                     ui_render_state(s_state);           // re-render current screen with new config (cache hits)
                 }
