@@ -15,7 +15,9 @@
 #include "esp_wifi.h"
 
 static const char *TAG = "state";
-static dev_state_t s_state = DEV_BOOT;
+// Written by poll_task and by render_job (the ESC/POS task) via app_state_set_state;
+// volatile for cross-task visibility. A single enum word — read/write is atomic.
+static volatile dev_state_t s_state = DEV_BOOT;
 // Double-buffered config (parse into the idle buffer, publish under the LVGL lock).
 // Each device_config_t is ~67KB, so both live in PSRAM (CPU-read only, no DMA) to
 // keep internal DRAM free for Wi-Fi/SDIO/TLS buffers — allocated in app_state_run().
@@ -24,6 +26,8 @@ static int s_cfg_live = 0;             // index of the buffer the renderer curre
 static volatile bool s_config_dirty = true;   // fetch once after first connect
 
 void app_state_request_config(void) { s_config_dirty = true; }
+
+void app_state_set_state(dev_state_t st) { s_state = st; }
 
 #define POLL_IDLE_MS     12000
 #define POLL_BACKOFF_MIN 2000
