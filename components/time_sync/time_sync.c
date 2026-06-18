@@ -17,10 +17,14 @@ static void on_sync(struct timeval *tv) {
 
 void time_sync_start(void) {
     if (s_started) return;
-    s_started = true;
     esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
     cfg.sync_cb = on_sync;
-    esp_netif_sntp_init(&cfg);
+    esp_err_t rc = esp_netif_sntp_init(&cfg);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "SNTP init failed: %s", esp_err_to_name(rc));
+        return;   // leave s_started false so the next online poll retries
+    }
+    s_started = true;
     ESP_LOGI(TAG, "SNTP started");
 }
 
