@@ -134,6 +134,11 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
     if (cfg->wifi_level < 0) cfg->wifi_level = 0;
     if (cfg->wifi_level > 4) cfg->wifi_level = 4;
 
+    cJSON *qt = config ? cJSON_GetObjectItem(config, "qrTimeoutSeconds") : NULL;
+    cfg->qr_timeout_seconds = cJSON_IsNumber(qt) ? (int)qt->valuedouble : 60;
+    if (cfg->qr_timeout_seconds < 15)  cfg->qr_timeout_seconds = 15;
+    if (cfg->qr_timeout_seconds > 180) cfg->qr_timeout_seconds = 180;
+
     cJSON *screens = config ? cJSON_GetObjectItem(config, "screens") : NULL;
     for (int i = 0; i < SCREEN_COUNT; i++) {
         cJSON *scr = screens ? cJSON_GetObjectItem(screens, SCREEN_NAMES[i]) : NULL;

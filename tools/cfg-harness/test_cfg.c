@@ -222,6 +222,28 @@ static void test_mmss(void) {
     printf("test_mmss OK\n");
 }
 
+static void test_qr_timeout(void) {
+    device_config_t cfg;
+
+    // present value: 90 -> 90
+    const char *j1 = "{\"version\":\"v1\",\"config\":{\"qrTimeoutSeconds\":90}}";
+    assert(cfg_parse_json(j1, &cfg) && cfg.qr_timeout_seconds == 90);
+
+    // absent key -> default 60
+    const char *j2 = "{\"version\":\"v1\",\"config\":{}}";
+    assert(cfg_parse_json(j2, &cfg) && cfg.qr_timeout_seconds == 60);
+
+    // below min (5) -> clamped to 15
+    const char *j3 = "{\"version\":\"v1\",\"config\":{\"qrTimeoutSeconds\":5}}";
+    assert(cfg_parse_json(j3, &cfg) && cfg.qr_timeout_seconds == 15);
+
+    // above max (999) -> clamped to 180
+    const char *j4 = "{\"version\":\"v1\",\"config\":{\"qrTimeoutSeconds\":999}}";
+    assert(cfg_parse_json(j4, &cfg) && cfg.qr_timeout_seconds == 180);
+
+    printf("test_qr_timeout OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -231,6 +253,7 @@ int main(void) {
     test_asset_evict();
     test_clock();
     test_mmss();
+    test_qr_timeout();
     printf("ALL TESTS PASSED\n");
     return 0;
 }

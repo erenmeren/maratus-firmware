@@ -64,5 +64,6 @@ typedef struct {
     char     clock_timezone[CFG_TZ_LEN];
     bool     clock_24h;
     int      wifi_level;       // 0..4
+    int      qr_timeout_seconds;  // receipt/QR auto-return timeout, 15..180
     cfg_screen_t screens[SCREEN_COUNT];
 } device_config_t;
