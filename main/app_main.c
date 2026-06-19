@@ -113,9 +113,13 @@ void app_main(void)
     // stop here (no print server / state machine until the device has a key).
     if (!appcfg_has_device_key()) {
         ESP_LOGI(TAG, "no device key; entering provisioning mode");
-        static device_config_t setup_cfg;
-        provisioning_default_setup_config(&setup_cfg);
-        ui_set_config(&setup_cfg);
+        // ~67KB config — keep it in PSRAM (not internal .bss), like g_cfg above.
+        // Lives until the post-claim reboot; never freed (intentional).
+        device_config_t *setup_cfg = heap_caps_calloc(1, sizeof(*setup_cfg), MALLOC_CAP_SPIRAM);
+        if (setup_cfg) {
+            provisioning_default_setup_config(setup_cfg);
+            ui_set_config(setup_cfg);   // NULL → ui falls back to the splash; claim still proceeds
+        }
         ui_set_pairing_code(appcfg_pairing_code());
         ui_render_state(DEV_SETUP);
         xTaskCreate(provisioning_task, "ditto_provision", 8192, NULL, 5, NULL);
