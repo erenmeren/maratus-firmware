@@ -21,6 +21,7 @@ static const device_config_t *s_cfg;
 static lv_obj_t  *s_active;            // currently displayed screen
 static lv_obj_t  *s_status_dot;        // chrome dot on the active screen
 static char       s_qr_url[256];
+static char       s_pairing_code[16];
 static bool       s_online;
 static volatile bool s_tap_requested;
 
@@ -365,6 +366,42 @@ static void render_countdown(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg, 
     s_cd_timer = lv_timer_create(cd_tick_cb, 1000, NULL);
 }
 
+// Setup-screen pairing code: a large, letter-spaced, centered code (e.g.
+// "ABCD-2345") the operator types into the dashboard. Falls back to "----" until
+// a code has been set via ui_set_pairing_code.
+static void render_pairing_code(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
+    px_box_t b = geom_box(o);
+    int box_h = b.h > 0 ? b.h : 80;
+    lv_obj_t *lbl = lv_label_create(scr);
+    lv_obj_set_width(lbl, b.w > 0 ? b.w : LV_SIZE_CONTENT);
+    lv_label_set_text(lbl, s_pairing_code[0] ? s_pairing_code : "----");
+    lv_obj_set_style_text_color(lbl, lv_color_hex(fg), LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, font_cache_get(box_h * 2 / 3, true), LV_PART_MAIN);
+    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(lbl, 2, LV_PART_MAIN);
+    lv_obj_set_pos(lbl, b.x, b.y);
+}
+
+static const char *const SETUP_STEPS[] = {
+    "1.  Open your Ditto dashboard",
+    "2.  Add a printer to a store",
+    "3.  Enter the code below",
+};
+static void render_steps(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
+    px_box_t b = geom_box(o);
+    int n = (int)(sizeof(SETUP_STEPS) / sizeof(SETUP_STEPS[0]));
+    int fs = o->font_size > 0 ? o->font_size : 22;
+    int line_h = (b.h > 0 ? b.h : 120) / n;
+    for (int i = 0; i < n; i++) {
+        lv_obj_t *lbl = lv_label_create(scr);
+        lv_obj_set_width(lbl, b.w > 0 ? b.w : LV_SIZE_CONTENT);
+        lv_label_set_text(lbl, SETUP_STEPS[i]);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(fg), LV_PART_MAIN);
+        lv_obj_set_style_text_font(lbl, font_cache_get(fs, false), LV_PART_MAIN);
+        lv_obj_set_pos(lbl, b.x, b.y + i * line_h);
+    }
+}
+
 static lv_obj_t *build_splash(void) {
     font_cache_begin_pass();
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -408,6 +445,8 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
             case OBJ_WIFI:    render_wifi(scr, o, s_cfg->brand_fg); break;
             case OBJ_SPINNER:   render_spinner(scr, o, s_cfg->brand_accent); break;
             case OBJ_COUNTDOWN: render_countdown(scr, o, s_cfg->brand_fg, s_cfg->brand_accent); break;
+            case OBJ_PAIRING_CODE: render_pairing_code(scr, o, s_cfg->brand_fg); break;
+            case OBJ_STEPS:        render_steps(scr, o, s_cfg->brand_fg); break;
             default:       render_placeholder(scr, o, s_cfg->brand_fg); break;  // M5c remaining
         }
     }
@@ -467,6 +506,13 @@ void ui_set_qr_url(const char *url) {
         strncpy(s_qr_url, url, sizeof(s_qr_url) - 1);
         s_qr_url[sizeof(s_qr_url) - 1] = '\0';
     }
+    lvgl_port_unlock();
+}
+
+void ui_set_pairing_code(const char *code) {
+    lvgl_port_lock(0);
+    if (!code) s_pairing_code[0] = '\0';
+    else { strncpy(s_pairing_code, code, sizeof(s_pairing_code) - 1); s_pairing_code[sizeof(s_pairing_code) - 1] = '\0'; }
     lvgl_port_unlock();
 }
 

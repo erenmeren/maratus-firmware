@@ -23,6 +23,10 @@ void ui_render_state(dev_state_t st);
 // Stash the URL the qr widget should encode on the next/ current qr render.
 void ui_set_qr_url(const char *url);
 
+// Stash the pairing code the setup screen's pairingCode widget should display on
+// the next render. Pass NULL to clear.
+void ui_set_pairing_code(const char *code);
+
 // Set the firmware-chrome connectivity dot (true = online/green). Overlaid on
 // every screen; not a branding object.
 void ui_set_online(bool online);
