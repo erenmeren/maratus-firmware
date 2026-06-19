@@ -113,6 +113,7 @@ void app_main(void)
     // stop here (no print server / state machine until the device has a key).
     if (!appcfg_has_device_key()) {
         ESP_LOGI(TAG, "no device key; entering provisioning mode");
+        ESP_LOGI(TAG, "pairing code: %s", appcfg_pairing_code());
         // ~67KB config — keep it in PSRAM (not internal .bss), like g_cfg above.
         // Lives until the post-claim reboot; never freed (intentional).
         device_config_t *setup_cfg = heap_caps_calloc(1, sizeof(*setup_cfg), MALLOC_CAP_SPIRAM);
