@@ -38,6 +38,11 @@ void cloud_config_load_cached(device_config_t *cfg);
 // or transport error frees any partial buffer and returns an esp_err_t != ESP_OK.
 esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len);
 
+// GET /api/device/claim?code=<code> (unauthenticated). On HTTP 200 parses the
+// returned deviceKey into key_out (NUL-terminated, up to key_len-1) and returns
+// true. Otherwise leaves key_out empty and returns false.
+bool cloud_claim_poll(const char *code, char *key_out, size_t key_len);
+
 // Register a hook invoked when a config-changed command arrives (set by main).
 void cloud_set_config_changed_cb(void (*cb)(void));
 // Internal: the registered hook (NULL if none). Used by commands.c.
