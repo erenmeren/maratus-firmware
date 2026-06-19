@@ -13,8 +13,31 @@
 #include "device_config.h"
 #include "esp_heap_caps.h"
 #include "esp_littlefs.h"
+#include "esp_system.h"          // esp_restart
+#include "provisioning.h"        // provisioning_default_setup_config
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "ditto";
+
+// Unauthenticated claim poll: while the device has no NVS device key, show the
+// setup screen and poll GET /api/device/claim with our pairing code. When the
+// operator pairs it in the dashboard the server returns a deviceKey; we persist
+// it and reboot into the normal (claimed) boot path.
+static void provisioning_task(void *arg) {
+    (void)arg;
+    const char *code = appcfg_pairing_code();
+    char key[80];
+    for (;;) {
+        if (net_is_connected() && cloud_claim_poll(code, key, sizeof(key))) {
+            ESP_LOGI(TAG, "claimed; storing device key + rebooting");
+            appcfg_store_device_key(key);
+            vTaskDelay(pdMS_TO_TICKS(500));
+            esp_restart();
+        }
+        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
+}
 
 // Mount the on-flash asset cache (the `assets` LittleFS partition) at /assets.
 // Failure is non-fatal: the rest of boot continues, asset_cache_get just misses.
@@ -85,6 +108,19 @@ void app_main(void)
 
     // 3b) Mount the on-flash asset-cache filesystem (non-fatal on failure).
     assets_fs_mount();
+
+    // 3c) Unclaimed device: show the setup screen + run the claim-poll task, then
+    // stop here (no print server / state machine until the device has a key).
+    if (!appcfg_has_device_key()) {
+        ESP_LOGI(TAG, "no device key; entering provisioning mode");
+        static device_config_t setup_cfg;
+        provisioning_default_setup_config(&setup_cfg);
+        ui_set_config(&setup_cfg);
+        ui_set_pairing_code(appcfg_pairing_code());
+        ui_render_state(DEV_SETUP);
+        xTaskCreate(provisioning_task, "ditto_provision", 8192, NULL, 5, NULL);
+        return;
+    }
 
     // 4) Continuous poll loop + device state machine.
     app_state_run();
