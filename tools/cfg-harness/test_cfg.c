@@ -277,6 +277,17 @@ static void test_provisioning(void) {
     assert(!provisioning_parse_claim("{\"status\":\"pending\"}", key, sizeof(key)));
     assert(key[0] == '\0');
     assert(!provisioning_parse_claim("not json", key, sizeof(key)));
+
+    device_config_t pc;
+    provisioning_default_setup_config(&pc);
+    assert(pc.valid);
+    cfg_screen_t *setup = &pc.screens[SCREEN_SETUP];
+    bool has_code = false, has_steps = false;
+    for (int i = 0; i < setup->n; i++) {
+        if (setup->objects[i].type == OBJ_PAIRING_CODE) has_code = true;
+        if (setup->objects[i].type == OBJ_STEPS) has_steps = true;
+    }
+    assert(has_code && has_steps);
     printf("test_provisioning OK\n");
 }
 
