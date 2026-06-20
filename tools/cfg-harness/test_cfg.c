@@ -9,6 +9,7 @@
 #include "clock_format.h"
 #include "provisioning.h"
 #include "wifi_util.h"
+#include "ota_manifest.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -315,6 +316,23 @@ static void test_wifi_util(void) {
     printf("test_wifi_util OK\n");
 }
 
+static void test_ota_manifest(void) {
+    fw_manifest_t m;
+    const char *ok = "{\"version\":\"0.3.0\",\"url\":\"https://r2/x?sig=1\",\"sha256\":\"abc\",\"size\":1599264}";
+    assert(ota_parse_manifest(ok, &m));
+    assert(strcmp(m.version, "0.3.0") == 0);
+    assert(strcmp(m.url, "https://r2/x?sig=1") == 0);
+    assert(m.size == 1599264);
+    assert(!ota_parse_manifest("{}", &m));
+    assert(!ota_parse_manifest("not json", &m));
+    assert(!ota_parse_manifest("{\"version\":\"0.3.0\"}", &m));  // missing url
+
+    assert(ota_should_update("0.2.0-m2", "0.3.0"));
+    assert(!ota_should_update("0.3.0", "0.3.0"));
+    assert(!ota_should_update("0.2.0-m2", ""));
+    printf("test_ota_manifest OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -327,6 +345,7 @@ int main(void) {
     test_qr_timeout();
     test_provisioning();
     test_wifi_util();
+    test_ota_manifest();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
