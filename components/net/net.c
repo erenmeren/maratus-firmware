@@ -46,13 +46,13 @@ void net_init(void)
 
 int net_scan(net_ap_t *out, int max)
 {
-    if (esp_wifi_scan_start(NULL, true) != ESP_OK) return 0;
+    if (esp_wifi_scan_start(NULL, true) != ESP_OK) { ESP_LOGW(TAG, "scan_start failed"); return 0; }
     uint16_t num = 0;
     esp_wifi_scan_get_ap_num(&num);
     if (num == 0) return 0;
     static wifi_ap_record_t recs[24];
     uint16_t want = num > 24 ? 24 : num;
-    if (esp_wifi_scan_get_ap_records(&want, recs) != ESP_OK) return 0;
+    if (esp_wifi_scan_get_ap_records(&want, recs) != ESP_OK) { ESP_LOGW(TAG, "get_ap_records failed"); return 0; }
     int n = 0;
     for (int i = 0; i < want && n < max; i++) {
         strncpy(out[n].ssid, (char *)recs[i].ssid, sizeof(out[n].ssid) - 1);
@@ -75,8 +75,8 @@ bool net_connect(const char *ssid, const char *pass)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
     ESP_LOGI(TAG, "connecting to SSID '%s'", ssid ? ssid : "");
     esp_wifi_connect();
-    xEventGroupWaitBits(s_events, GOT_IP_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(20000));
-    return s_connected;
+    EventBits_t bits = xEventGroupWaitBits(s_events, GOT_IP_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(20000));
+    return (bits & GOT_IP_BIT) != 0;
 }
 
 bool net_is_connected(void) { return s_connected; }
