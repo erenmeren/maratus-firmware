@@ -8,6 +8,7 @@
 #include "asset_evict.h"
 #include "clock_format.h"
 #include "provisioning.h"
+#include "wifi_util.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -291,6 +292,29 @@ static void test_provisioning(void) {
     printf("test_provisioning OK\n");
 }
 
+static void test_wifi_util(void) {
+    wifi_ap_t aps[5] = {
+        { "CafeNet", -70, false },
+        { "",        -40, true  },
+        { "CafeNet", -55, false },
+        { "Open",    -80, true  },
+        { "Far",     -90, false },
+    };
+    int n = wifi_util_dedupe_sort(aps, 5);
+    assert(n == 3);
+    assert(strcmp(aps[0].ssid, "CafeNet") == 0 && aps[0].rssi == -55);
+    assert(strcmp(aps[1].ssid, "Open") == 0);
+    assert(strcmp(aps[2].ssid, "Far") == 0);
+    assert(wifi_util_valid_ssid("x"));
+    assert(!wifi_util_valid_ssid(""));
+    assert(!wifi_util_valid_ssid("123456789012345678901234567890123"));
+    assert(wifi_util_valid_password(true, ""));
+    assert(wifi_util_valid_password(false, "12345678"));
+    assert(!wifi_util_valid_password(false, "short"));
+    assert(!wifi_util_valid_password(false, ""));
+    printf("test_wifi_util OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -302,6 +326,7 @@ int main(void) {
     test_mmss();
     test_qr_timeout();
     test_provisioning();
+    test_wifi_util();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
