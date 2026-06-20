@@ -15,3 +15,10 @@ bool appcfg_has_device_key(void);
 void appcfg_store_device_key(const char *key);
 // The provisioning pairing code: NVS-persisted, generated + stored on first call.
 const char *appcfg_pairing_code(void);
+
+// True if Wi-Fi credentials have been persisted to NVS.
+bool appcfg_has_wifi_creds(void);
+// Persist Wi-Fi credentials to NVS (SSID ignored if NULL/empty; pass may be empty).
+void appcfg_store_wifi_creds(const char *ssid, const char *pass);
+const char *appcfg_wifi_ssid(void);      // NVS → Kconfig fallback
+const char *appcfg_wifi_password(void);  // NVS → Kconfig fallback

@@ -9,6 +9,8 @@
 #define DITTO_NS "ditto"
 static char s_dev_key[80];
 static char s_pair[16];
+static char s_wifi_ssid[33];
+static char s_wifi_pass[64];
 
 static bool nvs_read(const char *key, char *out, size_t cap) {
     nvs_handle_t h; out[0] = '\0';
@@ -41,4 +43,21 @@ const char *appcfg_pairing_code(void) {
     provisioning_make_code(s_pair, sizeof(s_pair), rand_byte);
     nvs_write("pairing_code", s_pair);
     return s_pair;
+}
+
+bool appcfg_has_wifi_creds(void) {
+    char tmp[33];
+    return nvs_read("wifi_ssid", tmp, sizeof(tmp));
+}
+void appcfg_store_wifi_creds(const char *ssid, const char *pass) {
+    if (ssid && ssid[0]) nvs_write("wifi_ssid", ssid);
+    nvs_write("wifi_pass", pass ? pass : "");
+}
+const char *appcfg_wifi_ssid(void) {
+    if (nvs_read("wifi_ssid", s_wifi_ssid, sizeof(s_wifi_ssid))) return s_wifi_ssid;
+    return CONFIG_DITTO_WIFI_SSID;
+}
+const char *appcfg_wifi_password(void) {
+    if (nvs_read("wifi_pass", s_wifi_pass, sizeof(s_wifi_pass))) return s_wifi_pass;
+    return CONFIG_DITTO_WIFI_PASSWORD;
 }

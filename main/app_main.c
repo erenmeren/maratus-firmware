@@ -15,8 +15,10 @@
 #include "esp_littlefs.h"
 #include "esp_system.h"          // esp_restart
 #include "provisioning.h"        // provisioning_default_setup_config
+#include "wifi_setup.h"          // wifi_setup_run (first-boot on-screen Wi-Fi)
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <string.h>
 
 static const char *TAG = "ditto";
 
@@ -102,8 +104,14 @@ void app_main(void)
         ui_render_state(DEV_BOOT);
     }
 
-    // 3) Connect to Wi-Fi via the C6 (SDIO/esp-hosted).
-    net_start();
+    // 3) Wi-Fi: connect with stored/Kconfig creds, else run on-screen setup (first boot).
+    net_init();
+    if (appcfg_has_wifi_creds() ||
+        (appcfg_wifi_ssid()[0] && strcmp(appcfg_wifi_ssid(), "changeme") != 0)) {
+        net_connect(appcfg_wifi_ssid(), appcfg_wifi_password());
+    } else {
+        wifi_setup_run();
+    }
     ESP_LOGI(TAG, "Wi-Fi connected=%d", net_is_connected());
 
     // 3b) Mount the on-flash asset-cache filesystem (non-fatal on failure).
