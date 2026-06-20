@@ -366,3 +366,7 @@ bool cloud_get_firmware(fw_manifest_t *out)
 static void (*s_cfg_changed_cb)(void);
 void cloud_set_config_changed_cb(void (*cb)(void)) { s_cfg_changed_cb = cb; }
 void (*cloud_config_changed_handler(void))(void) { return s_cfg_changed_cb; }
+
+static void (*s_fw_update_cb)(void);
+void cloud_set_firmware_update_cb(void (*cb)(void)) { s_fw_update_cb = cb; }
+void (*cloud_firmware_update_handler(void))(void) { return s_fw_update_cb; }

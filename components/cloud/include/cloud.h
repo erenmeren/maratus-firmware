@@ -52,3 +52,9 @@ bool cloud_get_firmware(fw_manifest_t *out);
 void cloud_set_config_changed_cb(void (*cb)(void));
 // Internal: the registered hook (NULL if none). Used by commands.c.
 void (*cloud_config_changed_handler(void))(void);
+
+// Register a hook invoked when a firmware-update command arrives (set by main).
+// Registered via callback (not a direct ota_* call) to avoid a cloud<->ota cycle.
+void cloud_set_firmware_update_cb(void (*cb)(void));
+// Internal: the registered hook (NULL if none). Used by commands.c.
+void (*cloud_firmware_update_handler(void))(void);

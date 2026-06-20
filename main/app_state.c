@@ -13,6 +13,7 @@
 #include "esp_heap_caps.h"
 #include "time_sync.h"
 #include "esp_wifi.h"
+#include "ota.h"
 
 static const char *TAG = "state";
 // Written by poll_task and by render_job (the ESC/POS task) via app_state_set_state;
@@ -32,6 +33,8 @@ void app_state_set_state(dev_state_t st) { s_state = st; }
 #define POLL_IDLE_MS     12000
 #define POLL_BACKOFF_MIN 2000
 #define POLL_BACKOFF_MAX 60000
+#define OTA_CHECK_EVERY  50
+static int s_ota_poll_ctr = 0;
 
 // M3: upload the bundled test PNG and show the returned receipt URL as a QR.
 // Replaced by the live ESC/POS render path in M4.
@@ -169,6 +172,11 @@ static void poll_task(void *arg)
                 }
             }
             backoff = POLL_BACKOFF_MIN;
+            ota_mark_valid_if_pending();   // healthy check-in → confirm any freshly-OTA'd image
+            if (++s_ota_poll_ctr >= OTA_CHECK_EVERY) {
+                s_ota_poll_ctr = 0;
+                ota_check_and_update(false);   // may reboot
+            }
             idle_wait_or_qr_expiry(POLL_IDLE_MS);
         } else {
             ESP_LOGW(TAG, "poll failed (status=%d), backoff=%dms", status, backoff);
