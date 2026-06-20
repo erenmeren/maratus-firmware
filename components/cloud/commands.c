@@ -43,13 +43,16 @@ void commands_handle_body(const char *json_body)
             ESP_LOGI(TAG, "rebooting");
             vTaskDelay(pdMS_TO_TICKS(300));
             esp_restart();                 // does not return
-        } else if (strcmp(type, "config-changed") == 0) {
+        } else if (strcmp(type, "config-changed") == 0 || strcmp(type, "refresh") == 0) {
             void (*cb)(void) = cloud_config_changed_handler();
             if (cb) cb();
             cloud_ack_command(id, true);
+        } else if (strcmp(type, "firmware-update") == 0) {
+            cloud_ack_command(id, true);              // ack BEFORE OTA (which reboots)
+            void (*fcb)(void) = cloud_firmware_update_handler();
+            if (fcb) fcb();
         } else {
-            // refresh / unknown: ack now; behavior lands in later milestones.
-            cloud_ack_command(id, true);
+            cloud_ack_command(id, true);              // unknown: ack + ignore
         }
     }
     cJSON_Delete(root);

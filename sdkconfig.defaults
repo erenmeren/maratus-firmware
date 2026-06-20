@@ -89,3 +89,7 @@ CONFIG_LV_TINY_TTF_FILE_SUPPORT=n
 # driver is needed. The decoded ARGB8888 bitmap is routed to PSRAM via custom
 # image draw-buf handlers (ui.c) — internal DRAM stays reserved for Wi-Fi/SDIO/TLS.
 CONFIG_LV_USE_LODEPNG=y
+
+# M6b: enable bootloader app-rollback so a freshly OTA'd image stays in
+# pending-verify until ota_mark_valid_if_pending() confirms a healthy check-in.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

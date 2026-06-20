@@ -10,6 +10,7 @@
 #include "appcfg.h"
 #include "nvs_flash.h"
 #include "cloud.h"
+#include "ota.h"
 #include "device_config.h"
 #include "esp_heap_caps.h"
 #include "esp_littlefs.h"
@@ -21,6 +22,10 @@
 #include <string.h>
 
 static const char *TAG = "ditto";
+
+// Forced-OTA wrapper registered as the firmware-update command hook (cloud calls
+// this via callback so the cloud component never depends on ota → no cycle).
+static void ota_force(void) { ota_check_and_update(true); }
 
 // Unauthenticated claim poll: while the device has no NVS device key, show the
 // setup screen and poll GET /api/device/claim with our pairing code. When the
@@ -138,6 +143,7 @@ void app_main(void)
     // 4) Continuous poll loop + device state machine.
     app_state_run();
     cloud_set_config_changed_cb(app_state_request_config);
+    cloud_set_firmware_update_cb(ota_force);
 
     // 5) ESC/POS print-job listener on TCP:9100.
     escpos_server_start(render_job_handle);
