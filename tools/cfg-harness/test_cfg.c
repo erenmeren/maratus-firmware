@@ -7,6 +7,7 @@
 #include "asset_key.h"
 #include "asset_evict.h"
 #include "clock_format.h"
+#include "provisioning.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -255,6 +256,41 @@ static void test_qr_timeout(void) {
     printf("test_qr_timeout OK\n");
 }
 
+static uint8_t seq_byte(void) { static uint8_t n; return n++; }
+
+static void test_provisioning(void) {
+    char code[16];
+    assert(provisioning_make_code(code, sizeof(code), seq_byte));
+    assert(strlen(code) == 9);
+    assert(code[4] == '-');
+    const char *ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    for (int i = 0; i < 9; i++) {
+        if (i == 4) continue;
+        assert(strchr(ALPHA, code[i]) != NULL);
+    }
+    char tiny[5];
+    assert(!provisioning_make_code(tiny, sizeof(tiny), seq_byte));
+
+    char key[64];
+    assert(provisioning_parse_claim("{\"status\":\"claimed\",\"deviceKey\":\"dvk_xyz\"}", key, sizeof(key)));
+    assert(strcmp(key, "dvk_xyz") == 0);
+    assert(!provisioning_parse_claim("{\"status\":\"pending\"}", key, sizeof(key)));
+    assert(key[0] == '\0');
+    assert(!provisioning_parse_claim("not json", key, sizeof(key)));
+
+    device_config_t pc;
+    provisioning_default_setup_config(&pc);
+    assert(pc.valid);
+    cfg_screen_t *setup = &pc.screens[SCREEN_SETUP];
+    bool has_code = false, has_steps = false;
+    for (int i = 0; i < setup->n; i++) {
+        if (setup->objects[i].type == OBJ_PAIRING_CODE) has_code = true;
+        if (setup->objects[i].type == OBJ_STEPS) has_steps = true;
+    }
+    assert(has_code && has_steps);
+    printf("test_provisioning OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -265,6 +301,7 @@ int main(void) {
     test_clock();
     test_mmss();
     test_qr_timeout();
+    test_provisioning();
     printf("ALL TESTS PASSED\n");
     return 0;
 }

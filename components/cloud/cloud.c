@@ -11,6 +11,7 @@
 #include "appcfg.h"
 #include "device_config.h"
 #include "cfg_parse.h"
+#include "provisioning.h"
 
 static const char *TAG = "cloud";
 
@@ -63,6 +64,31 @@ int cloud_get_commands(char *out, int cap)
     }
     esp_http_client_cleanup(c);
     return status;
+}
+
+bool cloud_claim_poll(const char *code, char *key_out, size_t key_len)
+{
+    if (key_out && key_len) key_out[0] = '\0';
+    char body[256];
+    resp_t resp = { .buf = body, .cap = sizeof(body), .len = 0 };
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/device/claim?code=%s", appcfg_base_url(), code);
+    esp_http_client_config_t cfg = {
+        .url = url, .method = HTTP_METHOD_GET, .event_handler = on_evt,
+        .user_data = &resp, .crt_bundle_attach = esp_crt_bundle_attach, .timeout_ms = 10000,
+    };
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    bool got = false;
+    if (esp_http_client_perform(c) == ESP_OK) {
+        int status = esp_http_client_get_status_code(c);
+        body[resp.len] = '\0';
+        ESP_LOGI(TAG, "GET /claim -> %d", status);
+        if (status == 200) got = provisioning_parse_claim(body, key_out, key_len);
+    } else {
+        ESP_LOGW(TAG, "GET /claim failed");
+    }
+    esp_http_client_cleanup(c);
+    return got;
 }
 
 int cloud_ack_command(const char *command_id, bool ok)
