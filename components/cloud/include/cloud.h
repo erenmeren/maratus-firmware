@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "device_config.h"
+#include "ota_manifest.h"
 
 // HTTPS client for the Ditto M1 device contract (bearer device-key auth).
 
@@ -42,6 +43,10 @@ esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len);
 // returned deviceKey into key_out (NUL-terminated, up to key_len-1) and returns
 // true. Otherwise leaves key_out empty and returns false.
 bool cloud_claim_poll(const char *code, char *key_out, size_t key_len);
+
+// Fetch GET /api/device/firmware (device-key). On a 200 with a valid manifest, fills
+// *out and returns true. 204/empty/error → false.
+bool cloud_get_firmware(fw_manifest_t *out);
 
 // Register a hook invoked when a config-changed command arrives (set by main).
 void cloud_set_config_changed_cb(void (*cb)(void));

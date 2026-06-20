@@ -333,6 +333,36 @@ int cloud_get_config(device_config_t *cfg)
     return status;
 }
 
+// ---- firmware manifest (GET /api/device/firmware) ----
+
+bool cloud_get_firmware(fw_manifest_t *out)
+{
+    static char body[1536];
+    resp_t resp = { .buf = body, .cap = sizeof(body), .len = 0 };
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/device/firmware", appcfg_base_url());
+    char auth[96];
+    snprintf(auth, sizeof(auth), "Bearer %s", appcfg_device_key());
+
+    esp_http_client_config_t cfg = {
+        .url = url, .method = HTTP_METHOD_GET, .event_handler = on_evt,
+        .user_data = &resp, .crt_bundle_attach = esp_crt_bundle_attach, .timeout_ms = 10000,
+    };
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    esp_http_client_set_header(c, "Authorization", auth);
+    bool ok = false;
+    if (esp_http_client_perform(c) == ESP_OK) {
+        int status = esp_http_client_get_status_code(c);
+        body[resp.len] = '\0';
+        ESP_LOGI(TAG, "GET /firmware -> %d", status);
+        if (status == 200) ok = ota_parse_manifest(body, out);   // 204 → empty body → false
+    } else {
+        ESP_LOGW(TAG, "GET /firmware failed");
+    }
+    esp_http_client_cleanup(c);
+    return ok;
+}
+
 static void (*s_cfg_changed_cb)(void);
 void cloud_set_config_changed_cb(void (*cb)(void)) { s_cfg_changed_cb = cb; }
 void (*cloud_config_changed_handler(void))(void) { return s_cfg_changed_cb; }
