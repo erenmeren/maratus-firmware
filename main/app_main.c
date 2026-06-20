@@ -103,7 +103,7 @@ void app_main(void)
     }
 
     // 3) Connect to Wi-Fi via the C6 (SDIO/esp-hosted).
-    net_start();
+    net_init();
     ESP_LOGI(TAG, "Wi-Fi connected=%d", net_is_connected());
 
     // 3b) Mount the on-flash asset-cache filesystem (non-fatal on failure).
