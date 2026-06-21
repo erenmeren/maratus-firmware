@@ -24,6 +24,7 @@ static char       s_qr_url[256];
 static char       s_pairing_code[16];
 static bool       s_online;
 static volatile bool s_tap_requested;
+static volatile bool s_activity;
 
 static lv_obj_t  *s_clock_time_lbl;    // active-screen clock time label (NULL if none)
 static lv_obj_t  *s_clock_date_lbl;    // active-screen clock date label (NULL if hidden/none)
@@ -41,7 +42,11 @@ static int        s_cd_pending = 60;   // duration the next render should arm
 static int        s_cd_remaining;      // seconds left on the active widget
 static bool       s_cd_expired;        // set at 0, consumed by the state machine
 
-static void on_screen_click(lv_event_t *e) { (void)e; s_tap_requested = true; }
+static volatile bool s_longpress = false;
+
+static void on_screen_click(lv_event_t *e)     { (void)e; s_tap_requested = true; }
+static void on_screen_press(lv_event_t *e)     { (void)e; s_activity = true; }
+static void on_screen_longpress(lv_event_t *e) { (void)e; s_longpress = true; }
 
 // --- PNG image decode → PSRAM ---------------------------------------------
 // LVGL's lodepng decoder allocates the decoded ARGB8888 bitmap through the image
@@ -413,7 +418,9 @@ static lv_obj_t *build_splash(void) {
     lv_obj_set_style_text_font(title, font_cache_get(64, /*bold*/ true), LV_PART_MAIN);
     lv_obj_center(title);
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(scr, on_screen_click, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(scr, on_screen_click,     LV_EVENT_CLICKED,      NULL);
+    lv_obj_add_event_cb(scr, on_screen_press,     LV_EVENT_PRESSED,      NULL);
+    lv_obj_add_event_cb(scr, on_screen_longpress, LV_EVENT_LONG_PRESSED, NULL);
     return scr;
 }
 
@@ -427,7 +434,9 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(scr, on_screen_click, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(scr, on_screen_click,     LV_EVENT_CLICKED,      NULL);
+    lv_obj_add_event_cb(scr, on_screen_press,     LV_EVENT_PRESSED,      NULL);
+    lv_obj_add_event_cb(scr, on_screen_longpress, LV_EVENT_LONG_PRESSED, NULL);
 
     int order[CFG_MAX_OBJECTS];
     cfg_sort_by_z(sc->objects, sc->n, order);
@@ -565,7 +574,27 @@ bool ui_consume_countdown_expired(void) {
 }
 
 bool ui_consume_tap(void) {
+    lvgl_port_lock(0);
     bool t = s_tap_requested;
     s_tap_requested = false;
+    lvgl_port_unlock();
     return t;
+}
+
+bool ui_consume_activity(void) {
+    bool v;
+    lvgl_port_lock(0);
+    v = s_activity;
+    s_activity = false;
+    lvgl_port_unlock();
+    return v;
+}
+
+bool ui_consume_longpress(void) {
+    bool v;
+    lvgl_port_lock(0);
+    v = s_longpress;
+    s_longpress = false;
+    lvgl_port_unlock();
+    return v;
 }

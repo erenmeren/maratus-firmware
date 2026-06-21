@@ -144,6 +144,24 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
     if (cfg->qr_timeout_seconds < 15)  cfg->qr_timeout_seconds = 15;
     if (cfg->qr_timeout_seconds > 180) cfg->qr_timeout_seconds = 180;
 
+    cJSON *dev = cJSON_GetObjectItem(root, "device");
+    cJSON *br = dev ? cJSON_GetObjectItem(dev, "brightness") : NULL;
+    cfg->device.brightness = cJSON_IsNumber(br) ? (int)br->valuedouble : 100;
+    if (cfg->device.brightness < 10)  cfg->device.brightness = 10;
+    if (cfg->device.brightness > 100) cfg->device.brightness = 100;
+
+    cJSON *slp = dev ? cJSON_GetObjectItem(dev, "sleep") : NULL;
+    cfg->device.sleep.enabled = slp ? cJSON_IsTrue(cJSON_GetObjectItem(slp, "enabled")) : false;
+    cJSON *st = slp ? cJSON_GetObjectItem(slp, "timeoutSeconds") : NULL;
+    cfg->device.sleep.timeout_seconds = cJSON_IsNumber(st) ? (int)st->valuedouble : 300;
+    if (cfg->device.sleep.timeout_seconds < 30)   cfg->device.sleep.timeout_seconds = 30;
+    if (cfg->device.sleep.timeout_seconds > 3600) cfg->device.sleep.timeout_seconds = 3600;
+
+    copy_str(cfg->device.settings_password_hash, sizeof(cfg->device.settings_password_hash),
+             dev ? cJSON_GetStringValue(cJSON_GetObjectItem(dev, "settingsPasswordHash")) : NULL);
+    copy_str(cfg->device.settings_password_salt, sizeof(cfg->device.settings_password_salt),
+             dev ? cJSON_GetStringValue(cJSON_GetObjectItem(dev, "settingsPasswordSalt")) : NULL);
+
     cJSON *screens = config ? cJSON_GetObjectItem(config, "screens") : NULL;
     for (int i = 0; i < SCREEN_COUNT; i++) {
         cJSON *scr = screens ? cJSON_GetObjectItem(screens, SCREEN_NAMES[i]) : NULL;

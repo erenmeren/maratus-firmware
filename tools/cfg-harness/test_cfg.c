@@ -10,6 +10,9 @@
 #include "provisioning.h"
 #include "wifi_util.h"
 #include "ota_manifest.h"
+#include "sleep_policy.h"
+#include "settings_pin.h"
+#include "sha256.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -60,6 +63,14 @@ static void test_parse(void) {
 
     // setup: pairingCode widget parsed.
     assert(cfg.screens[SCREEN_SETUP].objects[0].type == OBJ_PAIRING_CODE);
+
+    // M7 device policies: brightness clamps to 100, timeout clamps down to 30.
+    assert(cfg.device.brightness == 100);
+    assert(cfg.device.sleep.enabled == true);
+    assert(cfg.device.sleep.timeout_seconds == 30);
+    assert(strcmp(cfg.device.settings_password_hash,
+                  "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == 0);
+    assert(strcmp(cfg.device.settings_password_salt, "abc123") == 0);
 
     free(json);
     printf("test_parse OK\n");
@@ -258,6 +269,33 @@ static void test_qr_timeout(void) {
     printf("test_qr_timeout OK\n");
 }
 
+static void test_device_defaults(void) {
+    const char *json = "{\"version\":\"v\",\"config\":{}}";   // no "device" block
+    device_config_t cfg;
+    assert(cfg_parse_json(json, &cfg) && cfg.valid);
+    assert(cfg.device.brightness == 100);
+    assert(cfg.device.sleep.enabled == false);
+    assert(cfg.device.sleep.timeout_seconds == 300);
+    assert(cfg.device.settings_password_hash[0] == '\0');
+    assert(cfg.device.settings_password_salt[0] == '\0');
+    printf("test_device_defaults OK\n");
+}
+
+static void test_sha256_and_pin(void) {
+    // Known vector: sha256("abc") = ba78...15ad.
+    SHA256_CTX c; uint8_t out[32]; char hex[65];
+    sha256_init(&c); sha256_update(&c, (const uint8_t*)"abc", 3); sha256_final(&c, out);
+    for (int i = 0; i < 32; i++) sprintf(hex + i*2, "%02x", out[i]);
+    assert(strcmp(hex, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == 0);
+
+    // settings_pin_verify: salt="a", pin="bc" -> sha256("abc") == the known hash.
+    const char *H = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    assert(settings_pin_verify("bc", H, "a") == true);
+    assert(settings_pin_verify("xx", H, "a") == false);
+    assert(settings_pin_verify("bc", "", "a") == false);   // no PIN configured
+    printf("test_sha256_and_pin OK\n");
+}
+
 static uint8_t seq_byte(void) { static uint8_t n; return n++; }
 
 static void test_provisioning(void) {
@@ -333,6 +371,19 @@ static void test_ota_manifest(void) {
     printf("test_ota_manifest OK\n");
 }
 
+static void test_should_sleep(void) {
+    // disabled -> never
+    assert(should_sleep(100000, 0, 30, false, DEV_IDLE) == false);
+    // not idle -> never (even if elapsed)
+    assert(should_sleep(100000, 0, 30, true, DEV_QR) == false);
+    // idle + enabled, window not elapsed
+    assert(should_sleep(10000, 0, 30, true, DEV_IDLE) == false);   // 10s < 30s
+    // idle + enabled, window elapsed
+    assert(should_sleep(30000, 0, 30, true, DEV_IDLE) == true);    // 30s >= 30s
+    assert(should_sleep(45000, 0, 30, true, DEV_IDLE) == true);
+    printf("test_should_sleep OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -343,9 +394,12 @@ int main(void) {
     test_clock();
     test_mmss();
     test_qr_timeout();
+    test_device_defaults();
     test_provisioning();
     test_wifi_util();
     test_ota_manifest();
+    test_should_sleep();
+    test_sha256_and_pin();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
