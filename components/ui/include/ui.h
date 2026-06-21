@@ -80,3 +80,39 @@ void ui_wifi_prompt_ssid(void);
 
 // Put the textarea into password entry mode for `ssid` (masked, "Password").
 void ui_wifi_prompt_password(const char *ssid);
+
+// --- Settings screens (M7) ------------------------------------------------
+// Two bespoke, PASSIVE screens: a PIN keypad and a device-settings menu.
+// An orchestrator pushes data in (set_info/pin_set_error) and reads user
+// intent out via the consume_* flags. No network/reboot calls in LVGL
+// callbacks. All functions take the LVGL port lock internally.
+
+typedef enum {
+    UI_SET_WIFI,        // user tapped "Wi-Fi Setup"
+    UI_SET_TEST_PRINT,  // user tapped "Test Print"
+    UI_SET_REBOOT,      // user tapped "Reboot"
+    UI_SET_CLOSE,       // user tapped "Close" or PIN "Cancel"
+} ui_settings_action_t;
+
+// True (once) if the idle screen was long-pressed. Cleared on read.
+bool ui_consume_longpress(void);
+
+// Build + load the PIN keypad screen. Clears any pending entry and error state.
+void ui_settings_show_pin(void);
+
+// Show or hide the "Incorrect PIN" error label. Clears the entry on show.
+void ui_settings_pin_set_error(bool show);
+
+// True (once) if the user submitted a PIN. Copies digits into `out` (up to
+// `cap-1` chars, NUL-terminated) and clears the buffer. Cleared on read.
+bool ui_settings_consume_pin(char *out, int cap);
+
+// Set the device-info block text shown at the top of the menu screen.
+void ui_settings_set_info(const char *text);
+
+// Build + load the menu screen (info label + 4 action buttons).
+void ui_settings_show_menu(void);
+
+// True (once) if the user tapped a menu button. Writes the action into `*act`.
+// Cleared on read.
+bool ui_settings_consume_action(ui_settings_action_t *act);
