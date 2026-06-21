@@ -230,7 +230,9 @@ bool render_ops_to_png(const draw_op_t *ops, int n_ops,
     int H = c.cur_y > 0 ? c.cur_y : 1;
     if (H > c.cap) H = c.cap;
 
-    bool ok = png_encode_gray8(c.px, c.W, H, png_out, png_len);
+    // 1-bit PNG: receipt content is bilevel (white bg + black ink), so this is
+    // lossless and ~8x smaller than gray8 (uncompressed payload over the wire).
+    bool ok = png_encode_mono1(c.px, c.W, H, png_out, png_len);
     free(c.px);
     if (ok) { if (out_w) *out_w = c.W; if (out_h) *out_h = H; }
     return ok;

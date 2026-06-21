@@ -44,21 +44,13 @@ static void put_chunk(uint8_t *out, size_t *pos, const char *type, const uint8_t
     put_be32(out + *pos, crc); *pos += 4;
 }
 
-bool png_encode_gray8(const uint8_t *gray, int w, int h, uint8_t **out, size_t *out_len)
+// Wrap already-filtered raw scanlines (`raw`, `raw_len`) into a PNG of color
+// type 0 (grayscale) at `bit_depth`, using a zlib stream of STORED (uncompressed)
+// deflate blocks. Allocates *out (PSRAM-preferred); caller frees. Consumes `raw`
+// (freed here on both success and failure) so callers don't double-free.
+static bool emit_png(uint8_t *raw, size_t raw_len, int w, int h, int bit_depth,
+                     uint8_t **out, size_t *out_len)
 {
-    if (!gray || w <= 0 || h <= 0) return false;
-
-    // 1) Raw image data: one filter byte (0 = none) per row, then the row pixels.
-    size_t raw_len = (size_t)h * (1 + (size_t)w);
-    uint8_t *raw = heap_caps_malloc(raw_len, MALLOC_CAP_SPIRAM);
-    if (!raw) raw = malloc(raw_len);
-    if (!raw) return false;
-    for (int y = 0; y < h; y++) {
-        raw[(size_t)y * (1 + w)] = 0x00;
-        memcpy(raw + (size_t)y * (1 + w) + 1, gray + (size_t)y * w, w);
-    }
-
-    // 2) zlib stream using stored (uncompressed) deflate blocks.
     size_t nblocks = (raw_len + 65534) / 65535;
     if (nblocks == 0) nblocks = 1;
     size_t idat_cap = 2 + raw_len + 5 * nblocks + 4; // CMF/FLG + blocks(5B hdr each) + adler
@@ -82,10 +74,10 @@ bool png_encode_gray8(const uint8_t *gray, int w, int h, uint8_t **out, size_t *
     put_be32(idat + p, adler); p += 4; // adler32 is big-endian in zlib
     size_t idat_len = p;
 
-    // 3) Assemble the PNG: signature + IHDR + IDAT + IEND.
+    // Assemble the PNG: signature + IHDR + IDAT + IEND.
     uint8_t ihdr[13];
     put_be32(ihdr, (uint32_t)w); put_be32(ihdr + 4, (uint32_t)h);
-    ihdr[8] = 8;  // bit depth
+    ihdr[8] = (uint8_t)bit_depth;  // bit depth
     ihdr[9] = 0;  // color type 0 = grayscale
     ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0; // compression, filter, interlace
 
@@ -104,4 +96,45 @@ bool png_encode_gray8(const uint8_t *gray, int w, int h, uint8_t **out, size_t *
     free(raw); free(idat);
     *out = png; *out_len = pos;
     return true;
+}
+
+bool png_encode_gray8(const uint8_t *gray, int w, int h, uint8_t **out, size_t *out_len)
+{
+    if (!gray || w <= 0 || h <= 0) return false;
+
+    // One filter byte (0 = none) per row, then the row's 8-bit pixels.
+    size_t raw_len = (size_t)h * (1 + (size_t)w);
+    uint8_t *raw = heap_caps_malloc(raw_len, MALLOC_CAP_SPIRAM);
+    if (!raw) raw = malloc(raw_len);
+    if (!raw) return false;
+    for (int y = 0; y < h; y++) {
+        raw[(size_t)y * (1 + w)] = 0x00;
+        memcpy(raw + (size_t)y * (1 + w) + 1, gray + (size_t)y * w, w);
+    }
+    return emit_png(raw, raw_len, w, h, 8, out, out_len);
+}
+
+bool png_encode_mono1(const uint8_t *gray, int w, int h, uint8_t **out, size_t *out_len)
+{
+    if (!gray || w <= 0 || h <= 0) return false;
+
+    // 1-bit grayscale: PNG packs 8 pixels per byte, MSB-first, sample 1 = white,
+    // 0 = black. Receipt content is strictly bilevel (white bg + black ink) so
+    // thresholding at mid-gray is lossless. Each row = 1 filter byte (0 = none)
+    // + ceil(w/8) packed bytes; padding bits in the last byte are ignored by the
+    // width and left 0.
+    size_t stride = ((size_t)w + 7) / 8;
+    size_t raw_len = (size_t)h * (1 + stride);
+    uint8_t *raw = heap_caps_malloc(raw_len, MALLOC_CAP_SPIRAM);
+    if (!raw) raw = malloc(raw_len);
+    if (!raw) return false;
+    memset(raw, 0, raw_len); // filter bytes + black bits default to 0
+    for (int y = 0; y < h; y++) {
+        uint8_t *row = raw + (size_t)y * (1 + stride) + 1; // skip filter byte
+        const uint8_t *gp = gray + (size_t)y * w;
+        for (int x = 0; x < w; x++) {
+            if (gp[x] >= 128) row[x >> 3] |= (uint8_t)(0x80u >> (x & 7)); // white bit
+        }
+    }
+    return emit_png(raw, raw_len, w, h, 1, out, out_len);
 }

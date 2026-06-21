@@ -1,0 +1,4 @@
+# host-test build + generated outputs
+test_png
+*.png
+*.bin
