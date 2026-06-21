@@ -29,9 +29,9 @@ static device_config_t *s_cfg_buf[2];
 static int s_cfg_live = 0;             // index of the buffer the renderer currently points at
 static volatile bool s_config_dirty = true;   // fetch once after first connect
 
-static bool s_display_asleep = false;
-static uint32_t s_last_activity_ms = 0;
-static uint32_t s_wake_guard_until = 0;   // ignore taps until this time (swallow the wake touch)
+static volatile bool s_display_asleep = false;
+static volatile uint32_t s_last_activity_ms = 0;
+static volatile uint32_t s_wake_guard_until = 0;   // ignore taps until this time (swallow the wake touch)
 
 static inline uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
@@ -53,8 +53,9 @@ static void display_wake(int duty) {
     s_display_asleep = false;            // clear first so display_apply_brightness runs
     display_apply_brightness(duty);
     bsp_display_backlight_on();
-    s_last_activity_ms = now_ms();
-    s_wake_guard_until = now_ms() + 800; // the touch that woke us must not also trigger ingest
+    uint32_t t = now_ms();
+    s_last_activity_ms = t;
+    s_wake_guard_until = t + 800; // the touch that woke us must not also trigger ingest
     ui_consume_tap();                    // swallow any tap already latched by the wake touch
 }
 
@@ -170,6 +171,11 @@ static void idle_wait_or_qr_expiry(int total_ms) {
         const device_config_t *cfg = s_cfg_buf[s_cfg_live];
         bool active = ui_consume_activity();
         if (active) s_last_activity_ms = now_ms();
+        // A receipt that arrived while asleep (or a sleep that raced the wake)
+        // must light the screen so the QR is visible.
+        if (s_display_asleep && (s_state == DEV_PROCESSING || s_state == DEV_QR)) {
+            display_wake(cfg->device.brightness);
+        }
         if (cfg->device.sleep.enabled) {
             if (!s_display_asleep &&
                 should_sleep(now_ms(), s_last_activity_ms,

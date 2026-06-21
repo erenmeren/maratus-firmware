@@ -569,8 +569,10 @@ bool ui_consume_countdown_expired(void) {
 }
 
 bool ui_consume_tap(void) {
+    lvgl_port_lock(0);
     bool t = s_tap_requested;
     s_tap_requested = false;
+    lvgl_port_unlock();
     return t;
 }
 
