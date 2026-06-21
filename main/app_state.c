@@ -14,6 +14,7 @@
 #include "time_sync.h"
 #include "esp_wifi.h"
 #include "ota.h"
+#include "bsp/esp-bsp.h"
 
 static const char *TAG = "state";
 // Written by poll_task and by render_job (the ESC/POS task) via app_state_set_state;
@@ -134,6 +135,17 @@ static void idle_wait_or_qr_expiry(int total_ms) {
     }
 }
 
+static bool s_display_asleep = false;
+
+// Apply backlight brightness (0..100 duty). No-op while asleep — Task 4's
+// sleep/wake owns the backlight then. Clamps defensively.
+static void display_apply_brightness(int duty) {
+    if (s_display_asleep) return;
+    if (duty < 10)  duty = 10;
+    if (duty > 100) duty = 100;
+    bsp_display_brightness_set(duty);
+}
+
 static void poll_task(void *arg)
 {
     static char body[1024];
@@ -165,6 +177,7 @@ static void poll_task(void *arg)
                 if (cs == 200 && s_cfg_buf[next]->valid) {
                     prefetch_and_evict_assets(s_cfg_buf[next]);  // fill/prune flash cache before render
                     ui_set_config(s_cfg_buf[next]);     // publish under the LVGL lock (pointer swap)
+                    display_apply_brightness(s_cfg_buf[next]->device.brightness);
                     time_sync_set_tz(s_cfg_buf[next]->clock_timezone);  // POSIX TZ from payload
                     ui_set_countdown(s_cfg_buf[next]->qr_timeout_seconds);  // keep duration current for any receipt path
                     s_cfg_live = next;
@@ -198,5 +211,7 @@ void app_state_run(void)
     }
     cloud_config_load_cached(s_cfg_buf[s_cfg_live]);   // seed ETag so the first fetch can 304
     ui_set_config(s_cfg_buf[s_cfg_live]);
+    if (s_cfg_buf[s_cfg_live]->valid)
+        display_apply_brightness(s_cfg_buf[s_cfg_live]->device.brightness);
     xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, NULL);
 }
