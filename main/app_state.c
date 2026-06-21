@@ -15,6 +15,8 @@
 #include "esp_wifi.h"
 #include "ota.h"
 #include "bsp/esp-bsp.h"
+#include "esp_timer.h"
+#include "sleep_policy.h"
 
 static const char *TAG = "state";
 // Written by poll_task and by render_job (the ESC/POS task) via app_state_set_state;
@@ -27,9 +29,43 @@ static device_config_t *s_cfg_buf[2];
 static int s_cfg_live = 0;             // index of the buffer the renderer currently points at
 static volatile bool s_config_dirty = true;   // fetch once after first connect
 
+static bool s_display_asleep = false;
+static uint32_t s_last_activity_ms = 0;
+static uint32_t s_wake_guard_until = 0;   // ignore taps until this time (swallow the wake touch)
+
+static inline uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
+
+// Apply backlight brightness (0..100 duty). No-op while asleep — Task 4's
+// sleep/wake owns the backlight then. Clamps defensively.
+static void display_apply_brightness(int duty) {
+    if (s_display_asleep) return;
+    if (duty < 10)  duty = 10;
+    if (duty > 100) duty = 100;
+    bsp_display_brightness_set(duty);
+}
+
+static void display_sleep(void) {
+    bsp_display_backlight_off();
+    s_display_asleep = true;
+}
+
+static void display_wake(int duty) {
+    s_display_asleep = false;            // clear first so display_apply_brightness runs
+    display_apply_brightness(duty);
+    bsp_display_backlight_on();
+    s_last_activity_ms = now_ms();
+    s_wake_guard_until = now_ms() + 800; // the touch that woke us must not also trigger ingest
+    ui_consume_tap();                    // swallow any tap already latched by the wake touch
+}
+
 void app_state_request_config(void) { s_config_dirty = true; }
 
-void app_state_set_state(dev_state_t st) { s_state = st; }
+void app_state_set_state(dev_state_t st) {
+    // A print job arriving while asleep must light the screen so the QR is visible.
+    if (s_display_asleep && (st == DEV_PROCESSING || st == DEV_QR))
+        display_wake(s_cfg_buf[s_cfg_live]->device.brightness);
+    s_state = st;
+}
 
 #define POLL_IDLE_MS     12000
 #define POLL_BACKOFF_MIN 2000
@@ -131,19 +167,22 @@ static void idle_wait_or_qr_expiry(int total_ms) {
             ui_render_state(DEV_IDLE);
             return;
         }
+        const device_config_t *cfg = s_cfg_buf[s_cfg_live];
+        bool active = ui_consume_activity();
+        if (active) s_last_activity_ms = now_ms();
+        if (cfg->device.sleep.enabled) {
+            if (!s_display_asleep &&
+                should_sleep(now_ms(), s_last_activity_ms,
+                             cfg->device.sleep.timeout_seconds, true, s_state)) {
+                display_sleep();
+            } else if (s_display_asleep && active) {
+                display_wake(cfg->device.brightness);
+            }
+        } else if (s_display_asleep) {
+            display_wake(cfg->device.brightness);   // sleep turned off -> ensure the panel is on
+        }
         if (waited < total_ms) vTaskDelay(pdMS_TO_TICKS(slice));
     }
-}
-
-static bool s_display_asleep = false;
-
-// Apply backlight brightness (0..100 duty). No-op while asleep — Task 4's
-// sleep/wake owns the backlight then. Clamps defensively.
-static void display_apply_brightness(int duty) {
-    if (s_display_asleep) return;
-    if (duty < 10)  duty = 10;
-    if (duty > 100) duty = 100;
-    bsp_display_brightness_set(duty);
 }
 
 static void poll_task(void *arg)
@@ -151,10 +190,12 @@ static void poll_task(void *arg)
     static char body[1024];
     int backoff = POLL_BACKOFF_MIN;
     s_state = DEV_IDLE;
+    s_last_activity_ms = now_ms();
 
     for (;;) {
-        if (ui_consume_tap() && net_is_connected()) {
-            run_test_ingest();
+        if (ui_consume_tap()) {
+            // A tap that merely woke the screen must not also trigger ingest.
+            if (now_ms() >= s_wake_guard_until && net_is_connected()) run_test_ingest();
             continue;
         }
         if (!net_is_connected()) {

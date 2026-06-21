@@ -45,6 +45,10 @@ bool ui_consume_countdown_expired(void);
 // True (once) if the screen was tapped since the last call. Cleared on read.
 bool ui_consume_tap(void);
 
+// True (once) if the screen was touched (pressed) since the last call. Distinct
+// from ui_consume_tap (a completed tap): used to detect activity for sleep/wake.
+bool ui_consume_activity(void);
+
 // --- Wi-Fi setup screen (M6a-2) -------------------------------------------
 // A bespoke, INTERACTIVE screen (not config-object-driven). It is PASSIVE: an
 // orchestrator pushes data in (set_results/set_status/prompt_*) and reads user
