@@ -10,6 +10,7 @@
 #include "provisioning.h"
 #include "wifi_util.h"
 #include "ota_manifest.h"
+#include "sleep_policy.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -353,6 +354,19 @@ static void test_ota_manifest(void) {
     printf("test_ota_manifest OK\n");
 }
 
+static void test_should_sleep(void) {
+    // disabled -> never
+    assert(should_sleep(100000, 0, 30, false, DEV_IDLE) == false);
+    // not idle -> never (even if elapsed)
+    assert(should_sleep(100000, 0, 30, true, DEV_QR) == false);
+    // idle + enabled, window not elapsed
+    assert(should_sleep(10000, 0, 30, true, DEV_IDLE) == false);   // 10s < 30s
+    // idle + enabled, window elapsed
+    assert(should_sleep(30000, 0, 30, true, DEV_IDLE) == true);    // 30s >= 30s
+    assert(should_sleep(45000, 0, 30, true, DEV_IDLE) == true);
+    printf("test_should_sleep OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -367,6 +381,7 @@ int main(void) {
     test_provisioning();
     test_wifi_util();
     test_ota_manifest();
+    test_should_sleep();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
