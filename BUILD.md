@@ -158,3 +158,34 @@ IDF 5.5, prod `ditto-admin-brown.vercel.app`):
   kept current by arming on every config apply.
 - Known follow-up (pre-existing, M5d): `render_job_handle` doesn't set `s_state`, so a
   config-changed arriving during a live ESC/POS receipt QR can re-render it to idle early.
+
+**M7 device policies (brightness / sleep / PIN-gated Settings) — verified on hardware 2026-06-21**
+(same board/IDF 5.5; merged to main `9ef26dd`, flashed + HW-verified). Makes the firmware honor
+the org-wide device settings the cloud delivers in `/api/device/config`'s new `device` block
+(`brightness`, `sleep:{enabled,timeoutSeconds}`, `settingsPasswordHash`, `settingsPasswordSalt`).
+Spec/plan in ditto-admin `docs/superpowers/{specs,plans}/2026-06-21-firmware-m7-device-policies*`.
+Pure logic is host-tested in `tools/cfg-harness` (15/15): the `device`-block parser, `should_sleep`,
+and `settings_pin_verify`.
+- **Brightness** (`device.brightness`, clamped 10–100): applied via `bsp_display_brightness_set`
+  on every config-apply and at boot (`main/app_state.c`, `display_apply_brightness`). Confirmed on
+  device — serial logs `Setting LCD backlight: N%` matching the admin value; changing it in admin
+  follows within a poll cycle.
+- **Screen sleep** (`device.sleep`): blanks the backlight after `timeoutSeconds` of inactivity
+  (pure `should_sleep` checked on the existing 500 ms `idle_wait_or_qr_expiry` slice), engages
+  ONLY in `DEV_IDLE`. **Wakes** on any touch (new `ui_consume_activity` PRESSED flag) OR on a
+  printed receipt (`app_state_set_state` wakes on PROCESSING/QR). CPU keeps polling while asleep
+  (no deep sleep). Confirmed: blanks, wakes on touch (no spurious test-ingest, via the 800 ms wake
+  guard), wakes + shows QR on a receipt printed while asleep, stays on when sleep disabled.
+- **On-device Settings** (`device.settingsPassword*`): **long-press** the idle screen → a numeric
+  PIN keypad (`components/ui/ui_settings.c`, passive — mirrors `ui_wifi.c`). PIN verified locally as
+  `sha256(salt+pin)` (vendored Brad-Conte SHA-256, constant-time compare); ungated when no hash is
+  set. Menu = device info (fw/SSID/bars/IP/status) + Wi-Fi setup (reuses `wifi_setup_run`) + Test
+  print + Reboot. Confirmed: right/wrong/ungated PIN paths and all menu actions.
+- **Concurrency** (sleep state is shared poll-task ↔ render_job task): `s_display_asleep`,
+  `s_last_activity_ms`, `s_wake_guard_until` are `volatile`; a self-heal re-wake in the idle slice
+  closes the sleep-vs-receipt race (recovers ≤500 ms). Review-caught bug fixed (`13c9669`):
+  `bsp_display_backlight_on()` on this BSP == `brightness_set(100)`, so `display_wake` must set the
+  configured duty LAST or it snaps to 100% on wake.
+- Known non-blocking watch-items: BSP backlight writes from two tasks are unsynchronized (idempotent
+  + self-healed); a long-press while asleep opens Settings only after the wake (up to one poll cycle
+  latency); no idle timeout on the PIN gate (spec did not require one).
