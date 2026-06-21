@@ -33,5 +33,11 @@
         { "id": "p1", "type": "pairingCode", "x": 0.2, "y": 0.6, "w": 0.6, "h": 0.1, "visible": true, "z": 1 }
       ]}
     }
+  },
+  "device": {
+    "brightness": 250,
+    "sleep": { "enabled": true, "timeoutSeconds": 5 },
+    "settingsPasswordHash": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    "settingsPasswordSalt": "abc123"
   }
 }

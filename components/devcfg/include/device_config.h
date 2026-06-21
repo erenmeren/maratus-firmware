@@ -65,5 +65,12 @@ typedef struct {
     bool     clock_24h;
     int      wifi_level;       // 0..4
     int      qr_timeout_seconds;  // receipt/QR auto-return timeout, 15..180
+    // M7 org-wide device policies (from the payload "device" block).
+    struct {
+        int  brightness;                  // 10..100
+        struct { bool enabled; int timeout_seconds; } sleep;  // 30..3600
+        char settings_password_hash[65];  // sha256(salt+pin) hex; "" = unset
+        char settings_password_salt[33];  // "" = unset
+    } device;
     cfg_screen_t screens[SCREEN_COUNT];
 } device_config_t;

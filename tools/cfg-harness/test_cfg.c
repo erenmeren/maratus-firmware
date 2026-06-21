@@ -61,6 +61,14 @@ static void test_parse(void) {
     // setup: pairingCode widget parsed.
     assert(cfg.screens[SCREEN_SETUP].objects[0].type == OBJ_PAIRING_CODE);
 
+    // M7 device policies: brightness clamps to 100, timeout clamps down to 30.
+    assert(cfg.device.brightness == 100);
+    assert(cfg.device.sleep.enabled == true);
+    assert(cfg.device.sleep.timeout_seconds == 30);
+    assert(strcmp(cfg.device.settings_password_hash,
+                  "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == 0);
+    assert(strcmp(cfg.device.settings_password_salt, "abc123") == 0);
+
     free(json);
     printf("test_parse OK\n");
 }
@@ -258,6 +266,18 @@ static void test_qr_timeout(void) {
     printf("test_qr_timeout OK\n");
 }
 
+static void test_device_defaults(void) {
+    const char *json = "{\"version\":\"v\",\"config\":{}}";   // no "device" block
+    device_config_t cfg;
+    assert(cfg_parse_json(json, &cfg) && cfg.valid);
+    assert(cfg.device.brightness == 100);
+    assert(cfg.device.sleep.enabled == false);
+    assert(cfg.device.sleep.timeout_seconds == 300);
+    assert(cfg.device.settings_password_hash[0] == '\0');
+    assert(cfg.device.settings_password_salt[0] == '\0');
+    printf("test_device_defaults OK\n");
+}
+
 static uint8_t seq_byte(void) { static uint8_t n; return n++; }
 
 static void test_provisioning(void) {
@@ -343,6 +363,7 @@ int main(void) {
     test_clock();
     test_mmss();
     test_qr_timeout();
+    test_device_defaults();
     test_provisioning();
     test_wifi_util();
     test_ota_manifest();
