@@ -17,6 +17,9 @@
 #include "bsp/esp-bsp.h"
 #include "esp_timer.h"
 #include "sleep_policy.h"
+#include "settings_pin.h"
+#include "esp_netif.h"
+#include "wifi_setup.h"
 
 static const char *TAG = "state";
 // Written by poll_task and by render_job (the ESC/POS task) via app_state_set_state;
@@ -155,6 +158,90 @@ static int rssi_to_level(int rssi) {
     return 0;
 }
 
+// Build a human-readable settings info string (firmware version, Wi-Fi SSID,
+// signal bars, IP address, online status). Device name/ID are not stored on-device
+// and are intentionally omitted.
+static void build_settings_info(char *out, int cap) {
+    char ssid[33] = "\xe2\x80\x94";  // em-dash (UTF-8) when not connected
+    int bars = 0;
+    char ip[16] = "\xe2\x80\x94";
+    wifi_ap_record_t ap;
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        snprintf(ssid, sizeof(ssid), "%s", (const char *)ap.ssid);
+        bars = rssi_to_level(ap.rssi);
+    }
+    esp_netif_t *nif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t ipi;
+    if (nif && esp_netif_get_ip_info(nif, &ipi) == ESP_OK && ipi.ip.addr != 0)
+        snprintf(ip, sizeof(ip), IPSTR, IP2STR(&ipi.ip));
+    snprintf(out, cap,
+             "Firmware: %s\nWi-Fi: %s (%d/4)\nIP: %s\nStatus: %s",
+             CONFIG_DITTO_FW_VERSION, ssid, bars, ip,
+             net_is_connected() ? "Online" : "Offline");
+}
+
+// Long-press → PIN gate (if configured) → settings menu.
+// Blocks until the user closes the menu, runs a test print, or reboots.
+static void run_settings_flow(void) {
+    const device_config_t *cfg = s_cfg_buf[s_cfg_live];
+    ui_settings_action_t act;
+
+    // PIN gate — skipped when no hash is configured.
+    if (cfg->device.settings_password_hash[0]) {
+        ui_settings_show_pin();
+        for (;;) {
+            char pin[16];
+            if (ui_settings_consume_pin(pin, sizeof(pin))) {
+                if (settings_pin_verify(pin,
+                                        cfg->device.settings_password_hash,
+                                        cfg->device.settings_password_salt)) {
+                    // Correct PIN — drain the stale Cancel action the PIN screen
+                    // latches when the user taps Submit (not Cancel), then continue.
+                    ui_settings_consume_action(&act);
+                    break;
+                }
+                ui_settings_pin_set_error(true);
+            }
+            // Let Cancel close the PIN screen without opening the menu.
+            if (ui_settings_consume_action(&act) && act == UI_SET_CLOSE) {
+                ui_render_state(s_state);
+                return;
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+    }
+
+    // Build info and show menu.
+    char info[160];
+    build_settings_info(info, sizeof(info));
+    ui_settings_set_info(info);
+    ui_settings_show_menu();
+
+    for (;;) {
+        if (ui_settings_consume_action(&act)) {
+            switch (act) {
+                case UI_SET_WIFI:
+                    wifi_setup_run();
+                    // Refresh info after Wi-Fi changes and re-show menu.
+                    build_settings_info(info, sizeof(info));
+                    ui_settings_set_info(info);
+                    ui_settings_show_menu();
+                    break;
+                case UI_SET_TEST_PRINT:
+                    run_test_ingest();
+                    return;
+                case UI_SET_REBOOT:
+                    esp_restart();
+                    break;
+                case UI_SET_CLOSE:
+                    ui_render_state(s_state);
+                    return;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
 // Wait up to total_ms, but break early (~500ms granularity) to auto-return from
 // the receipt screen when its countdown expires. Avoids extra cloud polls.
 static void idle_wait_or_qr_expiry(int total_ms) {
@@ -202,6 +289,10 @@ static void poll_task(void *arg)
         if (ui_consume_tap()) {
             // A tap that merely woke the screen must not also trigger ingest.
             if (now_ms() >= s_wake_guard_until && net_is_connected()) run_test_ingest();
+            continue;
+        }
+        if (ui_consume_longpress()) {
+            run_settings_flow();
             continue;
         }
         if (!net_is_connected()) {
