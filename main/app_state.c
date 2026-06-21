@@ -53,9 +53,9 @@ static void display_sleep(void) {
 }
 
 static void display_wake(int duty) {
-    s_display_asleep = false;            // clear first so display_apply_brightness runs
-    display_apply_brightness(duty);
-    bsp_display_backlight_on();
+    s_display_asleep = false;            // clear first so display_apply_brightness isn't a no-op
+    bsp_display_backlight_on();          // ensure the backlight controller is on
+    display_apply_brightness(duty);      // configured duty is the final write (wins over backlight_on's 100)
     uint32_t t = now_ms();
     s_last_activity_ms = t;
     s_wake_guard_until = t + 800; // the touch that woke us must not also trigger ingest
