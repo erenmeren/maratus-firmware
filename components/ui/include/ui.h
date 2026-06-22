@@ -94,8 +94,8 @@ typedef enum {
     UI_SET_CLOSE,       // user tapped "Close" or PIN "Cancel"
 } ui_settings_action_t;
 
-// True (once) if the idle screen was long-pressed. Cleared on read.
-bool ui_consume_longpress(void);
+// True (once) if an upward swipe (bottom-to-top) was performed. Cleared on read.
+bool ui_consume_swipeup(void);
 
 // Build + load the PIN keypad screen. Clears any pending entry and error state.
 void ui_settings_show_pin(void);

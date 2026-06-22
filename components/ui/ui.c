@@ -7,6 +7,7 @@
 #include "esp_heap_caps.h"
 #include "device_config.h"
 #include "render_geom.h"
+#include "gesture.h"
 #include "font_cache.h"
 #include "assets.h"
 #include "asset_cache.h"
@@ -16,6 +17,8 @@
 #define DITTO_GREEN   0x10A765
 #define DITTO_ONLINE  0x37C871
 #define DITTO_GREY    0x888888
+
+#define SWIPE_UP_MIN_PX 150   // ~21% of the 720px screen height
 
 static const device_config_t *s_cfg;
 static lv_obj_t  *s_active;            // currently displayed screen
@@ -42,11 +45,44 @@ static int        s_cd_pending = 60;   // duration the next render should arm
 static int        s_cd_remaining;      // seconds left on the active widget
 static bool       s_cd_expired;        // set at 0, consumed by the state machine
 
-static volatile bool s_longpress = false;
+static volatile bool s_swipeup = false;
+static int  s_press_x, s_press_y;      // press-start point (LVGL task context)
+static bool s_press_valid = false;
+static bool s_suppress_click = false;  // eat the CLICKED that ends a swipe
 
-static void on_screen_click(lv_event_t *e)     { (void)e; s_tap_requested = true; }
-static void on_screen_press(lv_event_t *e)     { (void)e; s_activity = true; }
-static void on_screen_longpress(lv_event_t *e) { (void)e; s_longpress = true; }
+static void on_screen_press(lv_event_t *e) {
+    (void)e;
+    s_activity = true;
+    s_suppress_click = false;          // new gesture: clear stale suppression
+    lv_indev_t *indev = lv_indev_active();
+    if (indev) {
+        lv_point_t p;
+        lv_indev_get_point(indev, &p);
+        s_press_x = p.x; s_press_y = p.y; s_press_valid = true;
+    } else {
+        s_press_valid = false;
+    }
+}
+
+static void on_screen_release(lv_event_t *e) {
+    (void)e;
+    if (!s_press_valid) return;
+    s_press_valid = false;
+    lv_indev_t *indev = lv_indev_active();
+    if (!indev) return;
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    if (gesture_is_swipe_up(s_press_x, s_press_y, p.x, p.y, SWIPE_UP_MIN_PX)) {
+        s_swipeup = true;
+        s_suppress_click = true;       // the CLICKED about to fire is part of this swipe
+    }
+}
+
+static void on_screen_click(lv_event_t *e) {
+    (void)e;
+    if (s_suppress_click) { s_suppress_click = false; return; }
+    s_tap_requested = true;
+}
 
 // --- PNG image decode → PSRAM ---------------------------------------------
 // LVGL's lodepng decoder allocates the decoded ARGB8888 bitmap through the image
@@ -420,7 +456,7 @@ static lv_obj_t *build_splash(void) {
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(scr, on_screen_click,     LV_EVENT_CLICKED,      NULL);
     lv_obj_add_event_cb(scr, on_screen_press,     LV_EVENT_PRESSED,      NULL);
-    lv_obj_add_event_cb(scr, on_screen_longpress, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_add_event_cb(scr, on_screen_release,   LV_EVENT_RELEASED,     NULL);
     return scr;
 }
 
@@ -436,7 +472,7 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(scr, on_screen_click,     LV_EVENT_CLICKED,      NULL);
     lv_obj_add_event_cb(scr, on_screen_press,     LV_EVENT_PRESSED,      NULL);
-    lv_obj_add_event_cb(scr, on_screen_longpress, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_add_event_cb(scr, on_screen_release,   LV_EVENT_RELEASED,     NULL);
 
     int order[CFG_MAX_OBJECTS];
     cfg_sort_by_z(sc->objects, sc->n, order);
@@ -590,11 +626,11 @@ bool ui_consume_activity(void) {
     return v;
 }
 
-bool ui_consume_longpress(void) {
+bool ui_consume_swipeup(void) {
     bool v;
     lvgl_port_lock(0);
-    v = s_longpress;
-    s_longpress = false;
+    v = s_swipeup;
+    s_swipeup = false;
     lvgl_port_unlock();
     return v;
 }

@@ -13,6 +13,7 @@
 #include "sleep_policy.h"
 #include "settings_pin.h"
 #include "sha256.h"
+#include "gesture.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -384,6 +385,20 @@ static void test_should_sleep(void) {
     printf("test_should_sleep OK\n");
 }
 
+static void test_gesture_swipe_up(void) {
+    // clear upward swipe passes
+    assert(gesture_is_swipe_up(360, 600, 360, 200, 150) == true);
+    // too-short upward travel fails
+    assert(gesture_is_swipe_up(360, 300, 360, 220, 150) == false);
+    // downward drag fails
+    assert(gesture_is_swipe_up(360, 200, 360, 600, 150) == false);
+    // mostly-horizontal swipe fails (up=200 but dx=600 > up)
+    assert(gesture_is_swipe_up(100, 600, 700, 400, 150) == false);
+    // diagonal that's still more-vertical passes
+    assert(gesture_is_swipe_up(360, 600, 300, 250, 150) == true);
+    printf("test_gesture_swipe_up OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -400,6 +415,7 @@ int main(void) {
     test_ota_manifest();
     test_should_sleep();
     test_sha256_and_pin();
+    test_gesture_swipe_up();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
