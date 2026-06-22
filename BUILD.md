@@ -36,6 +36,18 @@ idf.py set-target esp32p4
 idf.py build            # if it fails in esp_wifi_remote, run ./tools/patch-deps.sh then rebuild
 ```
 
+> **NEVER set `ESP_IDF_VERSION` to a patch version (e.g. `5.5.4`).** `esp_wifi_remote/Kconfig`
+> does `orsource "./idf_v$ESP_IDF_VERSION/Kconfig.slave_select.in"`, which needs the
+> **major.minor** form `5.5` to resolve `idf_v5.5/`. With `5.5.4` the path is `idf_v5.5.4/`
+> (doesn't exist); `orsource` silently skips it, `SLAVE_IDF_TARGET_ESP32C6` is never defined,
+> and the Wi-Fi transport falls back to **SPI** → boot panic
+> `spi_mempool_create … "mempool create failed: no mem"` (backlight on, blank screen).
+> Let `idf.py` set the version itself, or export exactly `ESP_IDF_VERSION=5.5`. If a stale
+> `sdkconfig` already drifted to SPI (`CONFIG_ESP_HOSTED_SPI_HOST_INTERFACE=y`), recover with:
+> `./tools/patch-deps.sh && rm sdkconfig && ESP_IDF_VERSION=5.5 idf.py reconfigure` then
+> restore the dev creds in `sdkconfig` (`CONFIG_DITTO_API_BASE_URL` / `CONFIG_DITTO_DEVICE_KEY`).
+> Verify with `grep CONFIG_ESP_HOSTED_SDIO_HOST_INTERFACE sdkconfig`.
+
 ## Flash (USB-to-UART port, NOT USB-OTG)
 
 Use the **USB-to-UART** Type-C port. `idf.py -p <port> flash` works (auto-reset). If a
