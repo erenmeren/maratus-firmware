@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include "lvgl.h"
 #include "device_config.h"
 #include "dev_state.h"
 #include "net.h"   // net_ap_t
@@ -115,8 +116,8 @@ void ui_suppress_next_click(void);
 // The live config pointer (set by ui_set_config); used by the sheet to color itself.
 const device_config_t *ui_current_cfg(void);
 
-// Build + load the PIN keypad screen. Clears any pending entry and error state.
-void ui_settings_show_pin(void);
+// Build the PIN keypad into `parent`. Clears any pending entry and error state.
+void ui_settings_show_pin(lv_obj_t *parent);
 
 // Show or hide the "Incorrect PIN" error label. Clears the entry on show.
 void ui_settings_pin_set_error(bool show);
@@ -128,8 +129,8 @@ bool ui_settings_consume_pin(char *out, int cap);
 // Set the device-info block text shown at the top of the menu screen.
 void ui_settings_set_info(const char *text);
 
-// Build + load the menu screen (info label + 4 action buttons).
-void ui_settings_show_menu(void);
+// Build the menu screen (info label + 4 action buttons) into `parent`.
+void ui_settings_show_menu(lv_obj_t *parent);
 
 // True (once) if the user tapped a menu button. Writes the action into `*act`.
 // Cleared on read.

@@ -188,7 +188,7 @@ static void run_settings_flow(void) {
 
     // PIN gate — skipped when no hash is configured.
     if (cfg->device.settings_password_hash[0]) {
-        ui_settings_show_pin();
+        ui_settings_show_pin(lv_layer_top());
         for (;;) {
             char pin[16];
             if (ui_settings_consume_pin(pin, sizeof(pin))) {
@@ -215,7 +215,7 @@ static void run_settings_flow(void) {
     char info[160];
     build_settings_info(info, sizeof(info));
     ui_settings_set_info(info);
-    ui_settings_show_menu();
+    ui_settings_show_menu(lv_layer_top());
 
     for (;;) {
         if (ui_settings_consume_action(&act)) {
@@ -225,7 +225,7 @@ static void run_settings_flow(void) {
                     // Refresh info after Wi-Fi changes and re-show menu.
                     build_settings_info(info, sizeof(info));
                     ui_settings_set_info(info);
-                    ui_settings_show_menu();
+                    ui_settings_show_menu(lv_layer_top());
                     break;
                 case UI_SET_TEST_PRINT:
                     run_test_ingest();

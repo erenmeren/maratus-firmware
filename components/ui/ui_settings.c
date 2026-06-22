@@ -103,7 +103,7 @@ static lv_obj_t *make_button(lv_obj_t *parent, const char *label,
 // Public API — PIN screen
 // --------------------------------------------------------------------------
 
-void ui_settings_show_pin(void) {
+void ui_settings_show_pin(lv_obj_t *parent) {
     lvgl_port_lock(0);
 
     // Reset state
@@ -113,7 +113,10 @@ void ui_settings_show_pin(void) {
     // Delete any previous instance
     if (s_pin_screen) { lv_obj_delete(s_pin_screen); s_pin_screen = NULL; }
 
-    s_pin_screen = lv_obj_create(NULL);
+    s_pin_screen = lv_obj_create(parent);
+    lv_obj_remove_style_all(s_pin_screen);
+    lv_obj_set_size(s_pin_screen, 720, 720);
+    lv_obj_set_pos(s_pin_screen, 0, 0);
     lv_obj_clear_flag(s_pin_screen, LV_OBJ_FLAG_SCROLLABLE);
 
     // Title
@@ -188,7 +191,6 @@ void ui_settings_show_pin(void) {
     lv_obj_set_size(cancel, 160, 60);
     lv_obj_align(cancel, LV_ALIGN_BOTTOM_MID, 0, -20);
 
-    lv_screen_load(s_pin_screen);
     lvgl_port_unlock();
 }
 
@@ -237,7 +239,7 @@ void ui_settings_set_info(const char *text) {
 // Public API — Menu screen
 // --------------------------------------------------------------------------
 
-void ui_settings_show_menu(void) {
+void ui_settings_show_menu(lv_obj_t *parent) {
     lvgl_port_lock(0);
 
     s_action_set = false;
@@ -245,7 +247,10 @@ void ui_settings_show_menu(void) {
     // Delete any previous instance
     if (s_menu_screen) { lv_obj_delete(s_menu_screen); s_menu_screen = NULL; }
 
-    s_menu_screen = lv_obj_create(NULL);
+    s_menu_screen = lv_obj_create(parent);
+    lv_obj_remove_style_all(s_menu_screen);
+    lv_obj_set_size(s_menu_screen, 720, 720);
+    lv_obj_set_pos(s_menu_screen, 0, 0);
     lv_obj_clear_flag(s_menu_screen, LV_OBJ_FLAG_SCROLLABLE);
 
     // Title
@@ -283,7 +288,6 @@ void ui_settings_show_menu(void) {
         lv_obj_center(lbl);
     }
 
-    lv_screen_load(s_menu_screen);
     lvgl_port_unlock();
 }
 
