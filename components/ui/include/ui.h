@@ -106,6 +106,10 @@ void ui_sheet_on_release(void);           // finger up -> snap decision
 // Consumed by poll_task to run the settings flow. Takes the port lock.
 bool ui_consume_sheet_open(void);
 
+// Non-consuming peek of the open flag, so the poll loop's wait slices can break
+// out early and run the settings flow promptly. Takes the port lock.
+bool ui_sheet_is_open(void);
+
 // Animate the sheet back down and destroy it (called when settings flow exits).
 // Takes the port lock.
 void ui_sheet_close(void);

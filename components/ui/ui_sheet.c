@@ -135,6 +135,15 @@ bool ui_consume_sheet_open(void) {
     return v;
 }
 
+// Non-consuming peek: lets the poll loop's wait slices break early to run the
+// settings flow without swallowing the flag (the main loop still consumes it).
+bool ui_sheet_is_open(void) {
+    lvgl_port_lock(0);
+    bool v = s_open;
+    lvgl_port_unlock();
+    return v;
+}
+
 void ui_sheet_close(void) {
     lvgl_port_lock(0);
     if (s_sheet) { s_closing = true; animate_to(SCREEN_H, close_anim_done); }

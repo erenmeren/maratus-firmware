@@ -299,6 +299,10 @@ static void idle_wait_or_qr_expiry(int total_ms) {
     // checks, but not after the last). The trailing check catches an expiry that
     // lands in the final slice, instead of waiting a whole cloud poll round-trip.
     for (int waited = 0; waited <= total_ms; waited += slice) {
+        // Settings sheet just opened — bail so poll_task runs the settings flow
+        // within one slice instead of after a whole poll cycle (~12s). The flag
+        // stays set; the main loop consumes it via ui_consume_sheet_open().
+        if (ui_sheet_is_open()) return;
         if (ui_consume_countdown_expired()) {
             s_state = DEV_IDLE;
             ui_render_state(DEV_IDLE);
