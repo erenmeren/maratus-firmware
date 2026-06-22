@@ -94,8 +94,26 @@ typedef enum {
     UI_SET_CLOSE,       // user tapped "Close" or PIN "Cancel"
 } ui_settings_action_t;
 
-// True (once) if an upward swipe (bottom-to-top) was performed. Cleared on read.
-bool ui_consume_swipeup(void);
+// --- Interactive Settings sheet (finger-tracking bottom-sheet) -------------
+// Drive the interactive Settings sheet from the active screen's touch events.
+// All run on the LVGL thread (callbacks already hold the port lock).
+void ui_sheet_on_press(int x, int y);     // finger down at (x,y)
+void ui_sheet_on_pressing(int x, int y);  // finger moved to (x,y) while down
+void ui_sheet_on_release(void);           // finger up -> snap decision
+
+// True (once) when the sheet has finished animating fully open. Cleared on read.
+// Consumed by poll_task to run the settings flow. Takes the port lock.
+bool ui_consume_sheet_open(void);
+
+// Animate the sheet back down and destroy it (called when settings flow exits).
+// Takes the port lock.
+void ui_sheet_close(void);
+
+// Suppress the next CLICKED event (called by ui_sheet when a drag ends in a swipe).
+void ui_suppress_next_click(void);
+
+// The live config pointer (set by ui_set_config); used by the sheet to color itself.
+const device_config_t *ui_current_cfg(void);
 
 // Build + load the PIN keypad screen. Clears any pending entry and error state.
 void ui_settings_show_pin(void);

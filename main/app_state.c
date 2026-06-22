@@ -291,7 +291,8 @@ static void poll_task(void *arg)
             if (now_ms() >= s_wake_guard_until && net_is_connected()) run_test_ingest();
             continue;
         }
-        if (ui_consume_swipeup()) {
+        if (ui_consume_sheet_open()) {
+            ui_sheet_close();      // remove the cover so the PIN/menu screen is visible
             run_settings_flow();
             continue;
         }
