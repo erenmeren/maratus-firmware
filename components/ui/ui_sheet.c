@@ -22,6 +22,9 @@ static int            s_prev_y;         // last sampled y (for velocity)
 static uint32_t       s_prev_tick;      // last sample tick (ms)
 static int            s_vel_up;         // last computed upward velocity px/s
 static volatile bool  s_open;           // set when open animation completes
+static volatile bool  s_closing;        // close animation in flight (no re-grab)
+static volatile bool  s_input_suppressed;// ignore new drags (wake-guard gesture)
+static bool           s_drag_blocked;    // this gesture was refused at press-time
 
 static int sheet_brand_bg(void) {
     const device_config_t *c = ui_current_cfg();
@@ -57,10 +60,15 @@ static void build_sheet(void) {
 
 static void destroy_sheet(void) {
     if (s_sheet) { lv_obj_delete(s_sheet); s_sheet = NULL; }
-    s_dragging = false;
+    // Clear ALL drag/lifecycle state so the next gesture starts clean.
+    s_dragging = false; s_closing = false; s_open = false;
 }
 
-static void open_anim_done(lv_anim_t *a) { (void)a; s_open = true; }
+static void open_anim_done(lv_anim_t *a) {
+    (void)a;
+    if (s_closing) return;   // a close raced this open — don't latch a stale open
+    s_open = true;
+}
 static void close_anim_done(lv_anim_t *a) { (void)a; destroy_sheet(); }
 
 static void animate_to(int target_y, lv_anim_completed_cb_t done) {
@@ -77,12 +85,17 @@ static void animate_to(int target_y, lv_anim_completed_cb_t done) {
 
 void ui_sheet_on_press(int x, int y) {
     (void)x;
+    // Refuse the gesture entirely if input is suppressed (this swipe merely woke
+    // the screen) or the sheet is mid-close (don't re-grab a closing sheet).
+    if (s_input_suppressed || s_closing) { s_drag_blocked = true; return; }
+    s_drag_blocked = false;
     s_press_y = y; s_prev_y = y; s_prev_tick = lv_tick_get();
     s_dragging = false; s_vel_up = 0;
 }
 
 void ui_sheet_on_pressing(int x, int y) {
     (void)x;
+    if (s_drag_blocked || s_closing) return;      // refused gesture / closing
     int up = s_press_y - y;                       // positive = moved up
     if (!s_dragging) {
         if (up < SHEET_DRAG_SLOP_PX) return;      // still a potential tap
@@ -101,6 +114,7 @@ void ui_sheet_on_pressing(int x, int y) {
 }
 
 void ui_sheet_on_release(void) {
+    if (s_drag_blocked) { s_drag_blocked = false; return; }  // refused gesture: no snap, no suppress
     if (!s_dragging) return;
     s_dragging = false;
     ui_suppress_next_click();                     // the trailing CLICKED is part of this drag
@@ -109,6 +123,7 @@ void ui_sheet_on_release(void) {
     if (gesture_snap(reveal, SCREEN_H, vel, SHEET_OPEN_PCT, SHEET_FLICK_PX_S) == SNAP_OPEN) {
         animate_to(0, open_anim_done);
     } else {
+        s_closing = true;                         // spring-back-down: guard against re-grab
         animate_to(SCREEN_H, close_anim_done);
     }
 }
@@ -122,15 +137,22 @@ bool ui_consume_sheet_open(void) {
 
 void ui_sheet_close(void) {
     lvgl_port_lock(0);
-    if (s_sheet) animate_to(SCREEN_H, close_anim_done);
+    if (s_sheet) { s_closing = true; animate_to(SCREEN_H, close_anim_done); }
     lvgl_port_unlock();
 }
 
 lv_obj_t *ui_sheet_content(void) {
     lvgl_port_lock(0);
-    lv_obj_t *c = s_sheet;
+    // Refuse a sheet that is on its way out so the flow's `if (!sheet)` guards bail.
+    lv_obj_t *c = (s_sheet && !s_closing) ? s_sheet : NULL;
     lvgl_port_unlock();
     return c;
+}
+
+void ui_sheet_set_input_suppressed(bool s) {
+    lvgl_port_lock(0);
+    s_input_suppressed = s;
+    lvgl_port_unlock();
 }
 
 void ui_sheet_set_hidden(bool hidden) {

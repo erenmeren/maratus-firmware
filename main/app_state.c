@@ -35,6 +35,9 @@ static volatile bool s_config_dirty = true;   // fetch once after first connect
 static volatile bool s_display_asleep = false;
 static volatile uint32_t s_last_activity_ms = 0;
 static volatile uint32_t s_wake_guard_until = 0;   // ignore taps until this time (swallow the wake touch)
+// Set true (escpos task) when a receipt arrives while run_settings_flow is mid-flow;
+// the flow polls this and returns within one 50 ms slice. volatile for cross-task read.
+static volatile bool s_settings_abort = false;
 
 static inline uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
@@ -50,6 +53,7 @@ static void display_apply_brightness(int duty) {
 static void display_sleep(void) {
     bsp_display_backlight_off();
     s_display_asleep = true;
+    ui_sheet_set_input_suppressed(true); // a swipe on a sleeping screen wakes only
 }
 
 static void display_wake(int duty) {
@@ -59,6 +63,7 @@ static void display_wake(int duty) {
     uint32_t t = now_ms();
     s_last_activity_ms = t;
     s_wake_guard_until = t + 800; // the touch that woke us must not also trigger ingest
+    ui_sheet_set_input_suppressed(true); // stay suppressed through the wake-guard
     ui_consume_tap();                    // swallow any tap already latched by the wake touch
 }
 
@@ -68,6 +73,14 @@ void app_state_set_state(dev_state_t st) {
     // A print job arriving while asleep must light the screen so the QR is visible.
     if (s_display_asleep && (st == DEV_PROCESSING || st == DEV_QR))
         display_wake(s_cfg_buf[s_cfg_live]->device.brightness);
+    // A receipt arriving while the Settings sheet is open would otherwise leave the
+    // opaque sheet covering the live QR. Tear the sheet off lv_layer_top and signal
+    // any in-flight settings flow to abort. (port-lock safe from the escpos task.)
+    if (st == DEV_PROCESSING || st == DEV_QR) {
+        s_settings_abort = true;
+        ui_sheet_close();        // animate the sheet off lv_layer_top so the QR is visible
+        ui_settings_reset();     // sheet children auto-delete; null the ui_settings statics now
+    }
     s_state = st;
 }
 
@@ -186,10 +199,13 @@ static void run_settings_flow(void) {
     const device_config_t *cfg = s_cfg_buf[s_cfg_live];
     ui_settings_action_t act;
 
+    // Fresh flow: clear any abort latched by a prior run before fetching the sheet.
+    s_settings_abort = false;
+
     // Build settings into the already-open sheet (no screen swap). The sheet
     // could have vanished (e.g. a receipt destroyed it) — abort if so.
     lv_obj_t *sheet = ui_sheet_content();
-    if (!sheet) return;
+    if (!sheet) { ui_settings_reset(); return; }
 
     // PIN gate — skipped when no hash is configured.
     if (cfg->device.settings_password_hash[0]) {
@@ -202,6 +218,8 @@ static void run_settings_flow(void) {
             if (content) lv_obj_fade_in(content, 150, 0);
         }
         for (;;) {
+            // A receipt tore the sheet down underneath us — abort the flow.
+            if (s_settings_abort) { ui_settings_reset(); return; }
             char pin[16];
             if (ui_settings_consume_pin(pin, sizeof(pin))) {
                 if (settings_pin_verify(pin,
@@ -236,6 +254,8 @@ static void run_settings_flow(void) {
     }
 
     for (;;) {
+        // A receipt tore the sheet down underneath us — abort the flow.
+        if (s_settings_abort) { ui_settings_reset(); return; }
         if (ui_settings_consume_action(&act)) {
             switch (act) {
                 case UI_SET_WIFI: {
@@ -246,7 +266,7 @@ static void run_settings_flow(void) {
                     ui_sheet_set_hidden(true);
                     wifi_setup_run();
                     lv_obj_t *s2 = ui_sheet_content();
-                    if (!s2) return;    // sheet gone — bail rather than reuse a stale ptr
+                    if (!s2) { ui_settings_reset(); return; }    // sheet gone — bail rather than reuse a stale ptr
                     build_settings_info(info, sizeof(info));
                     ui_settings_set_info(info);
                     ui_settings_show_menu(s2);  // deletes old menu, builds fresh (sheet alive)
@@ -285,6 +305,9 @@ static void idle_wait_or_qr_expiry(int total_ms) {
             return;
         }
         const device_config_t *cfg = s_cfg_buf[s_cfg_live];
+        // Keep input suppressed while asleep or within the wake-guard; release it
+        // once the screen is awake and past the guard (idempotent every slice).
+        ui_sheet_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
         bool active = ui_consume_activity();
         if (active) s_last_activity_ms = now_ms();
         // A receipt that arrived while asleep (or a sleep that raced the wake)
@@ -315,6 +338,8 @@ static void poll_task(void *arg)
     s_last_activity_ms = now_ms();
 
     for (;;) {
+        // Release input suppression once awake and past the wake-guard (idempotent).
+        ui_sheet_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
         if (ui_consume_tap()) {
             // A tap that merely woke the screen must not also trigger ingest.
             if (now_ms() >= s_wake_guard_until && net_is_connected()) run_test_ingest();

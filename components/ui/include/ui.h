@@ -118,6 +118,11 @@ lv_obj_t *ui_sheet_content(void);
 // sub-flow like Wi-Fi setup that loads on the base screen layer). Takes the lock.
 void ui_sheet_set_hidden(bool hidden);
 
+// Suppress new drag gestures (so a swipe that merely wakes a sleeping screen
+// cannot also open the sheet). Driven by app_state's sleep/wake bookkeeping.
+// Takes the port lock.
+void ui_sheet_set_input_suppressed(bool s);
+
 // Suppress the next CLICKED event (called by ui_sheet when a drag ends in a swipe).
 void ui_suppress_next_click(void);
 
