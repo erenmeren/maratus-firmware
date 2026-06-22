@@ -399,6 +399,22 @@ static void test_gesture_swipe_up(void) {
     printf("test_gesture_swipe_up OK\n");
 }
 
+static void test_gesture_snap(void) {
+    // short drag, no flick -> dismiss (100/720 = 14%)
+    assert(gesture_snap(100, 720, 0, 40, 1200) == SNAP_DISMISS);
+    // >=40% revealed -> open (300/720 = 41.7%)
+    assert(gesture_snap(300, 720, 0, 40, 1200) == SNAP_OPEN);
+    // exactly 40% -> open (288/720 = 40%)
+    assert(gesture_snap(288, 720, 0, 40, 1200) == SNAP_OPEN);
+    // fast upward flick under 40% -> open
+    assert(gesture_snap(120, 720, 2000, 40, 1200) == SNAP_OPEN);
+    // slow flick under 40% -> dismiss
+    assert(gesture_snap(120, 720, 500, 40, 1200) == SNAP_DISMISS);
+    // no movement -> dismiss
+    assert(gesture_snap(0, 720, 0, 40, 1200) == SNAP_DISMISS);
+    printf("test_gesture_snap OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -416,6 +432,7 @@ int main(void) {
     test_should_sleep();
     test_sha256_and_pin();
     test_gesture_swipe_up();
+    test_gesture_snap();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
