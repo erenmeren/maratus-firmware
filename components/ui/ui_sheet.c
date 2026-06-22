@@ -132,3 +132,12 @@ lv_obj_t *ui_sheet_content(void) {
     lvgl_port_unlock();
     return c;
 }
+
+void ui_sheet_set_hidden(bool hidden) {
+    lvgl_port_lock(0);
+    if (s_sheet) {
+        if (hidden) lv_obj_add_flag(s_sheet, LV_OBJ_FLAG_HIDDEN);
+        else        lv_obj_clear_flag(s_sheet, LV_OBJ_FLAG_HIDDEN);
+    }
+    lvgl_port_unlock();
+}

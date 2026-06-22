@@ -114,6 +114,10 @@ void ui_sheet_close(void);
 // sheet). Takes the port lock.
 lv_obj_t *ui_sheet_content(void);
 
+// Show/hide the sheet without destroying it (used to reveal a full-screen
+// sub-flow like Wi-Fi setup that loads on the base screen layer). Takes the lock.
+void ui_sheet_set_hidden(bool hidden);
+
 // Suppress the next CLICKED event (called by ui_sheet when a drag ends in a swipe).
 void ui_suppress_next_click(void);
 

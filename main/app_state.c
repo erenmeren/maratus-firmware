@@ -239,14 +239,18 @@ static void run_settings_flow(void) {
         if (ui_settings_consume_action(&act)) {
             switch (act) {
                 case UI_SET_WIFI: {
-                    wifi_setup_run();   // loads its own full screen, covers the sheet
-                    // Refresh info after Wi-Fi changes and re-show the menu into a
-                    // fresh sheet if one exists, else fall back to the prior parent.
+                    // Wi-Fi setup loads its own UI on the base screen layer; the
+                    // opaque sheet sits on lv_layer_top and would hide it. Hide
+                    // the sheet for the duration, then rebuild the menu into the
+                    // still-alive sheet and reveal it again.
+                    ui_sheet_set_hidden(true);
+                    wifi_setup_run();
+                    lv_obj_t *s2 = ui_sheet_content();
+                    if (!s2) return;    // sheet gone — bail rather than reuse a stale ptr
                     build_settings_info(info, sizeof(info));
                     ui_settings_set_info(info);
-                    lv_obj_t *parent = ui_sheet_content();
-                    if (!parent) parent = sheet;
-                    ui_settings_show_menu(parent);
+                    ui_settings_show_menu(s2);  // deletes old menu, builds fresh (sheet alive)
+                    ui_sheet_set_hidden(false);
                     break;
                 }
                 case UI_SET_TEST_PRINT:
