@@ -186,9 +186,21 @@ static void run_settings_flow(void) {
     const device_config_t *cfg = s_cfg_buf[s_cfg_live];
     ui_settings_action_t act;
 
+    // Build settings into the already-open sheet (no screen swap). The sheet
+    // could have vanished (e.g. a receipt destroyed it) — abort if so.
+    lv_obj_t *sheet = ui_sheet_content();
+    if (!sheet) return;
+
     // PIN gate — skipped when no hash is configured.
     if (cfg->device.settings_password_hash[0]) {
-        ui_settings_show_pin(lv_layer_top());
+        ui_settings_show_pin(sheet);
+        // Fade in just the freshly-built content (the sheet chrome is already
+        // opaque at snap-open; fading the whole sheet would blink it).
+        {
+            lv_obj_t *content =
+                lv_obj_get_child(sheet, lv_obj_get_child_count(sheet) - 1);
+            if (content) lv_obj_fade_in(content, 150, 0);
+        }
         for (;;) {
             char pin[16];
             if (ui_settings_consume_pin(pin, sizeof(pin))) {
@@ -204,7 +216,8 @@ static void run_settings_flow(void) {
             }
             // Let Cancel close the PIN screen without opening the menu.
             if (ui_settings_consume_action(&act) && act == UI_SET_CLOSE) {
-                ui_render_state(s_state);
+                ui_sheet_close();
+                ui_settings_reset();
                 return;
             }
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -215,26 +228,38 @@ static void run_settings_flow(void) {
     char info[160];
     build_settings_info(info, sizeof(info));
     ui_settings_set_info(info);
-    ui_settings_show_menu(lv_layer_top());
+    ui_settings_show_menu(sheet);
+    {
+        lv_obj_t *content =
+            lv_obj_get_child(sheet, lv_obj_get_child_count(sheet) - 1);
+        if (content) lv_obj_fade_in(content, 150, 0);
+    }
 
     for (;;) {
         if (ui_settings_consume_action(&act)) {
             switch (act) {
-                case UI_SET_WIFI:
-                    wifi_setup_run();
-                    // Refresh info after Wi-Fi changes and re-show menu.
+                case UI_SET_WIFI: {
+                    wifi_setup_run();   // loads its own full screen, covers the sheet
+                    // Refresh info after Wi-Fi changes and re-show the menu into a
+                    // fresh sheet if one exists, else fall back to the prior parent.
                     build_settings_info(info, sizeof(info));
                     ui_settings_set_info(info);
-                    ui_settings_show_menu(lv_layer_top());
+                    lv_obj_t *parent = ui_sheet_content();
+                    if (!parent) parent = sheet;
+                    ui_settings_show_menu(parent);
                     break;
+                }
                 case UI_SET_TEST_PRINT:
+                    ui_sheet_close();
+                    ui_settings_reset();
                     run_test_ingest();
                     return;
                 case UI_SET_REBOOT:
                     esp_restart();
                     break;
                 case UI_SET_CLOSE:
-                    ui_render_state(s_state);
+                    ui_sheet_close();
+                    ui_settings_reset();
                     return;
             }
         }
@@ -292,7 +317,6 @@ static void poll_task(void *arg)
             continue;
         }
         if (ui_consume_sheet_open()) {
-            ui_sheet_close();      // remove the cover so the PIN/menu screen is visible
             run_settings_flow();
             continue;
         }

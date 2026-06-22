@@ -125,3 +125,10 @@ void ui_sheet_close(void) {
     if (s_sheet) animate_to(SCREEN_H, close_anim_done);
     lvgl_port_unlock();
 }
+
+lv_obj_t *ui_sheet_content(void) {
+    lvgl_port_lock(0);
+    lv_obj_t *c = s_sheet;
+    lvgl_port_unlock();
+    return c;
+}

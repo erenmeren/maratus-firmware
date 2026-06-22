@@ -110,6 +110,10 @@ bool ui_consume_sheet_open(void);
 // Takes the port lock.
 void ui_sheet_close(void);
 
+// The sheet's content container to build settings controls into (NULL if no
+// sheet). Takes the port lock.
+lv_obj_t *ui_sheet_content(void);
+
 // Suppress the next CLICKED event (called by ui_sheet when a drag ends in a swipe).
 void ui_suppress_next_click(void);
 
@@ -135,3 +139,8 @@ void ui_settings_show_menu(lv_obj_t *parent);
 // True (once) if the user tapped a menu button. Writes the action into `*act`.
 // Cleared on read.
 bool ui_settings_consume_action(ui_settings_action_t *act);
+
+// Clear the static pointers to the PIN/menu containers WITHOUT deleting them.
+// Call after ui_sheet_close(): the sheet's destruction already freed those child
+// containers, so this prevents a stale-pointer double-delete on the next open.
+void ui_settings_reset(void);

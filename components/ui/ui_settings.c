@@ -297,3 +297,21 @@ bool ui_settings_consume_action(ui_settings_action_t *act) {
     if (act) *act = s_action;
     return true;
 }
+
+// --------------------------------------------------------------------------
+// Lifecycle reset
+// --------------------------------------------------------------------------
+// The PIN/menu containers are children of the sheet. When ui_sheet_close()
+// destroys the sheet, LVGL auto-deletes those children — leaving our static
+// pointers DANGLING. Calling this right after ui_sheet_close() clears them to
+// NULL so the next ui_settings_show_pin/menu does not double-delete a freed
+// object. It does NOT delete anything; the sheet teardown already did.
+void ui_settings_reset(void) {
+    lvgl_port_lock(0);
+    s_pin_screen    = NULL;
+    s_pin_entry_lbl = NULL;
+    s_pin_error_lbl = NULL;
+    s_menu_screen   = NULL;
+    s_menu_info_lbl = NULL;
+    lvgl_port_unlock();
+}
