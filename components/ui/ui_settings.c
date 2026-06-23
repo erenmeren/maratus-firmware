@@ -119,6 +119,7 @@ static void pin_cancel_cb(lv_event_t *e);
 
 static lv_obj_t *s_menu_screen;
 static lv_obj_t *s_menu_info_lbl;
+static lv_obj_t *s_about_screen;
 
 static volatile ui_settings_action_t s_action;
 static volatile bool                 s_action_set;
@@ -356,8 +357,9 @@ void ui_settings_show_menu(lv_obj_t *parent) {
 
     s_action_set = false;
 
-    // Delete any previous instance
+    // Delete any previous instance (menu + any sub-screen overlaying it).
     if (s_menu_screen) { lv_obj_delete(s_menu_screen); s_menu_screen = NULL; }
+    if (s_about_screen) { lv_obj_delete(s_about_screen); s_about_screen = NULL; }
 
     font_cache_begin_pass();   // pin fonts for this build pass
     pal_t p = settings_palette();
@@ -393,21 +395,23 @@ void ui_settings_show_menu(lv_obj_t *parent) {
     lv_obj_set_style_text_align(s_menu_info_lbl, LV_TEXT_ALIGN_RIGHT, 0);
     lv_obj_align(s_menu_info_lbl, LV_ALIGN_TOP_RIGHT, -PAD, PAD + 6);
 
-    // 2. Three card rows.
+    // 2. Card rows.
     struct { const char *icon; const char *label; const char *sub;
-             ui_settings_action_t act; } rows[3] = {
+             ui_settings_action_t act; } rows[4] = {
         { LV_SYMBOL_WIFI,  "Network & Wi-Fi", "Scan and connect",      UI_SET_WIFI },
+        { LV_SYMBOL_LIST,  "About",           "Device info",           UI_SET_ABOUT },
         { LV_SYMBOL_IMAGE, "Test print",      "Send a sample receipt", UI_SET_TEST_PRINT },
         { LV_SYMBOL_POWER, "Restart device",  "Reboots in ~30s",       UI_SET_REBOOT },
     };
+    const int n_rows = (int)(sizeof(rows) / sizeof(rows[0]));
 
     int row_x = PAD;
     int row_w = 720 - 2 * PAD;
-    int row_h = 96;
-    int row_gap = 14;
+    int row_h = 84;          // shrunk so 4 rows + Close still fit 720
+    int row_gap = 12;
     int row_y0 = PAD + 56;   // below the header
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < n_rows; i++) {
         lv_obj_t *btn = lv_button_create(s_menu_screen);
         lv_obj_remove_style_all(btn);
         lv_obj_set_size(btn, row_w, row_h);
@@ -495,6 +499,135 @@ bool ui_settings_consume_action(ui_settings_action_t *act) {
 }
 
 // --------------------------------------------------------------------------
+// Public API — About screen (read-only device info)
+// --------------------------------------------------------------------------
+// Renders `info_block` (one "label\tvalue" per line, '\n'-separated) as a card
+// list: muted label left, fg value right. Online/Listening get a green dot,
+// Offline a red dot. A back button (card-style LV_SYMBOL_LEFT chip) latches
+// UI_SET_BACK via the shared action flag (reusing menu_action_cb). PASSIVE.
+
+#define ABOUT_DOT_GREEN 0x2BB673
+#define ABOUT_DOT_RED   0xE0564B
+
+void ui_settings_show_about(lv_obj_t *parent, const char *info_block) {
+    lvgl_port_lock(0);
+
+    s_action_set = false;
+
+    if (s_about_screen) { lv_obj_delete(s_about_screen); s_about_screen = NULL; }
+
+    font_cache_begin_pass();
+    pal_t p = settings_palette();
+    const lv_font_t *f_title = font_cache_get(30, true);
+    const lv_font_t *f_label = font_cache_get(18, false);
+    const lv_font_t *f_value = font_cache_get(20, true);
+
+    s_about_screen = lv_obj_create(parent);
+    lv_obj_remove_style_all(s_about_screen);
+    lv_obj_set_size(s_about_screen, 720, 720);
+    lv_obj_set_pos(s_about_screen, 0, 0);
+    lv_obj_set_style_bg_color(s_about_screen, p.bg, 0);
+    lv_obj_set_style_bg_opa(s_about_screen, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_about_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    const int PAD = 40;
+
+    // Header: back button (left) + "About" title.
+    lv_obj_t *back = lv_button_create(s_about_screen);
+    lv_obj_remove_style_all(back);
+    lv_obj_set_size(back, 56, 56);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, PAD, PAD - 4);
+    lv_obj_set_style_radius(back, 16, 0);
+    lv_obj_set_style_bg_color(back, p.card, 0);
+    lv_obj_set_style_bg_opa(back, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(back, p.fg, 0);
+    lv_obj_set_style_border_width(back, 1, 0);
+    lv_obj_set_style_border_opa(back, 28, 0);
+    lv_obj_clear_flag(back, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(back, menu_action_cb, LV_EVENT_CLICKED,
+                        (void *)(intptr_t)UI_SET_BACK);
+    lv_obj_t *back_ic = lv_label_create(back);
+    lv_label_set_text(back_ic, LV_SYMBOL_LEFT);   // default font carries symbols
+    lv_obj_set_style_text_color(back_ic, p.fg, 0);
+    lv_obj_center(back_ic);
+
+    lv_obj_t *title = lv_label_create(s_about_screen);
+    lv_label_set_text(title, "About");
+    lv_obj_set_style_text_font(title, f_title, LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, p.fg, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, PAD + 56 + 18, PAD + 6);
+
+    // Card list of rows parsed from info_block. Vertical flex column, no scroll.
+    lv_obj_t *list = lv_obj_create(s_about_screen);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_size(list, 720 - 2 * PAD, LV_SIZE_CONTENT);
+    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, PAD + 76);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list, 12, 0);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Parse info_block: split on '\n', each line "label\tvalue".
+    char buf[256];
+    strncpy(buf, info_block ? info_block : "", sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    char *saveptr = NULL;
+    for (char *line = strtok_r(buf, "\n", &saveptr); line;
+         line = strtok_r(NULL, "\n", &saveptr)) {
+        if (!line[0]) continue;
+        char *tab = strchr(line, '\t');
+        const char *label = line;
+        const char *value = "";
+        if (tab) { *tab = '\0'; value = tab + 1; }
+
+        lv_obj_t *row = lv_obj_create(list);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, lv_pct(100), 64);
+        lv_obj_set_style_radius(row, 18, 0);
+        lv_obj_set_style_bg_color(row, p.card, 0);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_color(row, p.fg, 0);
+        lv_obj_set_style_border_width(row, 1, 0);
+        lv_obj_set_style_border_opa(row, 28, 0);
+        lv_obj_set_style_pad_left(row, 22, 0);
+        lv_obj_set_style_pad_right(row, 22, 0);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *lbl = lv_label_create(row);
+        lv_label_set_text(lbl, label);
+        lv_obj_set_style_text_font(lbl, f_label, LV_PART_MAIN);
+        lv_obj_set_style_text_color(lbl, p.muted, 0);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
+
+        // A status value gets a small colored dot to its left.
+        bool good = (strcmp(value, "Online") == 0) || (strcmp(value, "Listening") == 0);
+        bool bad  = (strcmp(value, "Offline") == 0);
+
+        lv_obj_t *val = lv_label_create(row);
+        lv_label_set_text(val, value);
+        lv_obj_set_style_text_font(val, f_value, LV_PART_MAIN);
+        lv_obj_set_style_text_color(val, p.fg, 0);
+        lv_obj_align(val, LV_ALIGN_RIGHT_MID, 0, 0);
+
+        if (good || bad) {
+            lv_obj_t *dot = lv_obj_create(row);
+            lv_obj_remove_style_all(dot);
+            lv_obj_set_size(dot, 12, 12);
+            lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_bg_color(dot,
+                lv_color_hex(good ? ABOUT_DOT_GREEN : ABOUT_DOT_RED), 0);
+            lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, 0);
+            lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+            // Sit just left of the value text (whose width depends on content).
+            lv_obj_update_layout(val);
+            lv_obj_align_to(dot, val, LV_ALIGN_OUT_LEFT_MID, -10, 0);
+        }
+    }
+
+    lvgl_port_unlock();
+}
+
+// --------------------------------------------------------------------------
 // Lifecycle reset
 // --------------------------------------------------------------------------
 // The PIN/menu containers are children of the settings screen. When that screen
@@ -509,5 +642,6 @@ void ui_settings_reset(void) {
     s_pin_error_lbl = NULL;
     s_menu_screen   = NULL;
     s_menu_info_lbl = NULL;
+    s_about_screen  = NULL;
     lvgl_port_unlock();
 }

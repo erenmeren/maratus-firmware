@@ -13,6 +13,7 @@
 #include "esp_heap_caps.h"
 #include "time_sync.h"
 #include "esp_wifi.h"
+#include "esp_mac.h"
 #include "ota.h"
 #include "bsp/esp-bsp.h"
 #include "esp_timer.h"
@@ -233,6 +234,43 @@ static void build_settings_info(char *out, int cap) {
              net_is_connected() ? "Online" : "Offline");
 }
 
+// Build the About sub-screen content: one "label\tvalue\n" line per fact
+// (firmware, IP, MAC, Wi-Fi, signal, Online, print listener). Rendered as a
+// read-only card list by ui_settings_show_about.
+static void build_about_info(char *out, size_t n) {
+    char ssid[33] = "\xe2\x80\x94";  // em-dash when not connected
+    char bars[8]  = "\xe2\x80\x94";
+    char ip[16]   = "\xe2\x80\x94";
+    char mac[18]  = "\xe2\x80\x94";
+
+    wifi_ap_record_t ap;
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        snprintf(ssid, sizeof(ssid), "%s", (const char *)ap.ssid);
+        snprintf(bars, sizeof(bars), "%d/4", rssi_to_level(ap.rssi));
+    }
+    esp_netif_t *nif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t ipi;
+    if (nif && esp_netif_get_ip_info(nif, &ipi) == ESP_OK && ipi.ip.addr != 0)
+        snprintf(ip, sizeof(ip), IPSTR, IP2STR(&ipi.ip));
+
+    uint8_t m[6];
+    if (esp_wifi_get_mac(WIFI_IF_STA, m) == ESP_OK ||
+        esp_read_mac(m, ESP_MAC_WIFI_STA) == ESP_OK)
+        snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 m[0], m[1], m[2], m[3], m[4], m[5]);
+
+    snprintf(out, n,
+             "Firmware\t%s\n"
+             "IP\t%s\n"
+             "MAC\t%s\n"
+             "Wi-Fi\t%s\n"
+             "Signal\t%s\n"
+             "Online\t%s\n"
+             "Print listener\tListening",
+             CONFIG_DITTO_FW_VERSION, ip, mac, ssid, bars,
+             net_is_connected() ? "Online" : "Offline");
+}
+
 // Return to the live idle/branding screen and free the settings screen.
 // ui_render_state() loads a fresh branding screen and deletes ui.c's old s_active
 // (the branding screen that was hidden under settings) — then scr is orphaned and
@@ -299,6 +337,23 @@ static void run_settings_flow(void) {
                     ui_settings_show_menu(scr);
                     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_TOP, 220, 0, false);
                     break;
+                case UI_SET_ABOUT: {
+                    // Read-only sub-screen: show device info, wait for Back,
+                    // then rebuild the menu in place (same scr — no new load).
+                    char about[256];
+                    build_about_info(about, sizeof(about));
+                    ui_settings_show_about(scr, about);
+                    for (;;) {
+                        if (s_settings_abort) {
+                            lv_obj_delete(scr); ui_settings_reset(); return;
+                        }
+                        if (ui_settings_consume_action(&act) && act == UI_SET_BACK)
+                            break;
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                    }
+                    ui_settings_show_menu(scr);
+                    break;
+                }
                 case UI_SET_TEST_PRINT:
                     close_settings(scr);
                     run_test_ingest();
@@ -309,6 +364,9 @@ static void run_settings_flow(void) {
                 case UI_SET_CLOSE:
                     close_settings(scr);
                     return;
+                case UI_SET_DEVICE:   // Task 4 implements the interactive screen.
+                case UI_SET_BACK:     // only meaningful inside a sub-screen loop.
+                    break;
             }
         }
         vTaskDelay(pdMS_TO_TICKS(50));

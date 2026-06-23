@@ -93,6 +93,9 @@ typedef enum {
     UI_SET_TEST_PRINT,  // user tapped "Test Print"
     UI_SET_REBOOT,      // user tapped "Reboot"
     UI_SET_CLOSE,       // user tapped "Close" or PIN "Cancel"
+    UI_SET_ABOUT,       // user tapped "About" (read-only device info sub-screen)
+    UI_SET_DEVICE,      // user tapped "Device settings" (interactive sub-screen)
+    UI_SET_BACK,        // user tapped a sub-screen Back button
 } ui_settings_action_t;
 
 // --- Swipe-up gesture (opens full-screen Settings) -------------------------
@@ -135,6 +138,13 @@ void ui_settings_show_menu(lv_obj_t *parent);
 // True (once) if the user tapped a menu button. Writes the action into `*act`.
 // Cleared on read.
 bool ui_settings_consume_action(ui_settings_action_t *act);
+
+// Build the read-only "About" sub-screen into `parent`. `info_block` is a
+// pre-formatted multi-line string ("label\tvalue\n" per line) built by the
+// orchestrator; each line renders as a row (muted label left, fg value right),
+// with a green/red status dot for "Online"/"Listening"/"Offline" values. A Back
+// button latches UI_SET_BACK via the shared action flag. PASSIVE.
+void ui_settings_show_about(lv_obj_t *parent, const char *info_block);
 
 // Clear the static pointers to the PIN/menu containers WITHOUT deleting them.
 // Call after the settings screen is deleted: deleting the parent screen already
