@@ -364,7 +364,57 @@ static void run_settings_flow(void) {
                 case UI_SET_CLOSE:
                     close_settings(scr);
                     return;
-                case UI_SET_DEVICE:   // Task 4 implements the interactive screen.
+                case UI_SET_DEVICE: {
+                    // Interactive sub-screen: brightness slider (live preview,
+                    // persist on release) + sleep chips. "Follow admin" clears the
+                    // local override and re-applies the cloud value. Same scr.
+                    int eff_br = override_eff_brightness(&g_ovr, cfg->device.brightness);
+                    int eff_sl = override_eff_sleep(&g_ovr, cloud_sleep_encoded(cfg));
+                    ui_settings_show_device(scr, eff_br, eff_sl,
+                                            g_ovr.brightness >= 0, g_ovr.sleep >= 0);
+                    for (;;) {
+                        if (s_settings_abort) {
+                            lv_obj_delete(scr); ui_settings_reset(); return;
+                        }
+                        int v;
+                        if (ui_settings_consume_brightness(&v)) {
+                            display_apply_brightness(v);   // live, no save
+                        }
+                        if (ui_settings_consume_brightness_commit(&v)) {
+                            override_set_brightness(&g_ovr, v, cfg->device.brightness);
+                            overrides_save();
+                        }
+                        int en;
+                        if (ui_settings_consume_sleep(&en)) {
+                            override_set_sleep(&g_ovr, en, cloud_sleep_encoded(cfg));
+                            overrides_save();
+                            s_last_activity_ms = now_ms();
+                        }
+                        if (ui_settings_consume_follow_brightness()) {
+                            override_clear_brightness(&g_ovr);
+                            overrides_save();
+                            display_apply_brightness(cfg->device.brightness);
+                            ui_settings_show_device(scr,
+                                override_eff_brightness(&g_ovr, cfg->device.brightness),
+                                override_eff_sleep(&g_ovr, cloud_sleep_encoded(cfg)),
+                                false, g_ovr.sleep >= 0);
+                        }
+                        if (ui_settings_consume_follow_sleep()) {
+                            override_clear_sleep(&g_ovr);
+                            overrides_save();
+                            s_last_activity_ms = now_ms();
+                            ui_settings_show_device(scr,
+                                override_eff_brightness(&g_ovr, cfg->device.brightness),
+                                override_eff_sleep(&g_ovr, cloud_sleep_encoded(cfg)),
+                                g_ovr.brightness >= 0, false);
+                        }
+                        if (ui_settings_consume_action(&act) && act == UI_SET_BACK)
+                            break;
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                    }
+                    ui_settings_show_menu(scr);
+                    break;
+                }
                 case UI_SET_BACK:     // only meaningful inside a sub-screen loop.
                     break;
             }

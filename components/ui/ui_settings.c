@@ -120,6 +120,17 @@ static void pin_cancel_cb(lv_event_t *e);
 static lv_obj_t *s_menu_screen;
 static lv_obj_t *s_menu_info_lbl;
 static lv_obj_t *s_about_screen;
+static lv_obj_t *s_device_screen;
+
+// --- Device-settings sub-screen volatile latches (PASSIVE callbacks set these) -
+static volatile bool s_dev_br_set;        // slider moved (live)
+static volatile int  s_dev_br;            // live brightness 10..100
+static volatile bool s_dev_br_commit;     // slider released (persist)
+static volatile int  s_dev_br_commit_val; // committed brightness 10..100
+static volatile bool s_dev_sl_set;        // a sleep chip was tapped
+static volatile int  s_dev_sl;            // chosen encoded value 0/60/120/300/600
+static volatile bool s_dev_follow_br;     // "Follow admin" tapped for brightness
+static volatile bool s_dev_follow_sl;     // "Follow admin" tapped for sleep
 
 static volatile ui_settings_action_t s_action;
 static volatile bool                 s_action_set;
@@ -360,6 +371,7 @@ void ui_settings_show_menu(lv_obj_t *parent) {
     // Delete any previous instance (menu + any sub-screen overlaying it).
     if (s_menu_screen) { lv_obj_delete(s_menu_screen); s_menu_screen = NULL; }
     if (s_about_screen) { lv_obj_delete(s_about_screen); s_about_screen = NULL; }
+    if (s_device_screen) { lv_obj_delete(s_device_screen); s_device_screen = NULL; }
 
     font_cache_begin_pass();   // pin fonts for this build pass
     pal_t p = settings_palette();
@@ -397,19 +409,20 @@ void ui_settings_show_menu(lv_obj_t *parent) {
 
     // 2. Card rows.
     struct { const char *icon; const char *label; const char *sub;
-             ui_settings_action_t act; } rows[4] = {
-        { LV_SYMBOL_WIFI,  "Network & Wi-Fi", "Scan and connect",      UI_SET_WIFI },
-        { LV_SYMBOL_LIST,  "About",           "Device info",           UI_SET_ABOUT },
-        { LV_SYMBOL_IMAGE, "Test print",      "Send a sample receipt", UI_SET_TEST_PRINT },
-        { LV_SYMBOL_POWER, "Restart device",  "Reboots in ~30s",       UI_SET_REBOOT },
+             ui_settings_action_t act; } rows[5] = {
+        { LV_SYMBOL_WIFI,     "Network & Wi-Fi", "Scan and connect",      UI_SET_WIFI },
+        { LV_SYMBOL_SETTINGS, "Device settings", "Brightness, sleep",     UI_SET_DEVICE },
+        { LV_SYMBOL_LIST,     "About",           "Device info",           UI_SET_ABOUT },
+        { LV_SYMBOL_IMAGE,    "Test print",      "Send a sample receipt", UI_SET_TEST_PRINT },
+        { LV_SYMBOL_POWER,    "Restart device",  "Reboots in ~30s",       UI_SET_REBOOT },
     };
     const int n_rows = (int)(sizeof(rows) / sizeof(rows[0]));
 
     int row_x = PAD;
     int row_w = 720 - 2 * PAD;
-    int row_h = 84;          // shrunk so 4 rows + Close still fit 720
-    int row_gap = 12;
-    int row_y0 = PAD + 56;   // below the header
+    int row_h = 72;          // shrunk so 5 rows + Close still fit 720
+    int row_gap = 10;
+    int row_y0 = PAD + 52;   // below the header
 
     for (int i = 0; i < n_rows; i++) {
         lv_obj_t *btn = lv_button_create(s_menu_screen);
@@ -628,6 +641,256 @@ void ui_settings_show_about(lv_obj_t *parent, const char *info_block) {
 }
 
 // --------------------------------------------------------------------------
+// Public API — Device settings screen (interactive brightness + sleep)
+// --------------------------------------------------------------------------
+// A bespoke INTERACTIVE sub-screen. PASSIVE: every event callback only sets a
+// volatile flag/value. The orchestrator reads them via the consume_* readers,
+// applies brightness live (VALUE_CHANGED) but persists only on RELEASE (commit)
+// to avoid thrashing NVS on every slider tick.
+
+// Sleep options offered on screen, encoded as seconds (0 = off).
+static const int  k_sleep_encoded[5] = { 0, 60, 120, 300, 600 };
+static const char *k_sleep_label[5]  = { "Off", "1 min", "2 min", "5 min", "10 min" };
+
+// --- Device-settings event callbacks: flags/values only, no work -----------
+static void dev_brightness_changed_cb(lv_event_t *e) {
+    lv_obj_t *sl = lv_event_get_target(e);
+    s_dev_br     = (int)lv_slider_get_value(sl);   // 10..100
+    s_dev_br_set = true;
+}
+
+static void dev_brightness_released_cb(lv_event_t *e) {
+    lv_obj_t *sl = lv_event_get_target(e);
+    s_dev_br_commit_val = (int)lv_slider_get_value(sl);
+    s_dev_br_commit     = true;
+}
+
+static void dev_sleep_cb(lv_event_t *e) {
+    s_dev_sl     = (int)(intptr_t)lv_event_get_user_data(e);  // encoded seconds
+    s_dev_sl_set = true;
+}
+
+static void dev_follow_br_cb(lv_event_t *e) { (void)e; s_dev_follow_br = true; }
+static void dev_follow_sl_cb(lv_event_t *e) { (void)e; s_dev_follow_sl = true; }
+
+void ui_settings_show_device(lv_obj_t *parent, int brightness, int sleep_encoded,
+                             bool br_overridden, bool sl_overridden) {
+    lvgl_port_lock(0);
+
+    s_action_set = false;
+    // Drain any stale latches from a prior build so the new screen starts clean.
+    s_dev_br_set = s_dev_br_commit = s_dev_sl_set = false;
+    s_dev_follow_br = s_dev_follow_sl = false;
+
+    if (s_device_screen) { lv_obj_delete(s_device_screen); s_device_screen = NULL; }
+
+    if (brightness < 10)  brightness = 10;
+    if (brightness > 100) brightness = 100;
+
+    font_cache_begin_pass();
+    pal_t p = settings_palette();
+    const lv_font_t *f_title = font_cache_get(30, true);
+    const lv_font_t *f_card  = font_cache_get(22, true);
+    const lv_font_t *f_chip  = font_cache_get(18, true);
+    const lv_font_t *f_ghost = font_cache_get(16, true);
+
+    s_device_screen = lv_obj_create(parent);
+    lv_obj_remove_style_all(s_device_screen);
+    lv_obj_set_size(s_device_screen, 720, 720);
+    lv_obj_set_pos(s_device_screen, 0, 0);
+    lv_obj_set_style_bg_color(s_device_screen, p.bg, 0);
+    lv_obj_set_style_bg_opa(s_device_screen, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(s_device_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    const int PAD = 40;
+
+    // Header: back button (left) + "Device settings" title.
+    lv_obj_t *back = lv_button_create(s_device_screen);
+    lv_obj_remove_style_all(back);
+    lv_obj_set_size(back, 56, 56);
+    lv_obj_align(back, LV_ALIGN_TOP_LEFT, PAD, PAD - 4);
+    lv_obj_set_style_radius(back, 16, 0);
+    lv_obj_set_style_bg_color(back, p.card, 0);
+    lv_obj_set_style_bg_opa(back, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(back, p.fg, 0);
+    lv_obj_set_style_border_width(back, 1, 0);
+    lv_obj_set_style_border_opa(back, 28, 0);
+    lv_obj_clear_flag(back, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(back, menu_action_cb, LV_EVENT_CLICKED,
+                        (void *)(intptr_t)UI_SET_BACK);
+    lv_obj_t *back_ic = lv_label_create(back);
+    lv_label_set_text(back_ic, LV_SYMBOL_LEFT);   // default font carries symbols
+    lv_obj_set_style_text_color(back_ic, p.fg, 0);
+    lv_obj_center(back_ic);
+
+    lv_obj_t *title = lv_label_create(s_device_screen);
+    lv_label_set_text(title, "Device settings");
+    lv_obj_set_style_text_font(title, f_title, LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, p.fg, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, PAD + 56 + 18, PAD + 6);
+
+    int card_x = PAD;
+    int card_w = 720 - 2 * PAD;
+
+    // --- Brightness card ---------------------------------------------------
+    lv_obj_t *br_card = lv_obj_create(s_device_screen);
+    lv_obj_remove_style_all(br_card);
+    lv_obj_set_size(br_card, card_w, 170);
+    lv_obj_set_pos(br_card, card_x, PAD + 76);
+    lv_obj_set_style_radius(br_card, 22, 0);
+    lv_obj_set_style_bg_color(br_card, p.card, 0);
+    lv_obj_set_style_bg_opa(br_card, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(br_card, p.fg, 0);
+    lv_obj_set_style_border_width(br_card, 1, 0);
+    lv_obj_set_style_border_opa(br_card, 28, 0);
+    lv_obj_set_style_pad_all(br_card, 24, 0);
+    lv_obj_clear_flag(br_card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *br_lbl = lv_label_create(br_card);
+    lv_label_set_text(br_lbl, "Brightness");
+    lv_obj_set_style_text_font(br_lbl, f_card, LV_PART_MAIN);
+    lv_obj_set_style_text_color(br_lbl, p.fg, 0);
+    lv_obj_align(br_lbl, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    // "Follow admin" ghost button (top-right) — only when overridden.
+    if (br_overridden) {
+        lv_obj_t *fb = lv_button_create(br_card);
+        lv_obj_remove_style_all(fb);
+        lv_obj_set_size(fb, 130, 40);
+        lv_obj_align(fb, LV_ALIGN_TOP_RIGHT, 0, -6);
+        lv_obj_set_style_radius(fb, 14, 0);
+        lv_obj_set_style_bg_color(fb, p.accent, 0);
+        lv_obj_set_style_bg_opa(fb, 38, 0);          // accent-soft ghost
+        lv_obj_clear_flag(fb, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_event_cb(fb, dev_follow_br_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_t *fl = lv_label_create(fb);
+        lv_label_set_text(fl, "Follow admin");
+        lv_obj_set_style_text_font(fl, f_ghost, LV_PART_MAIN);
+        lv_obj_set_style_text_color(fl, p.accent, 0);
+        lv_obj_center(fl);
+    }
+
+    lv_obj_t *slider = lv_slider_create(br_card);
+    lv_obj_set_width(slider, card_w - 2 * 24);
+    lv_obj_align(slider, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_slider_set_range(slider, 10, 100);
+    lv_slider_set_value(slider, brightness, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(slider, lv_color_mix(p.fg, p.bg, 60), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(slider, p.accent, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(slider, p.accent, LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_add_event_cb(slider, dev_brightness_changed_cb,
+                        LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(slider, dev_brightness_released_cb,
+                        LV_EVENT_RELEASED, NULL);
+
+    // --- Sleep card --------------------------------------------------------
+    lv_obj_t *sl_card = lv_obj_create(s_device_screen);
+    lv_obj_remove_style_all(sl_card);
+    lv_obj_set_size(sl_card, card_w, 200);
+    lv_obj_set_pos(sl_card, card_x, PAD + 76 + 170 + 16);
+    lv_obj_set_style_radius(sl_card, 22, 0);
+    lv_obj_set_style_bg_color(sl_card, p.card, 0);
+    lv_obj_set_style_bg_opa(sl_card, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(sl_card, p.fg, 0);
+    lv_obj_set_style_border_width(sl_card, 1, 0);
+    lv_obj_set_style_border_opa(sl_card, 28, 0);
+    lv_obj_set_style_pad_all(sl_card, 24, 0);
+    lv_obj_clear_flag(sl_card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *sl_lbl = lv_label_create(sl_card);
+    lv_label_set_text(sl_lbl, "Sleep after");
+    lv_obj_set_style_text_font(sl_lbl, f_card, LV_PART_MAIN);
+    lv_obj_set_style_text_color(sl_lbl, p.fg, 0);
+    lv_obj_align(sl_lbl, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    if (sl_overridden) {
+        lv_obj_t *fb = lv_button_create(sl_card);
+        lv_obj_remove_style_all(fb);
+        lv_obj_set_size(fb, 130, 40);
+        lv_obj_align(fb, LV_ALIGN_TOP_RIGHT, 0, -6);
+        lv_obj_set_style_radius(fb, 14, 0);
+        lv_obj_set_style_bg_color(fb, p.accent, 0);
+        lv_obj_set_style_bg_opa(fb, 38, 0);
+        lv_obj_clear_flag(fb, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_event_cb(fb, dev_follow_sl_cb, LV_EVENT_CLICKED, NULL);
+        lv_obj_t *fl = lv_label_create(fb);
+        lv_label_set_text(fl, "Follow admin");
+        lv_obj_set_style_text_font(fl, f_ghost, LV_PART_MAIN);
+        lv_obj_set_style_text_color(fl, p.accent, 0);
+        lv_obj_center(fl);
+    }
+
+    // 5 selectable chips in a flex row; highlight the one matching sleep_encoded.
+    lv_obj_t *chips = lv_obj_create(sl_card);
+    lv_obj_remove_style_all(chips);
+    lv_obj_set_size(chips, card_w - 2 * 24, 64);
+    lv_obj_align(chips, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_flex_flow(chips, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(chips, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(chips, LV_OBJ_FLAG_SCROLLABLE);
+
+    for (int i = 0; i < 5; i++) {
+        bool sel = (k_sleep_encoded[i] == sleep_encoded);
+        lv_obj_t *chip = lv_button_create(chips);
+        lv_obj_remove_style_all(chip);
+        lv_obj_set_size(chip, 110, 60);
+        lv_obj_set_style_radius(chip, 16, 0);
+        lv_obj_set_style_bg_color(chip, sel ? p.accent : p.bg, 0);
+        lv_obj_set_style_bg_opa(chip, sel ? LV_OPA_COVER : 40, 0);
+        lv_obj_set_style_border_color(chip, sel ? p.accent : p.fg, 0);
+        lv_obj_set_style_border_width(chip, sel ? 0 : 1, 0);
+        lv_obj_set_style_border_opa(chip, sel ? 0 : 28, 0);
+        lv_obj_clear_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_event_cb(chip, dev_sleep_cb, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)k_sleep_encoded[i]);
+        lv_obj_t *cl = lv_label_create(chip);
+        lv_label_set_text(cl, k_sleep_label[i]);
+        lv_obj_set_style_text_font(cl, f_chip, LV_PART_MAIN);
+        lv_obj_set_style_text_color(cl, sel ? p.accent_fg : p.fg, 0);
+        lv_obj_center(cl);
+    }
+
+    lvgl_port_unlock();
+}
+
+bool ui_settings_consume_brightness(int *val) {
+    if (!s_dev_br_set) return false;
+    s_dev_br_set = false;
+    if (val) *val = s_dev_br;
+    return true;
+}
+
+bool ui_settings_consume_brightness_commit(int *val) {
+    if (!s_dev_br_commit) return false;
+    s_dev_br_commit = false;
+    if (val) *val = s_dev_br_commit_val;
+    return true;
+}
+
+bool ui_settings_consume_sleep(int *encoded) {
+    if (!s_dev_sl_set) return false;
+    s_dev_sl_set = false;
+    if (encoded) *encoded = s_dev_sl;
+    return true;
+}
+
+bool ui_settings_consume_follow_brightness(void) {
+    if (!s_dev_follow_br) return false;
+    s_dev_follow_br = false;
+    return true;
+}
+
+bool ui_settings_consume_follow_sleep(void) {
+    if (!s_dev_follow_sl) return false;
+    s_dev_follow_sl = false;
+    return true;
+}
+
+// --------------------------------------------------------------------------
 // Lifecycle reset
 // --------------------------------------------------------------------------
 // The PIN/menu containers are children of the settings screen. When that screen
@@ -643,5 +906,6 @@ void ui_settings_reset(void) {
     s_menu_screen   = NULL;
     s_menu_info_lbl = NULL;
     s_about_screen  = NULL;
+    s_device_screen = NULL;
     lvgl_port_unlock();
 }

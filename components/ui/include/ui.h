@@ -146,6 +146,30 @@ bool ui_settings_consume_action(ui_settings_action_t *act);
 // button latches UI_SET_BACK via the shared action flag. PASSIVE.
 void ui_settings_show_about(lv_obj_t *parent, const char *info_block);
 
+// Build the interactive "Device settings" sub-screen into `parent`, seeded with
+// the current effective `brightness` (10..100) and `sleep_encoded` (0/60/120/
+// 300/600), plus whether each value is currently locally overridden (controls
+// whether a "Follow admin" button is shown). A Back button latches UI_SET_BACK.
+// PASSIVE: callbacks only set volatile flags/values; the orchestrator reads them
+// via the consume_* functions below and applies/persists.
+void ui_settings_show_device(lv_obj_t *parent, int brightness, int sleep_encoded,
+                             bool br_overridden, bool sl_overridden);
+
+// True (once) if the brightness slider moved (LV_EVENT_VALUE_CHANGED); *val =
+// 10..100. For LIVE preview only — do NOT persist on every tick. Cleared on read.
+bool ui_settings_consume_brightness(int *val);
+
+// True (once) if the brightness slider was RELEASED (LV_EVENT_RELEASED); *val =
+// 10..100. This is the debounced commit point — persist the override here.
+bool ui_settings_consume_brightness_commit(int *val);
+
+// True (once) if a sleep option chip was tapped; *encoded = 0/60/120/300/600.
+bool ui_settings_consume_sleep(int *encoded);
+
+// True (once) if the user tapped "Follow admin" for brightness / sleep.
+bool ui_settings_consume_follow_brightness(void);
+bool ui_settings_consume_follow_sleep(void);
+
 // Clear the static pointers to the PIN/menu containers WITHOUT deleting them.
 // Call after the settings screen is deleted: deleting the parent screen already
 // freed those child containers, so this prevents a stale-pointer double-delete
