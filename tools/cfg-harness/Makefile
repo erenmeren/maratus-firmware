@@ -14,6 +14,7 @@ SRCS    := test_cfg.c vendor/cJSON.c \
            ../../components/devcfg/sha256.c \
            ../../components/devcfg/settings_pin.c \
            ../../components/devcfg/gesture.c \
+           ../../components/devcfg/overrides.c \
            ../../components/assetcache/asset_key.c \
            ../../components/assetcache/asset_evict.c \
            vendor/sha1.c

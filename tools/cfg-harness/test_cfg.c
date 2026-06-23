@@ -14,6 +14,7 @@
 #include "settings_pin.h"
 #include "sha256.h"
 #include "gesture.h"
+#include "overrides.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -399,6 +400,34 @@ static void test_gesture_swipe_up(void) {
     printf("test_gesture_swipe_up OK\n");
 }
 
+static void test_overrides(void) {
+    overrides_t o; overrides_init(&o);
+    assert(o.brightness == -1 && o.sleep == -1);
+    // no override -> effective follows cloud
+    assert(override_eff_brightness(&o, 54) == 54);
+    assert(override_eff_sleep(&o, 300) == 300);
+    // set brightness override -> wins
+    override_set_brightness(&o, 80, 54);
+    assert(override_eff_brightness(&o, 54) == 80);
+    // admin unchanged (still 54) -> override holds
+    override_reconcile(&o, 54, 300);
+    assert(o.brightness == 80);
+    // admin changed brightness (now 30) -> override cleared, follows cloud
+    override_reconcile(&o, 30, 300);
+    assert(o.brightness == -1);
+    assert(override_eff_brightness(&o, 30) == 30);
+    // sleep override: off
+    override_set_sleep(&o, 0, 300);
+    assert(override_eff_sleep(&o, 300) == 0);
+    override_reconcile(&o, 30, 300);   // cloud sleep unchanged (300) -> holds
+    assert(o.sleep == 0);
+    override_reconcile(&o, 30, 600);   // admin changed sleep -> cleared
+    assert(o.sleep == -1 && override_eff_sleep(&o, 600) == 600);
+    override_clear_brightness(&o); override_clear_sleep(&o);
+    assert(o.brightness == -1 && o.sleep == -1);
+    printf("test_overrides OK\n");
+}
+
 static void test_gesture_snap(void) {
     // short drag, no flick -> dismiss (100/720 = 14%)
     assert(gesture_snap(100, 720, 0, 40, 1200) == SNAP_DISMISS);
@@ -433,6 +462,7 @@ int main(void) {
     test_sha256_and_pin();
     test_gesture_swipe_up();
     test_gesture_snap();
+    test_overrides();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
