@@ -15,6 +15,7 @@
 #include "sha256.h"
 #include "gesture.h"
 #include "overrides.h"
+#include "brightness.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -400,32 +401,64 @@ static void test_gesture_swipe_up(void) {
     printf("test_gesture_swipe_up OK\n");
 }
 
-static void test_overrides(void) {
-    overrides_t o; overrides_init(&o);
-    assert(o.brightness == -1 && o.sleep == -1);
-    // no override -> effective follows cloud
-    assert(override_eff_brightness(&o, 54) == 54);
-    assert(override_eff_sleep(&o, 300) == 300);
-    // set brightness override -> wins
-    override_set_brightness(&o, 80, 54);
-    assert(override_eff_brightness(&o, 54) == 80);
-    // admin unchanged (still 54) -> override holds
-    override_reconcile(&o, 54, 300);
-    assert(o.brightness == 80);
-    // admin changed brightness (now 30) -> override cleared, follows cloud
-    override_reconcile(&o, 30, 300);
-    assert(o.brightness == -1);
-    assert(override_eff_brightness(&o, 30) == 30);
-    // sleep override: off
-    override_set_sleep(&o, 0, 300);
-    assert(override_eff_sleep(&o, 300) == 0);
-    override_reconcile(&o, 30, 300);   // cloud sleep unchanged (300) -> holds
-    assert(o.sleep == 0);
-    override_reconcile(&o, 30, 600);   // admin changed sleep -> cleared
-    assert(o.sleep == -1 && override_eff_sleep(&o, 600) == 600);
-    override_clear_brightness(&o); override_clear_sleep(&o);
-    assert(o.brightness == -1 && o.sleep == -1);
-    printf("test_overrides OK\n");
+static void test_devset(void) {
+    device_settings_t d; devset_init(&d);
+    // init: use_device off, both values unset, effective follows cloud.
+    assert(d.use_device == 0 && d.brightness == -1 && d.sleep == -1);
+    assert(devset_eff_brightness(&d, 54) == 54);
+    assert(devset_eff_sleep(&d, 300) == 300);
+
+    // Setting device values while OFF does not affect the effective value.
+    devset_set_brightness(&d, 80);
+    devset_set_sleep(&d, 0);
+    assert(d.brightness == 80 && d.sleep == 0);
+    assert(devset_eff_brightness(&d, 54) == 54);   // use_device still 0 -> follows cloud
+    assert(devset_eff_sleep(&d, 300) == 300);
+
+    // Turning the source ON now uses the device values (already set, not reseeded).
+    devset_set_use_device(&d, 1, 33, 600);
+    assert(d.use_device == 1 && d.brightness == 80 && d.sleep == 0);
+    assert(devset_eff_brightness(&d, 54) == 80);
+    assert(devset_eff_sleep(&d, 300) == 0);
+
+    // Turning OFF -> effective follows cloud again, device values retained.
+    devset_set_use_device(&d, 0, 33, 600);
+    assert(d.use_device == 0 && d.brightness == 80 && d.sleep == 0);
+    assert(devset_eff_brightness(&d, 54) == 54);
+    assert(devset_eff_sleep(&d, 300) == 300);
+
+    // Enabling with UNSET (-1) device values seeds them from the cloud so
+    // nothing jumps.
+    device_settings_t e; devset_init(&e);
+    devset_set_use_device(&e, 1, 42, 120);
+    assert(e.use_device == 1 && e.brightness == 42 && e.sleep == 120);
+    assert(devset_eff_brightness(&e, 99) == 42);   // device value wins
+    assert(devset_eff_sleep(&e, 999) == 120);
+    // Editing the seeded values then takes effect immediately.
+    devset_set_brightness(&e, 15);
+    devset_set_sleep(&e, 60);
+    assert(devset_eff_brightness(&e, 99) == 15);
+    assert(devset_eff_sleep(&e, 999) == 60);
+    printf("test_devset OK\n");
+}
+
+static void test_brightness(void) {
+    // Gamma 0.5 perceptual curve: duty = round(100*(level/100)^0.5), clamped 10..100.
+    assert(brightness_level_to_duty(100) == 100);
+    assert(brightness_level_to_duty(50)  == 71);   // 100*sqrt(0.5)=70.71 -> 71
+    assert(brightness_level_to_duty(30)  == 55);   // 100*sqrt(0.3)=54.77 -> 55
+    assert(brightness_level_to_duty(10)  == 32);   // 100*sqrt(0.1)=31.62 -> 32
+    // clamps: below 10 -> level 10; above 100 -> level 100.
+    assert(brightness_level_to_duty(0)   == 32);   // clamped up to level 10
+    assert(brightness_level_to_duty(200) == 100);  // clamped down to level 100
+    // monotonic non-decreasing across the valid range.
+    int prev = brightness_level_to_duty(10);
+    for (int lvl = 11; lvl <= 100; lvl++) {
+        int cur = brightness_level_to_duty(lvl);
+        assert(cur >= prev);
+        prev = cur;
+    }
+    printf("test_brightness OK\n");
 }
 
 static void test_gesture_snap(void) {
@@ -462,7 +495,8 @@ int main(void) {
     test_sha256_and_pin();
     test_gesture_swipe_up();
     test_gesture_snap();
-    test_overrides();
+    test_devset();
+    test_brightness();
     printf("ALL TESTS PASSED\n");
     return 0;
 }

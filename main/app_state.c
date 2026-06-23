@@ -22,6 +22,7 @@
 #include "esp_netif.h"
 #include "wifi_setup.h"
 #include "overrides.h"
+#include "brightness.h"
 #include "nvs.h"
 
 static const char *TAG = "state";
@@ -44,53 +45,51 @@ static volatile bool s_settings_abort = false;
 
 static inline uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
-// Local device-setting overrides (brightness/sleep) that win over the admin's
-// pushed policy until the admin changes that policy (reconcile clears them).
-// Persisted in NVS namespace "ditto"; all -1 (fresh NVS) == follow cloud exactly.
-// Init to all -1 at declaration so the escpos task's app_state_set_state wake path
-// can't read a zero-initialised struct (brightness=0 -> wake at clamped duty 10) in
-// the boot window before overrides_load() runs.
-static overrides_t g_ovr = { .brightness = -1, .brightness_base = -1,
-                             .sleep = -1, .sleep_base = -1 };
+// Device-local settings (brightness/sleep) governed by a single "use device
+// settings" switch: when use_device is 0 (fresh NVS) the effective values follow
+// the admin's pushed policy exactly; when 1 the device-local values win.
+// Persisted in NVS namespace "ditto". Init to a fresh struct at declaration so
+// the escpos task's app_state_set_state wake path can't read a zero-initialised
+// struct in the boot window before overrides_load() runs (use_device=0 means it
+// follows cloud regardless).
+static device_settings_t g_dev = { .use_device = 0, .brightness = -1, .sleep = -1 };
 
-// Encode cloud sleep the same way an override is: 0 = off, >0 = timeout secs.
+// Encode cloud sleep the same way a device value is: 0 = off, >0 = timeout secs.
 static int cloud_sleep_encoded(const device_config_t *c) {
     return c->device.sleep.enabled ? c->device.sleep.timeout_seconds : 0;
 }
 
-// Load overrides from NVS. Absent keys / open failure leave the field at -1
-// (follow cloud) — so a fresh/erased NVS is byte-for-byte "no override".
+// Load device settings from NVS. Absent keys / open failure leave the defaults
+// (use_device=0, values -1) — so a fresh/erased NVS follows cloud exactly.
 static void overrides_load(void) {
-    overrides_init(&g_ovr);
+    devset_init(&g_dev);
     nvs_handle_t h;
     if (nvs_open("ditto", NVS_READONLY, &h) != ESP_OK) return;
     int32_t v;
-    if (nvs_get_i32(h, "ovr_br",   &v) == ESP_OK) g_ovr.brightness      = v;
-    if (nvs_get_i32(h, "ovr_br_b", &v) == ESP_OK) g_ovr.brightness_base = v;
-    if (nvs_get_i32(h, "ovr_sl",   &v) == ESP_OK) g_ovr.sleep           = v;
-    if (nvs_get_i32(h, "ovr_sl_b", &v) == ESP_OK) g_ovr.sleep_base      = v;
+    if (nvs_get_i32(h, "dev_use", &v) == ESP_OK) g_dev.use_device = v;
+    if (nvs_get_i32(h, "dev_br",  &v) == ESP_OK) g_dev.brightness = v;
+    if (nvs_get_i32(h, "dev_sl",  &v) == ESP_OK) g_dev.sleep      = v;
     nvs_close(h);
 }
 
-// Persist all four override ints to NVS.
+// Persist the device-settings ints to NVS.
 static void overrides_save(void) {
     nvs_handle_t h;
     if (nvs_open("ditto", NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_i32(h, "ovr_br",   g_ovr.brightness);
-    nvs_set_i32(h, "ovr_br_b", g_ovr.brightness_base);
-    nvs_set_i32(h, "ovr_sl",   g_ovr.sleep);
-    nvs_set_i32(h, "ovr_sl_b", g_ovr.sleep_base);
+    nvs_set_i32(h, "dev_use", g_dev.use_device);
+    nvs_set_i32(h, "dev_br",  g_dev.brightness);
+    nvs_set_i32(h, "dev_sl",  g_dev.sleep);
     nvs_commit(h);
     nvs_close(h);
 }
 
-// Apply backlight brightness (0..100 duty). No-op while asleep — Task 4's
-// sleep/wake owns the backlight then. Clamps defensively.
-static void display_apply_brightness(int duty) {
+// Apply backlight brightness for a perceptual `level` (10..100). The level is
+// mapped through a gamma curve to a PWM duty so the low/mid range isn't too dark
+// (uniformly for device + admin brightness). No-op while asleep — Task 4's
+// sleep/wake owns the backlight then.
+static void display_apply_brightness(int level) {
     if (s_display_asleep) return;
-    if (duty < 10)  duty = 10;
-    if (duty > 100) duty = 100;
-    bsp_display_brightness_set(duty);
+    bsp_display_brightness_set(brightness_level_to_duty(level));
 }
 
 static void display_sleep(void) {
@@ -115,7 +114,7 @@ void app_state_request_config(void) { s_config_dirty = true; }
 void app_state_set_state(dev_state_t st) {
     // A print job arriving while asleep must light the screen so the QR is visible.
     if (s_display_asleep && (st == DEV_PROCESSING || st == DEV_QR))
-        display_wake(override_eff_brightness(&g_ovr, s_cfg_buf[s_cfg_live]->device.brightness));
+        display_wake(devset_eff_brightness(&g_dev, s_cfg_buf[s_cfg_live]->device.brightness));
     // A receipt arriving while Settings is open must show the live QR. Signal any
     // in-flight settings flow to abort; render_job already loads the QR screen, and
     // the aborting flow deletes its own settings screen. (called from the escpos task.)
@@ -365,49 +364,31 @@ static void run_settings_flow(void) {
                     close_settings(scr);
                     return;
                 case UI_SET_DEVICE: {
-                    // Interactive sub-screen: brightness slider (live preview,
-                    // persist on release) + sleep chips. "Follow admin" clears the
-                    // local override and re-applies the cloud value. Same scr.
-                    int eff_br = override_eff_brightness(&g_ovr, cfg->device.brightness);
-                    int eff_sl = override_eff_sleep(&g_ovr, cloud_sleep_encoded(cfg));
-                    ui_settings_show_device(scr, eff_br, eff_sl,
-                                            g_ovr.brightness >= 0, g_ovr.sleep >= 0);
+                    // Interactive sub-screen: a single "Use device settings"
+                    // switch picks the source (admin vs device) for BOTH
+                    // brightness + sleep. When on, the brightness slider (live
+                    // preview, persist on release) + sleep chips are editable;
+                    // when off they're disabled and follow the admin policy.
+                    int eff_br = devset_eff_brightness(&g_dev, cfg->device.brightness);
+                    int eff_sl = devset_eff_sleep(&g_dev, cloud_sleep_encoded(cfg));
+                    ui_settings_show_device(scr, g_dev.use_device, eff_br, eff_sl);
                     for (;;) {
-                        if (s_settings_abort) {
-                            lv_obj_delete(scr); ui_settings_reset(); return;
+                        if (s_settings_abort) { lv_obj_delete(scr); ui_settings_reset(); return; }
+                        bool on;
+                        if (ui_settings_consume_use_device(&on)) {
+                            devset_set_use_device(&g_dev, on, cfg->device.brightness, cloud_sleep_encoded(cfg));
+                            overrides_save();
+                            display_apply_brightness(devset_eff_brightness(&g_dev, cfg->device.brightness));
+                            s_last_activity_ms = now_ms();
+                            ui_settings_show_device(scr, g_dev.use_device,
+                                devset_eff_brightness(&g_dev, cfg->device.brightness),
+                                devset_eff_sleep(&g_dev, cloud_sleep_encoded(cfg)));   // re-render to enable/disable controls
                         }
                         int v;
-                        if (ui_settings_consume_brightness(&v)) {
-                            display_apply_brightness(v);   // live, no save
-                        }
-                        if (ui_settings_consume_brightness_commit(&v)) {
-                            override_set_brightness(&g_ovr, v, cfg->device.brightness);
-                            overrides_save();
-                        }
-                        int en;
-                        if (ui_settings_consume_sleep(&en)) {
-                            override_set_sleep(&g_ovr, en, cloud_sleep_encoded(cfg));
-                            overrides_save();
-                            s_last_activity_ms = now_ms();
-                        }
-                        if (ui_settings_consume_follow_brightness()) {
-                            override_clear_brightness(&g_ovr);
-                            overrides_save();
-                            display_apply_brightness(cfg->device.brightness);
-                            ui_settings_show_device(scr,
-                                override_eff_brightness(&g_ovr, cfg->device.brightness),
-                                override_eff_sleep(&g_ovr, cloud_sleep_encoded(cfg)),
-                                false, g_ovr.sleep >= 0);
-                        }
-                        if (ui_settings_consume_follow_sleep()) {
-                            override_clear_sleep(&g_ovr);
-                            overrides_save();
-                            s_last_activity_ms = now_ms();
-                            ui_settings_show_device(scr,
-                                override_eff_brightness(&g_ovr, cfg->device.brightness),
-                                override_eff_sleep(&g_ovr, cloud_sleep_encoded(cfg)),
-                                g_ovr.brightness >= 0, false);
-                        }
+                        if (g_dev.use_device && ui_settings_consume_brightness(&v)) display_apply_brightness(v);     // live
+                        if (g_dev.use_device && ui_settings_consume_brightness_commit(&v)) { devset_set_brightness(&g_dev, v); overrides_save(); }
+                        int e;
+                        if (g_dev.use_device && ui_settings_consume_sleep(&e)) { devset_set_sleep(&g_dev, e); overrides_save(); s_last_activity_ms = now_ms(); }
                         if (ui_settings_consume_action(&act) && act == UI_SET_BACK)
                             break;
                         vTaskDelay(pdMS_TO_TICKS(50));
@@ -449,13 +430,13 @@ static void idle_wait_or_qr_expiry(int total_ms) {
         // A receipt that arrived while asleep (or a sleep that raced the wake)
         // must light the screen so the QR is visible.
         if (s_display_asleep && (s_state == DEV_PROCESSING || s_state == DEV_QR)) {
-            display_wake(override_eff_brightness(&g_ovr, cfg->device.brightness));
+            display_wake(devset_eff_brightness(&g_dev, cfg->device.brightness));
         }
-        // Effective sleep: override (0=off, >0=timeout) if active, else cloud.
-        int es = override_eff_sleep(&g_ovr, cloud_sleep_encoded(cfg));
+        // Effective sleep: device value (0=off, >0=timeout) if on, else cloud.
+        int es = devset_eff_sleep(&g_dev, cloud_sleep_encoded(cfg));
         bool sleep_en = es > 0;
         int  sleep_to = es > 0 ? es : 0;
-        int  wake_br  = override_eff_brightness(&g_ovr, cfg->device.brightness);
+        int  wake_br  = devset_eff_brightness(&g_dev, cfg->device.brightness);
         if (sleep_en) {
             if (!s_display_asleep &&
                 should_sleep(now_ms(), s_last_activity_ms,
@@ -510,16 +491,9 @@ static void poll_task(void *arg)
                 if (cs == 200 && s_cfg_buf[next]->valid) {
                     prefetch_and_evict_assets(s_cfg_buf[next]);  // fill/prune flash cache before render
                     ui_set_config(s_cfg_buf[next]);     // publish under the LVGL lock (pointer swap)
-                    // Reconcile: if the admin changed a policy whose value an override
-                    // was pinned against, drop that override (admin takes control back).
-                    // Persist only if reconcile actually cleared something.
-                    overrides_t before = g_ovr;
-                    override_reconcile(&g_ovr, s_cfg_buf[next]->device.brightness,
-                                       cloud_sleep_encoded(s_cfg_buf[next]));
-                    if (g_ovr.brightness != before.brightness || g_ovr.sleep != before.sleep)
-                        overrides_save();
-                    // Apply the EFFECTIVE brightness (override if active, else cloud).
-                    display_apply_brightness(override_eff_brightness(&g_ovr, s_cfg_buf[next]->device.brightness));
+                    // Apply the EFFECTIVE brightness (device value if "use device
+                    // settings" is on, else the admin's pushed brightness).
+                    display_apply_brightness(devset_eff_brightness(&g_dev, s_cfg_buf[next]->device.brightness));
                     time_sync_set_tz(s_cfg_buf[next]->clock_timezone);  // POSIX TZ from payload
                     ui_set_countdown(s_cfg_buf[next]->qr_timeout_seconds);  // keep duration current for any receipt path
                     s_cfg_live = next;
@@ -551,10 +525,10 @@ void app_state_run(void)
         ESP_LOGE(TAG, "config buffer PSRAM alloc failed; running without live config");
         return;   // boot splash/cached config from app_main stays on screen; no poll task
     }
-    overrides_load();   // restore local brightness/sleep overrides (all -1 == follow cloud)
+    overrides_load();   // restore device settings (use_device=0 == follow cloud)
     cloud_config_load_cached(s_cfg_buf[s_cfg_live]);   // seed ETag so the first fetch can 304
     ui_set_config(s_cfg_buf[s_cfg_live]);
     if (s_cfg_buf[s_cfg_live]->valid)
-        display_apply_brightness(override_eff_brightness(&g_ovr, s_cfg_buf[s_cfg_live]->device.brightness));
+        display_apply_brightness(devset_eff_brightness(&g_dev, s_cfg_buf[s_cfg_live]->device.brightness));
     xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, NULL);
 }

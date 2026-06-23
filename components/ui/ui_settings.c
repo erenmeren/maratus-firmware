@@ -123,14 +123,14 @@ static lv_obj_t *s_about_screen;
 static lv_obj_t *s_device_screen;
 
 // --- Device-settings sub-screen volatile latches (PASSIVE callbacks set these) -
+static volatile bool s_dev_use_set;       // "Use device settings" switch flipped
+static volatile bool s_dev_use;           // new switch state
 static volatile bool s_dev_br_set;        // slider moved (live)
 static volatile int  s_dev_br;            // live brightness 10..100
 static volatile bool s_dev_br_commit;     // slider released (persist)
 static volatile int  s_dev_br_commit_val; // committed brightness 10..100
 static volatile bool s_dev_sl_set;        // a sleep chip was tapped
 static volatile int  s_dev_sl;            // chosen encoded value 0/60/120/300/600
-static volatile bool s_dev_follow_br;     // "Follow admin" tapped for brightness
-static volatile bool s_dev_follow_sl;     // "Follow admin" tapped for sleep
 
 static volatile ui_settings_action_t s_action;
 static volatile bool                 s_action_set;
@@ -670,17 +670,19 @@ static void dev_sleep_cb(lv_event_t *e) {
     s_dev_sl_set = true;
 }
 
-static void dev_follow_br_cb(lv_event_t *e) { (void)e; s_dev_follow_br = true; }
-static void dev_follow_sl_cb(lv_event_t *e) { (void)e; s_dev_follow_sl = true; }
+static void dev_use_cb(lv_event_t *e) {
+    lv_obj_t *sw = lv_event_get_target(e);
+    s_dev_use     = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    s_dev_use_set = true;
+}
 
-void ui_settings_show_device(lv_obj_t *parent, int brightness, int sleep_encoded,
-                             bool br_overridden, bool sl_overridden) {
+void ui_settings_show_device(lv_obj_t *parent, bool use_device,
+                             int brightness, int sleep_encoded) {
     lvgl_port_lock(0);
 
     s_action_set = false;
     // Drain any stale latches from a prior build so the new screen starts clean.
-    s_dev_br_set = s_dev_br_commit = s_dev_sl_set = false;
-    s_dev_follow_br = s_dev_follow_sl = false;
+    s_dev_use_set = s_dev_br_set = s_dev_br_commit = s_dev_sl_set = false;
 
     if (s_device_screen) { lv_obj_delete(s_device_screen); s_device_screen = NULL; }
 
@@ -732,11 +734,51 @@ void ui_settings_show_device(lv_obj_t *parent, int brightness, int sleep_encoded
     int card_x = PAD;
     int card_w = 720 - 2 * PAD;
 
+    // --- "Use device settings" source switch (top) -------------------------
+    // When OFF, the brightness/sleep controls follow the admin policy and are
+    // shown disabled + dimmed; when ON they're editable.
+    lv_obj_t *src_card = lv_obj_create(s_device_screen);
+    lv_obj_remove_style_all(src_card);
+    lv_obj_set_size(src_card, card_w, 88);
+    lv_obj_set_pos(src_card, card_x, PAD + 76);
+    lv_obj_set_style_radius(src_card, 22, 0);
+    lv_obj_set_style_bg_color(src_card, p.card, 0);
+    lv_obj_set_style_bg_opa(src_card, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(src_card, p.fg, 0);
+    lv_obj_set_style_border_width(src_card, 1, 0);
+    lv_obj_set_style_border_opa(src_card, 28, 0);
+    lv_obj_set_style_pad_all(src_card, 24, 0);
+    lv_obj_clear_flag(src_card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *src_lbl = lv_label_create(src_card);
+    lv_label_set_text(src_lbl, "Use device settings");
+    lv_obj_set_style_text_font(src_lbl, f_card, LV_PART_MAIN);
+    lv_obj_set_style_text_color(src_lbl, p.fg, 0);
+    lv_obj_align(src_lbl, LV_ALIGN_LEFT_MID, 0, 0);
+
+    lv_obj_t *src_sub = lv_label_create(src_card);
+    lv_label_set_text(src_sub, use_device ? "Editing on this device" : "Following admin");
+    lv_obj_set_style_text_font(src_sub, f_ghost, LV_PART_MAIN);
+    lv_obj_set_style_text_color(src_sub, p.muted, 0);
+    lv_obj_align(src_sub, LV_ALIGN_LEFT_MID, 0, 22);
+
+    lv_obj_t *src_sw = lv_switch_create(src_card);
+    lv_obj_align(src_sw, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_style_bg_color(src_sw, lv_color_mix(p.fg, p.bg, 60), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(src_sw, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(src_sw, p.accent, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_opa(src_sw, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    if (use_device) lv_obj_add_state(src_sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(src_sw, dev_use_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    // Controls are dimmed + non-interactive while following admin.
+    const lv_opa_t ctrl_opa = use_device ? LV_OPA_COVER : LV_OPA_50;
+
     // --- Brightness card ---------------------------------------------------
     lv_obj_t *br_card = lv_obj_create(s_device_screen);
     lv_obj_remove_style_all(br_card);
     lv_obj_set_size(br_card, card_w, 170);
-    lv_obj_set_pos(br_card, card_x, PAD + 76);
+    lv_obj_set_pos(br_card, card_x, PAD + 76 + 88 + 16);
     lv_obj_set_style_radius(br_card, 22, 0);
     lv_obj_set_style_bg_color(br_card, p.card, 0);
     lv_obj_set_style_bg_opa(br_card, LV_OPA_COVER, 0);
@@ -744,6 +786,7 @@ void ui_settings_show_device(lv_obj_t *parent, int brightness, int sleep_encoded
     lv_obj_set_style_border_width(br_card, 1, 0);
     lv_obj_set_style_border_opa(br_card, 28, 0);
     lv_obj_set_style_pad_all(br_card, 24, 0);
+    lv_obj_set_style_opa(br_card, ctrl_opa, 0);
     lv_obj_clear_flag(br_card, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *br_lbl = lv_label_create(br_card);
@@ -751,24 +794,6 @@ void ui_settings_show_device(lv_obj_t *parent, int brightness, int sleep_encoded
     lv_obj_set_style_text_font(br_lbl, f_card, LV_PART_MAIN);
     lv_obj_set_style_text_color(br_lbl, p.fg, 0);
     lv_obj_align(br_lbl, LV_ALIGN_TOP_LEFT, 0, 0);
-
-    // "Follow admin" ghost button (top-right) — only when overridden.
-    if (br_overridden) {
-        lv_obj_t *fb = lv_button_create(br_card);
-        lv_obj_remove_style_all(fb);
-        lv_obj_set_size(fb, 130, 40);
-        lv_obj_align(fb, LV_ALIGN_TOP_RIGHT, 0, -6);
-        lv_obj_set_style_radius(fb, 14, 0);
-        lv_obj_set_style_bg_color(fb, p.accent, 0);
-        lv_obj_set_style_bg_opa(fb, 38, 0);          // accent-soft ghost
-        lv_obj_clear_flag(fb, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_add_event_cb(fb, dev_follow_br_cb, LV_EVENT_CLICKED, NULL);
-        lv_obj_t *fl = lv_label_create(fb);
-        lv_label_set_text(fl, "Follow admin");
-        lv_obj_set_style_text_font(fl, f_ghost, LV_PART_MAIN);
-        lv_obj_set_style_text_color(fl, p.accent, 0);
-        lv_obj_center(fl);
-    }
 
     lv_obj_t *slider = lv_slider_create(br_card);
     lv_obj_set_width(slider, card_w - 2 * 24);
@@ -785,12 +810,17 @@ void ui_settings_show_device(lv_obj_t *parent, int brightness, int sleep_encoded
                         LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(slider, dev_brightness_released_cb,
                         LV_EVENT_RELEASED, NULL);
+    // When following admin, disable + make the slider non-interactive.
+    if (!use_device) {
+        lv_obj_add_state(slider, LV_STATE_DISABLED);
+        lv_obj_clear_flag(slider, LV_OBJ_FLAG_CLICKABLE);
+    }
 
     // --- Sleep card --------------------------------------------------------
     lv_obj_t *sl_card = lv_obj_create(s_device_screen);
     lv_obj_remove_style_all(sl_card);
     lv_obj_set_size(sl_card, card_w, 200);
-    lv_obj_set_pos(sl_card, card_x, PAD + 76 + 170 + 16);
+    lv_obj_set_pos(sl_card, card_x, PAD + 76 + 88 + 16 + 170 + 16);
     lv_obj_set_style_radius(sl_card, 22, 0);
     lv_obj_set_style_bg_color(sl_card, p.card, 0);
     lv_obj_set_style_bg_opa(sl_card, LV_OPA_COVER, 0);
@@ -798,6 +828,7 @@ void ui_settings_show_device(lv_obj_t *parent, int brightness, int sleep_encoded
     lv_obj_set_style_border_width(sl_card, 1, 0);
     lv_obj_set_style_border_opa(sl_card, 28, 0);
     lv_obj_set_style_pad_all(sl_card, 24, 0);
+    lv_obj_set_style_opa(sl_card, ctrl_opa, 0);
     lv_obj_clear_flag(sl_card, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *sl_lbl = lv_label_create(sl_card);
@@ -805,23 +836,6 @@ void ui_settings_show_device(lv_obj_t *parent, int brightness, int sleep_encoded
     lv_obj_set_style_text_font(sl_lbl, f_card, LV_PART_MAIN);
     lv_obj_set_style_text_color(sl_lbl, p.fg, 0);
     lv_obj_align(sl_lbl, LV_ALIGN_TOP_LEFT, 0, 0);
-
-    if (sl_overridden) {
-        lv_obj_t *fb = lv_button_create(sl_card);
-        lv_obj_remove_style_all(fb);
-        lv_obj_set_size(fb, 130, 40);
-        lv_obj_align(fb, LV_ALIGN_TOP_RIGHT, 0, -6);
-        lv_obj_set_style_radius(fb, 14, 0);
-        lv_obj_set_style_bg_color(fb, p.accent, 0);
-        lv_obj_set_style_bg_opa(fb, 38, 0);
-        lv_obj_clear_flag(fb, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_add_event_cb(fb, dev_follow_sl_cb, LV_EVENT_CLICKED, NULL);
-        lv_obj_t *fl = lv_label_create(fb);
-        lv_label_set_text(fl, "Follow admin");
-        lv_obj_set_style_text_font(fl, f_ghost, LV_PART_MAIN);
-        lv_obj_set_style_text_color(fl, p.accent, 0);
-        lv_obj_center(fl);
-    }
 
     // 5 selectable chips in a flex row; highlight the one matching sleep_encoded.
     lv_obj_t *chips = lv_obj_create(sl_card);
@@ -847,6 +861,10 @@ void ui_settings_show_device(lv_obj_t *parent, int brightness, int sleep_encoded
         lv_obj_clear_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_event_cb(chip, dev_sleep_cb, LV_EVENT_CLICKED,
                             (void *)(intptr_t)k_sleep_encoded[i]);
+        if (!use_device) {
+            lv_obj_add_state(chip, LV_STATE_DISABLED);
+            lv_obj_clear_flag(chip, LV_OBJ_FLAG_CLICKABLE);
+        }
         lv_obj_t *cl = lv_label_create(chip);
         lv_label_set_text(cl, k_sleep_label[i]);
         lv_obj_set_style_text_font(cl, f_chip, LV_PART_MAIN);
@@ -855,6 +873,13 @@ void ui_settings_show_device(lv_obj_t *parent, int brightness, int sleep_encoded
     }
 
     lvgl_port_unlock();
+}
+
+bool ui_settings_consume_use_device(bool *on) {
+    if (!s_dev_use_set) return false;
+    s_dev_use_set = false;
+    if (on) *on = s_dev_use;
+    return true;
 }
 
 bool ui_settings_consume_brightness(int *val) {
@@ -875,18 +900,6 @@ bool ui_settings_consume_sleep(int *encoded) {
     if (!s_dev_sl_set) return false;
     s_dev_sl_set = false;
     if (encoded) *encoded = s_dev_sl;
-    return true;
-}
-
-bool ui_settings_consume_follow_brightness(void) {
-    if (!s_dev_follow_br) return false;
-    s_dev_follow_br = false;
-    return true;
-}
-
-bool ui_settings_consume_follow_sleep(void) {
-    if (!s_dev_follow_sl) return false;
-    s_dev_follow_sl = false;
     return true;
 }
 
