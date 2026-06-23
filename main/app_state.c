@@ -46,7 +46,11 @@ static inline uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1
 // Local device-setting overrides (brightness/sleep) that win over the admin's
 // pushed policy until the admin changes that policy (reconcile clears them).
 // Persisted in NVS namespace "ditto"; all -1 (fresh NVS) == follow cloud exactly.
-static overrides_t g_ovr;
+// Init to all -1 at declaration so the escpos task's app_state_set_state wake path
+// can't read a zero-initialised struct (brightness=0 -> wake at clamped duty 10) in
+// the boot window before overrides_load() runs.
+static overrides_t g_ovr = { .brightness = -1, .brightness_base = -1,
+                             .sleep = -1, .sleep_base = -1 };
 
 // Encode cloud sleep the same way an override is: 0 = off, >0 = timeout secs.
 static int cloud_sleep_encoded(const device_config_t *c) {
