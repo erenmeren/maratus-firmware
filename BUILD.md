@@ -36,6 +36,18 @@ idf.py set-target esp32p4
 idf.py build            # if it fails in esp_wifi_remote, run ./tools/patch-deps.sh then rebuild
 ```
 
+> **NEVER set `ESP_IDF_VERSION` to a patch version (e.g. `5.5.4`).** `esp_wifi_remote/Kconfig`
+> does `orsource "./idf_v$ESP_IDF_VERSION/Kconfig.slave_select.in"`, which needs the
+> **major.minor** form `5.5` to resolve `idf_v5.5/`. With `5.5.4` the path is `idf_v5.5.4/`
+> (doesn't exist); `orsource` silently skips it, `SLAVE_IDF_TARGET_ESP32C6` is never defined,
+> and the Wi-Fi transport falls back to **SPI** → boot panic
+> `spi_mempool_create … "mempool create failed: no mem"` (backlight on, blank screen).
+> Let `idf.py` set the version itself, or export exactly `ESP_IDF_VERSION=5.5`. If a stale
+> `sdkconfig` already drifted to SPI (`CONFIG_ESP_HOSTED_SPI_HOST_INTERFACE=y`), recover with:
+> `./tools/patch-deps.sh && rm sdkconfig && ESP_IDF_VERSION=5.5 idf.py reconfigure` then
+> restore the dev creds in `sdkconfig` (`CONFIG_DITTO_API_BASE_URL` / `CONFIG_DITTO_DEVICE_KEY`).
+> Verify with `grep CONFIG_ESP_HOSTED_SDIO_HOST_INTERFACE sdkconfig`.
+
 ## Flash (USB-to-UART port, NOT USB-OTG)
 
 Use the **USB-to-UART** Type-C port. `idf.py -p <port> flash` works (auto-reset). If a
@@ -189,3 +201,34 @@ and `settings_pin_verify`.
 - Known non-blocking watch-items: BSP backlight writes from two tasks are unsynchronized (idempotent
   + self-healed); a long-press while asleep opens Settings only after the wake (up to one poll cycle
   latency); no idle timeout on the PIN gate (spec did not require one).
+
+## Swipe-up Settings + on-device Device settings (2026-06-23, HW-verified)
+
+Reworks how Settings opens and adds two sub-screens. Branch `feat/swipe-up-settings`.
+
+- **Entry: swipe-up, not long-press.** A bottom-to-top swipe on the active screen (detected on
+  release via the pure `gesture_is_swipe_up`, `components/devcfg/gesture.c`) opens Settings, which
+  loads as a **full-screen `lv_screen_load_anim` MOVE_TOP** overlay (`scr`, owned by
+  `run_settings_flow`; auto_del=false so ui.c's branding `s_active` is never freed under it). A
+  finger-tracking bottom-sheet was prototyped then removed in favor of this simpler slide. The poll
+  loop's `idle_wait_or_qr_expiry` peeks `ui_swipeup_pending()` so Settings opens within ~0.5 s, not
+  after a full poll cycle. A swipe that merely wakes a sleeping screen does NOT open Settings
+  (`ui_set_input_suppressed` held through the 800 ms wake-guard). A receipt mid-Settings sets
+  `s_settings_abort`; render_job loads the QR and the flow deletes `scr` and returns.
+- **Redesign + typeface.** PIN keypad (dot entry) + menu restyled to the dReceipt mockups, colors
+  derived from the org brand via `lv_color_mix`. Device typeface switched to **Plus Jakarta Sans**
+  (OFL), instanced to wght 400/700 and Latin-subset to ~23 KB each, same embedded filenames
+  (`components/assets/fonts/ditto_sans*.ttf`) so the font cache picks it up with no code change.
+- **About** (read-only): firmware / IP / MAC / SSID+signal / online / `:9100` listener, status dots.
+- **Device settings** (`components/devcfg/overrides.c` = `device_settings_t`, NVS keys
+  `dev_use/dev_br/dev_sl`): a single **"Use device settings"** switch picks the source for BOTH
+  brightness and sleep — OFF follows the admin/cloud policy (controls disabled+dimmed), ON uses
+  device-local values (seeded from the cloud on enable so nothing jumps). Brightness slider dims
+  live and persists on RELEASE; sleep chips (Off/1/2/5/10 min) persist on tap. Fresh NVS
+  (use_device=0) == byte-for-byte follow-admin.
+- **Perceptual brightness curve** (`components/devcfg/brightness.c`): the stored/slider level
+  (10..100) is gamma-curved (γ=0.5) to PWM duty so mid-slider isn't too dark (level 30→55% duty,
+  50→71%), applied uniformly for device + admin brightness. Tunable via `BRIGHTNESS_GAMMA`.
+- Host-tested pure cores: `gesture_is_swipe_up`/`gesture_snap`, `devset_*`, `brightness_level_to_duty`
+  (`tools/cfg-harness`, `make test`). **CONFIRMED on hardware:** swipe opens Settings, brightness
+  feels right at 30–40%, the use-device switch + persistence work, no boot regression (SDIO/Wi-Fi up).

@@ -13,6 +13,9 @@
 #include "sleep_policy.h"
 #include "settings_pin.h"
 #include "sha256.h"
+#include "gesture.h"
+#include "overrides.h"
+#include "brightness.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -384,6 +387,96 @@ static void test_should_sleep(void) {
     printf("test_should_sleep OK\n");
 }
 
+static void test_gesture_swipe_up(void) {
+    // clear upward swipe passes
+    assert(gesture_is_swipe_up(360, 600, 360, 200, 150) == true);
+    // too-short upward travel fails
+    assert(gesture_is_swipe_up(360, 300, 360, 220, 150) == false);
+    // downward drag fails
+    assert(gesture_is_swipe_up(360, 200, 360, 600, 150) == false);
+    // mostly-horizontal swipe fails (up=200 but dx=600 > up)
+    assert(gesture_is_swipe_up(100, 600, 700, 400, 150) == false);
+    // diagonal that's still more-vertical passes
+    assert(gesture_is_swipe_up(360, 600, 300, 250, 150) == true);
+    printf("test_gesture_swipe_up OK\n");
+}
+
+static void test_devset(void) {
+    device_settings_t d; devset_init(&d);
+    // init: use_device off, both values unset, effective follows cloud.
+    assert(d.use_device == 0 && d.brightness == -1 && d.sleep == -1);
+    assert(devset_eff_brightness(&d, 54) == 54);
+    assert(devset_eff_sleep(&d, 300) == 300);
+
+    // Setting device values while OFF does not affect the effective value.
+    devset_set_brightness(&d, 80);
+    devset_set_sleep(&d, 0);
+    assert(d.brightness == 80 && d.sleep == 0);
+    assert(devset_eff_brightness(&d, 54) == 54);   // use_device still 0 -> follows cloud
+    assert(devset_eff_sleep(&d, 300) == 300);
+
+    // Turning the source ON now uses the device values (already set, not reseeded).
+    devset_set_use_device(&d, 1, 33, 600);
+    assert(d.use_device == 1 && d.brightness == 80 && d.sleep == 0);
+    assert(devset_eff_brightness(&d, 54) == 80);
+    assert(devset_eff_sleep(&d, 300) == 0);
+
+    // Turning OFF -> effective follows cloud again, device values retained.
+    devset_set_use_device(&d, 0, 33, 600);
+    assert(d.use_device == 0 && d.brightness == 80 && d.sleep == 0);
+    assert(devset_eff_brightness(&d, 54) == 54);
+    assert(devset_eff_sleep(&d, 300) == 300);
+
+    // Enabling with UNSET (-1) device values seeds them from the cloud so
+    // nothing jumps.
+    device_settings_t e; devset_init(&e);
+    devset_set_use_device(&e, 1, 42, 120);
+    assert(e.use_device == 1 && e.brightness == 42 && e.sleep == 120);
+    assert(devset_eff_brightness(&e, 99) == 42);   // device value wins
+    assert(devset_eff_sleep(&e, 999) == 120);
+    // Editing the seeded values then takes effect immediately.
+    devset_set_brightness(&e, 15);
+    devset_set_sleep(&e, 60);
+    assert(devset_eff_brightness(&e, 99) == 15);
+    assert(devset_eff_sleep(&e, 999) == 60);
+    printf("test_devset OK\n");
+}
+
+static void test_brightness(void) {
+    // Gamma 0.5 perceptual curve: duty = round(100*(level/100)^0.5), clamped 10..100.
+    assert(brightness_level_to_duty(100) == 100);
+    assert(brightness_level_to_duty(50)  == 71);   // 100*sqrt(0.5)=70.71 -> 71
+    assert(brightness_level_to_duty(30)  == 55);   // 100*sqrt(0.3)=54.77 -> 55
+    assert(brightness_level_to_duty(10)  == 32);   // 100*sqrt(0.1)=31.62 -> 32
+    // clamps: below 10 -> level 10; above 100 -> level 100.
+    assert(brightness_level_to_duty(0)   == 32);   // clamped up to level 10
+    assert(brightness_level_to_duty(200) == 100);  // clamped down to level 100
+    // monotonic non-decreasing across the valid range.
+    int prev = brightness_level_to_duty(10);
+    for (int lvl = 11; lvl <= 100; lvl++) {
+        int cur = brightness_level_to_duty(lvl);
+        assert(cur >= prev);
+        prev = cur;
+    }
+    printf("test_brightness OK\n");
+}
+
+static void test_gesture_snap(void) {
+    // short drag, no flick -> dismiss (100/720 = 14%)
+    assert(gesture_snap(100, 720, 0, 40, 1200) == SNAP_DISMISS);
+    // >=40% revealed -> open (300/720 = 41.7%)
+    assert(gesture_snap(300, 720, 0, 40, 1200) == SNAP_OPEN);
+    // exactly 40% -> open (288/720 = 40%)
+    assert(gesture_snap(288, 720, 0, 40, 1200) == SNAP_OPEN);
+    // fast upward flick under 40% -> open
+    assert(gesture_snap(120, 720, 2000, 40, 1200) == SNAP_OPEN);
+    // slow flick under 40% -> dismiss
+    assert(gesture_snap(120, 720, 500, 40, 1200) == SNAP_DISMISS);
+    // no movement -> dismiss
+    assert(gesture_snap(0, 720, 0, 40, 1200) == SNAP_DISMISS);
+    printf("test_gesture_snap OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -400,6 +493,10 @@ int main(void) {
     test_ota_manifest();
     test_should_sleep();
     test_sha256_and_pin();
+    test_gesture_swipe_up();
+    test_gesture_snap();
+    test_devset();
+    test_brightness();
     printf("ALL TESTS PASSED\n");
     return 0;
 }

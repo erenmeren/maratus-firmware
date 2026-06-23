@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include "lvgl.h"
 #include "device_config.h"
 #include "dev_state.h"
 #include "net.h"   // net_ap_t
@@ -92,13 +93,34 @@ typedef enum {
     UI_SET_TEST_PRINT,  // user tapped "Test Print"
     UI_SET_REBOOT,      // user tapped "Reboot"
     UI_SET_CLOSE,       // user tapped "Close" or PIN "Cancel"
+    UI_SET_ABOUT,       // user tapped "About" (read-only device info sub-screen)
+    UI_SET_DEVICE,      // user tapped "Device settings" (interactive sub-screen)
+    UI_SET_BACK,        // user tapped a sub-screen Back button
 } ui_settings_action_t;
 
-// True (once) if the idle screen was long-pressed. Cleared on read.
-bool ui_consume_longpress(void);
+// --- Swipe-up gesture (opens full-screen Settings) -------------------------
+// Swipe-up is detected on touch release on the active branding screen. The flag
+// is set on the LVGL thread; the consumers below take the port lock.
 
-// Build + load the PIN keypad screen. Clears any pending entry and error state.
-void ui_settings_show_pin(void);
+// True (once) if a swipe-up was detected since the last call. Cleared on read.
+// Consumed by poll_task to run the settings flow.
+bool ui_consume_swipeup(void);
+
+// Non-consuming peek of the swipe-up flag, so the poll loop's wait slices can
+// break out early and run the settings flow promptly. Takes the port lock.
+bool ui_swipeup_pending(void);
+
+// Suppress new swipe gestures (so a swipe that merely wakes a sleeping screen
+// cannot also open settings). Driven by app_state's sleep/wake bookkeeping.
+// Takes the port lock.
+void ui_set_input_suppressed(bool s);
+
+// The live config pointer (set by ui_set_config); used by ui_settings to color
+// itself. Takes the port lock at the call site (it's a plain pointer read).
+const device_config_t *ui_current_cfg(void);
+
+// Build the PIN keypad into `parent`. Clears any pending entry and error state.
+void ui_settings_show_pin(lv_obj_t *parent);
 
 // Show or hide the "Incorrect PIN" error label. Clears the entry on show.
 void ui_settings_pin_set_error(bool show);
@@ -110,9 +132,47 @@ bool ui_settings_consume_pin(char *out, int cap);
 // Set the device-info block text shown at the top of the menu screen.
 void ui_settings_set_info(const char *text);
 
-// Build + load the menu screen (info label + 4 action buttons).
-void ui_settings_show_menu(void);
+// Build the menu screen (info label + 4 action buttons) into `parent`.
+void ui_settings_show_menu(lv_obj_t *parent);
 
 // True (once) if the user tapped a menu button. Writes the action into `*act`.
 // Cleared on read.
 bool ui_settings_consume_action(ui_settings_action_t *act);
+
+// Build the read-only "About" sub-screen into `parent`. `info_block` is a
+// pre-formatted multi-line string ("label\tvalue\n" per line) built by the
+// orchestrator; each line renders as a row (muted label left, fg value right),
+// with a green/red status dot for "Online"/"Listening"/"Offline" values. A Back
+// button latches UI_SET_BACK via the shared action flag. PASSIVE.
+void ui_settings_show_about(lv_obj_t *parent, const char *info_block);
+
+// Build the interactive "Device settings" sub-screen into `parent`. A single
+// "Use device settings" switch at the top selects the source: when `use_device`
+// is false the brightness/sleep controls follow the admin policy and are shown
+// disabled/dimmed; when true they're editable. `brightness` (10..100) and
+// `sleep_encoded` (0/60/120/300/600) are the current EFFECTIVE values used to
+// seed the controls. A Back button latches UI_SET_BACK. PASSIVE: callbacks only
+// set volatile flags/values; the orchestrator reads them via the consume_*
+// functions below and applies/persists.
+void ui_settings_show_device(lv_obj_t *parent, bool use_device,
+                             int brightness, int sleep_encoded);
+
+// True (once) if the "Use device settings" switch flipped; *on = new state.
+bool ui_settings_consume_use_device(bool *on);
+
+// True (once) if the brightness slider moved (LV_EVENT_VALUE_CHANGED); *val =
+// 10..100. For LIVE preview only — do NOT persist on every tick. Cleared on read.
+bool ui_settings_consume_brightness(int *val);
+
+// True (once) if the brightness slider was RELEASED (LV_EVENT_RELEASED); *val =
+// 10..100. This is the debounced commit point — persist the value here.
+bool ui_settings_consume_brightness_commit(int *val);
+
+// True (once) if a sleep option chip was tapped; *encoded = 0/60/120/300/600.
+bool ui_settings_consume_sleep(int *encoded);
+
+// Clear the static pointers to the PIN/menu containers WITHOUT deleting them.
+// Call after the settings screen is deleted: deleting the parent screen already
+// freed those child containers, so this prevents a stale-pointer double-delete
+// on the next open.
+void ui_settings_reset(void);

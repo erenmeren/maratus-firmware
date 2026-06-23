@@ -13,6 +13,7 @@
 #include "esp_heap_caps.h"
 #include "time_sync.h"
 #include "esp_wifi.h"
+#include "esp_mac.h"
 #include "ota.h"
 #include "bsp/esp-bsp.h"
 #include "esp_timer.h"
@@ -20,6 +21,9 @@
 #include "settings_pin.h"
 #include "esp_netif.h"
 #include "wifi_setup.h"
+#include "overrides.h"
+#include "brightness.h"
+#include "nvs.h"
 
 static const char *TAG = "state";
 // Written by poll_task and by render_job (the ESC/POS task) via app_state_set_state;
@@ -35,30 +39,73 @@ static volatile bool s_config_dirty = true;   // fetch once after first connect
 static volatile bool s_display_asleep = false;
 static volatile uint32_t s_last_activity_ms = 0;
 static volatile uint32_t s_wake_guard_until = 0;   // ignore taps until this time (swallow the wake touch)
+// Set true (escpos task) when a receipt arrives while run_settings_flow is mid-flow;
+// the flow polls this and returns within one 50 ms slice. volatile for cross-task read.
+static volatile bool s_settings_abort = false;
 
 static inline uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1000); }
 
-// Apply backlight brightness (0..100 duty). No-op while asleep — Task 4's
-// sleep/wake owns the backlight then. Clamps defensively.
-static void display_apply_brightness(int duty) {
+// Device-local settings (brightness/sleep) governed by a single "use device
+// settings" switch: when use_device is 0 (fresh NVS) the effective values follow
+// the admin's pushed policy exactly; when 1 the device-local values win.
+// Persisted in NVS namespace "ditto". Init to a fresh struct at declaration so
+// the escpos task's app_state_set_state wake path can't read a zero-initialised
+// struct in the boot window before overrides_load() runs (use_device=0 means it
+// follows cloud regardless).
+static device_settings_t g_dev = { .use_device = 0, .brightness = -1, .sleep = -1 };
+
+// Encode cloud sleep the same way a device value is: 0 = off, >0 = timeout secs.
+static int cloud_sleep_encoded(const device_config_t *c) {
+    return c->device.sleep.enabled ? c->device.sleep.timeout_seconds : 0;
+}
+
+// Load device settings from NVS. Absent keys / open failure leave the defaults
+// (use_device=0, values -1) — so a fresh/erased NVS follows cloud exactly.
+static void overrides_load(void) {
+    devset_init(&g_dev);
+    nvs_handle_t h;
+    if (nvs_open("ditto", NVS_READONLY, &h) != ESP_OK) return;
+    int32_t v;
+    if (nvs_get_i32(h, "dev_use", &v) == ESP_OK) g_dev.use_device = v;
+    if (nvs_get_i32(h, "dev_br",  &v) == ESP_OK) g_dev.brightness = v;
+    if (nvs_get_i32(h, "dev_sl",  &v) == ESP_OK) g_dev.sleep      = v;
+    nvs_close(h);
+}
+
+// Persist the device-settings ints to NVS.
+static void overrides_save(void) {
+    nvs_handle_t h;
+    if (nvs_open("ditto", NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_i32(h, "dev_use", g_dev.use_device);
+    nvs_set_i32(h, "dev_br",  g_dev.brightness);
+    nvs_set_i32(h, "dev_sl",  g_dev.sleep);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+// Apply backlight brightness for a perceptual `level` (10..100). The level is
+// mapped through a gamma curve to a PWM duty so the low/mid range isn't too dark
+// (uniformly for device + admin brightness). No-op while asleep — Task 4's
+// sleep/wake owns the backlight then.
+static void display_apply_brightness(int level) {
     if (s_display_asleep) return;
-    if (duty < 10)  duty = 10;
-    if (duty > 100) duty = 100;
-    bsp_display_brightness_set(duty);
+    bsp_display_brightness_set(brightness_level_to_duty(level));
 }
 
 static void display_sleep(void) {
     bsp_display_backlight_off();
     s_display_asleep = true;
+    ui_set_input_suppressed(true); // a swipe on a sleeping screen wakes only
 }
 
-static void display_wake(int duty) {
+static void display_wake(int level) {
     s_display_asleep = false;            // clear first so display_apply_brightness isn't a no-op
     bsp_display_backlight_on();          // ensure the backlight controller is on
-    display_apply_brightness(duty);      // configured duty is the final write (wins over backlight_on's 100)
+    display_apply_brightness(level);     // perceptual level (gamma-curved inside) is the final write
     uint32_t t = now_ms();
     s_last_activity_ms = t;
     s_wake_guard_until = t + 800; // the touch that woke us must not also trigger ingest
+    ui_set_input_suppressed(true); // stay suppressed through the wake-guard
     ui_consume_tap();                    // swallow any tap already latched by the wake touch
 }
 
@@ -67,7 +114,13 @@ void app_state_request_config(void) { s_config_dirty = true; }
 void app_state_set_state(dev_state_t st) {
     // A print job arriving while asleep must light the screen so the QR is visible.
     if (s_display_asleep && (st == DEV_PROCESSING || st == DEV_QR))
-        display_wake(s_cfg_buf[s_cfg_live]->device.brightness);
+        display_wake(devset_eff_brightness(&g_dev, s_cfg_buf[s_cfg_live]->device.brightness));
+    // A receipt arriving while Settings is open must show the live QR. Signal any
+    // in-flight settings flow to abort; render_job already loads the QR screen, and
+    // the aborting flow deletes its own settings screen. (called from the escpos task.)
+    if (st == DEV_PROCESSING || st == DEV_QR) {
+        s_settings_abort = true;
+    }
     s_state = st;
 }
 
@@ -180,62 +233,171 @@ static void build_settings_info(char *out, int cap) {
              net_is_connected() ? "Online" : "Offline");
 }
 
-// Long-press → PIN gate (if configured) → settings menu.
-// Blocks until the user closes the menu, runs a test print, or reboots.
+// Build the About sub-screen content: one "label\tvalue\n" line per fact
+// (firmware, IP, MAC, Wi-Fi, signal, Online, print listener). Rendered as a
+// read-only card list by ui_settings_show_about.
+static void build_about_info(char *out, size_t n) {
+    char ssid[33] = "\xe2\x80\x94";  // em-dash when not connected
+    char bars[8]  = "\xe2\x80\x94";
+    char ip[16]   = "\xe2\x80\x94";
+    char mac[18]  = "\xe2\x80\x94";
+
+    wifi_ap_record_t ap;
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        snprintf(ssid, sizeof(ssid), "%s", (const char *)ap.ssid);
+        snprintf(bars, sizeof(bars), "%d/4", rssi_to_level(ap.rssi));
+    }
+    esp_netif_t *nif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_ip_info_t ipi;
+    if (nif && esp_netif_get_ip_info(nif, &ipi) == ESP_OK && ipi.ip.addr != 0)
+        snprintf(ip, sizeof(ip), IPSTR, IP2STR(&ipi.ip));
+
+    uint8_t m[6];
+    if (esp_wifi_get_mac(WIFI_IF_STA, m) == ESP_OK ||
+        esp_read_mac(m, ESP_MAC_WIFI_STA) == ESP_OK)
+        snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 m[0], m[1], m[2], m[3], m[4], m[5]);
+
+    snprintf(out, n,
+             "Firmware\t%s\n"
+             "IP\t%s\n"
+             "MAC\t%s\n"
+             "Wi-Fi\t%s\n"
+             "Signal\t%s\n"
+             "Online\t%s\n"
+             "Print listener\tListening",
+             CONFIG_DITTO_FW_VERSION, ip, mac, ssid, bars,
+             net_is_connected() ? "Online" : "Offline");
+}
+
+// Return to the live idle/branding screen and free the settings screen.
+// ui_render_state() loads a fresh branding screen and deletes ui.c's old s_active
+// (the branding screen that was hidden under settings) — then scr is orphaned and
+// safe to delete.
+static void close_settings(lv_obj_t *scr) {
+    ui_render_state(s_state);
+    lv_obj_delete(scr);
+    ui_settings_reset();
+}
+
+// Swipe-up → PIN gate (if configured) → settings menu, on a full-screen overlay
+// that slides up. Blocks until the user closes the menu, runs a test print, or
+// reboots — or until a receipt aborts the flow.
 static void run_settings_flow(void) {
     const device_config_t *cfg = s_cfg_buf[s_cfg_live];
     ui_settings_action_t act;
+    s_settings_abort = false;
 
-    // PIN gate — skipped when no hash is configured.
+    // Build the settings screen and slide it up. auto_del=false: the branding
+    // screen it replaces is still owned by ui.c (s_active) — must NOT be deleted.
+    lv_obj_t *scr = lv_obj_create(NULL);
+    char info[160];
+
     if (cfg->device.settings_password_hash[0]) {
-        ui_settings_show_pin();
+        ui_settings_show_pin(scr);
+        lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_TOP, 220, 0, false);
         for (;;) {
+            if (s_settings_abort) { lv_obj_delete(scr); ui_settings_reset(); return; }
             char pin[16];
             if (ui_settings_consume_pin(pin, sizeof(pin))) {
-                if (settings_pin_verify(pin,
-                                        cfg->device.settings_password_hash,
+                if (settings_pin_verify(pin, cfg->device.settings_password_hash,
                                         cfg->device.settings_password_salt)) {
-                    // Correct PIN — drain the stale Cancel action the PIN screen
-                    // latches when the user taps Submit (not Cancel), then continue.
-                    ui_settings_consume_action(&act);
+                    ui_settings_consume_action(&act);   // drain the stale latch
                     break;
                 }
                 ui_settings_pin_set_error(true);
             }
-            // Let Cancel close the PIN screen without opening the menu.
             if (ui_settings_consume_action(&act) && act == UI_SET_CLOSE) {
-                ui_render_state(s_state);
-                return;
+                close_settings(scr); return;            // helper above
             }
             vTaskDelay(pdMS_TO_TICKS(50));
         }
+    } else {
+        lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_TOP, 220, 0, false);
     }
 
-    // Build info and show menu.
-    char info[160];
+    // Menu — build into the SAME scr (ui_settings_show_menu deletes the old pin
+    // child container and adds the menu; scr is already the active screen).
     build_settings_info(info, sizeof(info));
     ui_settings_set_info(info);
-    ui_settings_show_menu();
+    ui_settings_show_menu(scr);
 
     for (;;) {
+        if (s_settings_abort) { lv_obj_delete(scr); ui_settings_reset(); return; }
         if (ui_settings_consume_action(&act)) {
             switch (act) {
                 case UI_SET_WIFI:
+                    // wifi_setup_run() lv_screen_loads its own screen, replacing scr
+                    // as the active screen (scr stays alive, hidden). After it returns,
+                    // rebuild the menu into scr and slide scr back up.
                     wifi_setup_run();
-                    // Refresh info after Wi-Fi changes and re-show menu.
                     build_settings_info(info, sizeof(info));
                     ui_settings_set_info(info);
-                    ui_settings_show_menu();
+                    ui_settings_show_menu(scr);
+                    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_TOP, 220, 0, false);
                     break;
+                case UI_SET_ABOUT: {
+                    // Read-only sub-screen: show device info, wait for Back,
+                    // then rebuild the menu in place (same scr — no new load).
+                    char about[256];
+                    build_about_info(about, sizeof(about));
+                    ui_settings_show_about(scr, about);
+                    for (;;) {
+                        if (s_settings_abort) {
+                            lv_obj_delete(scr); ui_settings_reset(); return;
+                        }
+                        if (ui_settings_consume_action(&act) && act == UI_SET_BACK)
+                            break;
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                    }
+                    ui_settings_show_menu(scr);
+                    break;
+                }
                 case UI_SET_TEST_PRINT:
+                    close_settings(scr);
                     run_test_ingest();
                     return;
                 case UI_SET_REBOOT:
                     esp_restart();
                     break;
                 case UI_SET_CLOSE:
-                    ui_render_state(s_state);
+                    close_settings(scr);
                     return;
+                case UI_SET_DEVICE: {
+                    // Interactive sub-screen: a single "Use device settings"
+                    // switch picks the source (admin vs device) for BOTH
+                    // brightness + sleep. When on, the brightness slider (live
+                    // preview, persist on release) + sleep chips are editable;
+                    // when off they're disabled and follow the admin policy.
+                    int eff_br = devset_eff_brightness(&g_dev, cfg->device.brightness);
+                    int eff_sl = devset_eff_sleep(&g_dev, cloud_sleep_encoded(cfg));
+                    ui_settings_show_device(scr, g_dev.use_device, eff_br, eff_sl);
+                    for (;;) {
+                        if (s_settings_abort) { lv_obj_delete(scr); ui_settings_reset(); return; }
+                        bool on;
+                        if (ui_settings_consume_use_device(&on)) {
+                            devset_set_use_device(&g_dev, on, cfg->device.brightness, cloud_sleep_encoded(cfg));
+                            overrides_save();
+                            display_apply_brightness(devset_eff_brightness(&g_dev, cfg->device.brightness));
+                            s_last_activity_ms = now_ms();
+                            ui_settings_show_device(scr, g_dev.use_device,
+                                devset_eff_brightness(&g_dev, cfg->device.brightness),
+                                devset_eff_sleep(&g_dev, cloud_sleep_encoded(cfg)));   // re-render to enable/disable controls
+                        }
+                        int v;
+                        if (g_dev.use_device && ui_settings_consume_brightness(&v)) display_apply_brightness(v);     // live
+                        if (g_dev.use_device && ui_settings_consume_brightness_commit(&v)) { devset_set_brightness(&g_dev, v); overrides_save(); }
+                        int e;
+                        if (g_dev.use_device && ui_settings_consume_sleep(&e)) { devset_set_sleep(&g_dev, e); overrides_save(); s_last_activity_ms = now_ms(); }
+                        if (ui_settings_consume_action(&act) && act == UI_SET_BACK)
+                            break;
+                        vTaskDelay(pdMS_TO_TICKS(50));
+                    }
+                    ui_settings_show_menu(scr);
+                    break;
+                }
+                case UI_SET_BACK:     // only meaningful inside a sub-screen loop.
+                    break;
             }
         }
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -250,29 +412,41 @@ static void idle_wait_or_qr_expiry(int total_ms) {
     // checks, but not after the last). The trailing check catches an expiry that
     // lands in the final slice, instead of waiting a whole cloud poll round-trip.
     for (int waited = 0; waited <= total_ms; waited += slice) {
+        // A swipe-up just happened — bail so poll_task runs the settings flow
+        // within one slice instead of after a whole poll cycle (~12s). The flag
+        // stays set; the main loop consumes it via ui_consume_swipeup().
+        if (ui_swipeup_pending()) return;
         if (ui_consume_countdown_expired()) {
             s_state = DEV_IDLE;
             ui_render_state(DEV_IDLE);
             return;
         }
         const device_config_t *cfg = s_cfg_buf[s_cfg_live];
+        // Keep input suppressed while asleep or within the wake-guard; release it
+        // once the screen is awake and past the guard (idempotent every slice).
+        ui_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
         bool active = ui_consume_activity();
         if (active) s_last_activity_ms = now_ms();
         // A receipt that arrived while asleep (or a sleep that raced the wake)
         // must light the screen so the QR is visible.
         if (s_display_asleep && (s_state == DEV_PROCESSING || s_state == DEV_QR)) {
-            display_wake(cfg->device.brightness);
+            display_wake(devset_eff_brightness(&g_dev, cfg->device.brightness));
         }
-        if (cfg->device.sleep.enabled) {
+        // Effective sleep: device value (0=off, >0=timeout) if on, else cloud.
+        int es = devset_eff_sleep(&g_dev, cloud_sleep_encoded(cfg));
+        bool sleep_en = es > 0;
+        int  sleep_to = es > 0 ? es : 0;
+        int  wake_br  = devset_eff_brightness(&g_dev, cfg->device.brightness);
+        if (sleep_en) {
             if (!s_display_asleep &&
                 should_sleep(now_ms(), s_last_activity_ms,
-                             cfg->device.sleep.timeout_seconds, true, s_state)) {
+                             sleep_to, true, s_state)) {
                 display_sleep();
             } else if (s_display_asleep && active) {
-                display_wake(cfg->device.brightness);
+                display_wake(wake_br);
             }
         } else if (s_display_asleep) {
-            display_wake(cfg->device.brightness);   // sleep turned off -> ensure the panel is on
+            display_wake(wake_br);   // sleep off -> ensure the panel is on
         }
         if (waited < total_ms) vTaskDelay(pdMS_TO_TICKS(slice));
     }
@@ -286,12 +460,14 @@ static void poll_task(void *arg)
     s_last_activity_ms = now_ms();
 
     for (;;) {
+        // Release input suppression once awake and past the wake-guard (idempotent).
+        ui_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
         if (ui_consume_tap()) {
             // A tap that merely woke the screen must not also trigger ingest.
             if (now_ms() >= s_wake_guard_until && net_is_connected()) run_test_ingest();
             continue;
         }
-        if (ui_consume_longpress()) {
+        if (ui_consume_swipeup()) {
             run_settings_flow();
             continue;
         }
@@ -315,7 +491,9 @@ static void poll_task(void *arg)
                 if (cs == 200 && s_cfg_buf[next]->valid) {
                     prefetch_and_evict_assets(s_cfg_buf[next]);  // fill/prune flash cache before render
                     ui_set_config(s_cfg_buf[next]);     // publish under the LVGL lock (pointer swap)
-                    display_apply_brightness(s_cfg_buf[next]->device.brightness);
+                    // Apply the EFFECTIVE brightness (device value if "use device
+                    // settings" is on, else the admin's pushed brightness).
+                    display_apply_brightness(devset_eff_brightness(&g_dev, s_cfg_buf[next]->device.brightness));
                     time_sync_set_tz(s_cfg_buf[next]->clock_timezone);  // POSIX TZ from payload
                     ui_set_countdown(s_cfg_buf[next]->qr_timeout_seconds);  // keep duration current for any receipt path
                     s_cfg_live = next;
@@ -347,9 +525,10 @@ void app_state_run(void)
         ESP_LOGE(TAG, "config buffer PSRAM alloc failed; running without live config");
         return;   // boot splash/cached config from app_main stays on screen; no poll task
     }
+    overrides_load();   // restore device settings (use_device=0 == follow cloud)
     cloud_config_load_cached(s_cfg_buf[s_cfg_live]);   // seed ETag so the first fetch can 304
     ui_set_config(s_cfg_buf[s_cfg_live]);
     if (s_cfg_buf[s_cfg_live]->valid)
-        display_apply_brightness(s_cfg_buf[s_cfg_live]->device.brightness);
+        display_apply_brightness(devset_eff_brightness(&g_dev, s_cfg_buf[s_cfg_live]->device.brightness));
     xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, NULL);
 }
