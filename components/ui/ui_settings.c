@@ -15,7 +15,7 @@
 // All colors derive from the tenant brand (brand_bg/fg/accent) via lv_color_mix
 // so the screens look right whether the brand bg is light or dark. The public
 // API, callbacks, volatile flags and statics are unchanged so run_settings_flow()
-// and ui_sheet keep working.
+// keeps working.
 
 // --------------------------------------------------------------------------
 // Brand-derived palette
@@ -497,11 +497,11 @@ bool ui_settings_consume_action(ui_settings_action_t *act) {
 // --------------------------------------------------------------------------
 // Lifecycle reset
 // --------------------------------------------------------------------------
-// The PIN/menu containers are children of the sheet. When ui_sheet_close()
-// destroys the sheet, LVGL auto-deletes those children — leaving our static
-// pointers DANGLING. Calling this right after ui_sheet_close() clears them to
-// NULL so the next ui_settings_show_pin/menu does not double-delete a freed
-// object. It does NOT delete anything; the sheet teardown already did.
+// The PIN/menu containers are children of the settings screen. When that screen
+// is deleted, LVGL auto-deletes those children — leaving our static pointers
+// DANGLING. Calling this right after the screen is deleted clears them to NULL
+// so the next ui_settings_show_pin/menu does not double-delete a freed object.
+// It does NOT delete anything; the screen teardown already did.
 void ui_settings_reset(void) {
     lvgl_port_lock(0);
     s_pin_screen    = NULL;

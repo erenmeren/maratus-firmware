@@ -95,42 +95,25 @@ typedef enum {
     UI_SET_CLOSE,       // user tapped "Close" or PIN "Cancel"
 } ui_settings_action_t;
 
-// --- Interactive Settings sheet (finger-tracking bottom-sheet) -------------
-// Drive the interactive Settings sheet from the active screen's touch events.
-// All run on the LVGL thread (callbacks already hold the port lock).
-void ui_sheet_on_press(int x, int y);     // finger down at (x,y)
-void ui_sheet_on_pressing(int x, int y);  // finger moved to (x,y) while down
-void ui_sheet_on_release(void);           // finger up -> snap decision
+// --- Swipe-up gesture (opens full-screen Settings) -------------------------
+// Swipe-up is detected on touch release on the active branding screen. The flag
+// is set on the LVGL thread; the consumers below take the port lock.
 
-// True (once) when the sheet has finished animating fully open. Cleared on read.
-// Consumed by poll_task to run the settings flow. Takes the port lock.
-bool ui_consume_sheet_open(void);
+// True (once) if a swipe-up was detected since the last call. Cleared on read.
+// Consumed by poll_task to run the settings flow.
+bool ui_consume_swipeup(void);
 
-// Non-consuming peek of the open flag, so the poll loop's wait slices can break
-// out early and run the settings flow promptly. Takes the port lock.
-bool ui_sheet_is_open(void);
+// Non-consuming peek of the swipe-up flag, so the poll loop's wait slices can
+// break out early and run the settings flow promptly. Takes the port lock.
+bool ui_swipeup_pending(void);
 
-// Animate the sheet back down and destroy it (called when settings flow exits).
+// Suppress new swipe gestures (so a swipe that merely wakes a sleeping screen
+// cannot also open settings). Driven by app_state's sleep/wake bookkeeping.
 // Takes the port lock.
-void ui_sheet_close(void);
+void ui_set_input_suppressed(bool s);
 
-// The sheet's content container to build settings controls into (NULL if no
-// sheet). Takes the port lock.
-lv_obj_t *ui_sheet_content(void);
-
-// Show/hide the sheet without destroying it (used to reveal a full-screen
-// sub-flow like Wi-Fi setup that loads on the base screen layer). Takes the lock.
-void ui_sheet_set_hidden(bool hidden);
-
-// Suppress new drag gestures (so a swipe that merely wakes a sleeping screen
-// cannot also open the sheet). Driven by app_state's sleep/wake bookkeeping.
-// Takes the port lock.
-void ui_sheet_set_input_suppressed(bool s);
-
-// Suppress the next CLICKED event (called by ui_sheet when a drag ends in a swipe).
-void ui_suppress_next_click(void);
-
-// The live config pointer (set by ui_set_config); used by the sheet to color itself.
+// The live config pointer (set by ui_set_config); used by ui_settings to color
+// itself. Takes the port lock at the call site (it's a plain pointer read).
 const device_config_t *ui_current_cfg(void);
 
 // Build the PIN keypad into `parent`. Clears any pending entry and error state.
@@ -154,6 +137,7 @@ void ui_settings_show_menu(lv_obj_t *parent);
 bool ui_settings_consume_action(ui_settings_action_t *act);
 
 // Clear the static pointers to the PIN/menu containers WITHOUT deleting them.
-// Call after ui_sheet_close(): the sheet's destruction already freed those child
-// containers, so this prevents a stale-pointer double-delete on the next open.
+// Call after the settings screen is deleted: deleting the parent screen already
+// freed those child containers, so this prevents a stale-pointer double-delete
+// on the next open.
 void ui_settings_reset(void);

@@ -53,7 +53,7 @@ static void display_apply_brightness(int duty) {
 static void display_sleep(void) {
     bsp_display_backlight_off();
     s_display_asleep = true;
-    ui_sheet_set_input_suppressed(true); // a swipe on a sleeping screen wakes only
+    ui_set_input_suppressed(true); // a swipe on a sleeping screen wakes only
 }
 
 static void display_wake(int duty) {
@@ -63,7 +63,7 @@ static void display_wake(int duty) {
     uint32_t t = now_ms();
     s_last_activity_ms = t;
     s_wake_guard_until = t + 800; // the touch that woke us must not also trigger ingest
-    ui_sheet_set_input_suppressed(true); // stay suppressed through the wake-guard
+    ui_set_input_suppressed(true); // stay suppressed through the wake-guard
     ui_consume_tap();                    // swallow any tap already latched by the wake touch
 }
 
@@ -73,13 +73,11 @@ void app_state_set_state(dev_state_t st) {
     // A print job arriving while asleep must light the screen so the QR is visible.
     if (s_display_asleep && (st == DEV_PROCESSING || st == DEV_QR))
         display_wake(s_cfg_buf[s_cfg_live]->device.brightness);
-    // A receipt arriving while the Settings sheet is open would otherwise leave the
-    // opaque sheet covering the live QR. Tear the sheet off lv_layer_top and signal
-    // any in-flight settings flow to abort. (port-lock safe from the escpos task.)
+    // A receipt arriving while Settings is open must show the live QR. Signal any
+    // in-flight settings flow to abort; render_job already loads the QR screen, and
+    // the aborting flow deletes its own settings screen. (called from the escpos task.)
     if (st == DEV_PROCESSING || st == DEV_QR) {
         s_settings_abort = true;
-        ui_sheet_close();        // animate the sheet off lv_layer_top so the QR is visible
-        ui_settings_reset();     // sheet children auto-delete; null the ui_settings statics now
     }
     s_state = st;
 }
@@ -193,97 +191,81 @@ static void build_settings_info(char *out, int cap) {
              net_is_connected() ? "Online" : "Offline");
 }
 
-// Long-press → PIN gate (if configured) → settings menu.
-// Blocks until the user closes the menu, runs a test print, or reboots.
+// Return to the live idle/branding screen and free the settings screen.
+// ui_render_state() loads a fresh branding screen and deletes ui.c's old s_active
+// (the branding screen that was hidden under settings) — then scr is orphaned and
+// safe to delete.
+static void close_settings(lv_obj_t *scr) {
+    ui_render_state(s_state);
+    lv_obj_delete(scr);
+    ui_settings_reset();
+}
+
+// Swipe-up → PIN gate (if configured) → settings menu, on a full-screen overlay
+// that slides up. Blocks until the user closes the menu, runs a test print, or
+// reboots — or until a receipt aborts the flow.
 static void run_settings_flow(void) {
     const device_config_t *cfg = s_cfg_buf[s_cfg_live];
     ui_settings_action_t act;
-
-    // Fresh flow: clear any abort latched by a prior run before fetching the sheet.
     s_settings_abort = false;
 
-    // Build settings into the already-open sheet (no screen swap). The sheet
-    // could have vanished (e.g. a receipt destroyed it) — abort if so.
-    lv_obj_t *sheet = ui_sheet_content();
-    if (!sheet) { ui_settings_reset(); return; }
+    // Build the settings screen and slide it up. auto_del=false: the branding
+    // screen it replaces is still owned by ui.c (s_active) — must NOT be deleted.
+    lv_obj_t *scr = lv_obj_create(NULL);
+    char info[160];
 
-    // PIN gate — skipped when no hash is configured.
     if (cfg->device.settings_password_hash[0]) {
-        ui_settings_show_pin(sheet);
-        // Fade in just the freshly-built content (the sheet chrome is already
-        // opaque at snap-open; fading the whole sheet would blink it).
-        {
-            lv_obj_t *content =
-                lv_obj_get_child(sheet, lv_obj_get_child_count(sheet) - 1);
-            if (content) lv_obj_fade_in(content, 150, 0);
-        }
+        ui_settings_show_pin(scr);
+        lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_TOP, 220, 0, false);
         for (;;) {
-            // A receipt tore the sheet down underneath us — abort the flow.
-            if (s_settings_abort) { ui_settings_reset(); return; }
+            if (s_settings_abort) { lv_obj_delete(scr); ui_settings_reset(); return; }
             char pin[16];
             if (ui_settings_consume_pin(pin, sizeof(pin))) {
-                if (settings_pin_verify(pin,
-                                        cfg->device.settings_password_hash,
+                if (settings_pin_verify(pin, cfg->device.settings_password_hash,
                                         cfg->device.settings_password_salt)) {
-                    // Correct PIN — drain the stale Cancel action the PIN screen
-                    // latches when the user taps Submit (not Cancel), then continue.
-                    ui_settings_consume_action(&act);
+                    ui_settings_consume_action(&act);   // drain the stale latch
                     break;
                 }
                 ui_settings_pin_set_error(true);
             }
-            // Let Cancel close the PIN screen without opening the menu.
             if (ui_settings_consume_action(&act) && act == UI_SET_CLOSE) {
-                ui_sheet_close();
-                ui_settings_reset();
-                return;
+                close_settings(scr); return;            // helper above
             }
             vTaskDelay(pdMS_TO_TICKS(50));
         }
+    } else {
+        lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_TOP, 220, 0, false);
     }
 
-    // Build info and show menu.
-    char info[160];
+    // Menu — build into the SAME scr (ui_settings_show_menu deletes the old pin
+    // child container and adds the menu; scr is already the active screen).
     build_settings_info(info, sizeof(info));
     ui_settings_set_info(info);
-    ui_settings_show_menu(sheet);
-    {
-        lv_obj_t *content =
-            lv_obj_get_child(sheet, lv_obj_get_child_count(sheet) - 1);
-        if (content) lv_obj_fade_in(content, 150, 0);
-    }
+    ui_settings_show_menu(scr);
 
     for (;;) {
-        // A receipt tore the sheet down underneath us — abort the flow.
-        if (s_settings_abort) { ui_settings_reset(); return; }
+        if (s_settings_abort) { lv_obj_delete(scr); ui_settings_reset(); return; }
         if (ui_settings_consume_action(&act)) {
             switch (act) {
-                case UI_SET_WIFI: {
-                    // Wi-Fi setup loads its own UI on the base screen layer; the
-                    // opaque sheet sits on lv_layer_top and would hide it. Hide
-                    // the sheet for the duration, then rebuild the menu into the
-                    // still-alive sheet and reveal it again.
-                    ui_sheet_set_hidden(true);
+                case UI_SET_WIFI:
+                    // wifi_setup_run() lv_screen_loads its own screen, replacing scr
+                    // as the active screen (scr stays alive, hidden). After it returns,
+                    // rebuild the menu into scr and slide scr back up.
                     wifi_setup_run();
-                    lv_obj_t *s2 = ui_sheet_content();
-                    if (!s2) { ui_settings_reset(); return; }    // sheet gone — bail rather than reuse a stale ptr
                     build_settings_info(info, sizeof(info));
                     ui_settings_set_info(info);
-                    ui_settings_show_menu(s2);  // deletes old menu, builds fresh (sheet alive)
-                    ui_sheet_set_hidden(false);
+                    ui_settings_show_menu(scr);
+                    lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_TOP, 220, 0, false);
                     break;
-                }
                 case UI_SET_TEST_PRINT:
-                    ui_sheet_close();
-                    ui_settings_reset();
+                    close_settings(scr);
                     run_test_ingest();
                     return;
                 case UI_SET_REBOOT:
                     esp_restart();
                     break;
                 case UI_SET_CLOSE:
-                    ui_sheet_close();
-                    ui_settings_reset();
+                    close_settings(scr);
                     return;
             }
         }
@@ -299,10 +281,10 @@ static void idle_wait_or_qr_expiry(int total_ms) {
     // checks, but not after the last). The trailing check catches an expiry that
     // lands in the final slice, instead of waiting a whole cloud poll round-trip.
     for (int waited = 0; waited <= total_ms; waited += slice) {
-        // Settings sheet just opened — bail so poll_task runs the settings flow
+        // A swipe-up just happened — bail so poll_task runs the settings flow
         // within one slice instead of after a whole poll cycle (~12s). The flag
-        // stays set; the main loop consumes it via ui_consume_sheet_open().
-        if (ui_sheet_is_open()) return;
+        // stays set; the main loop consumes it via ui_consume_swipeup().
+        if (ui_swipeup_pending()) return;
         if (ui_consume_countdown_expired()) {
             s_state = DEV_IDLE;
             ui_render_state(DEV_IDLE);
@@ -311,7 +293,7 @@ static void idle_wait_or_qr_expiry(int total_ms) {
         const device_config_t *cfg = s_cfg_buf[s_cfg_live];
         // Keep input suppressed while asleep or within the wake-guard; release it
         // once the screen is awake and past the guard (idempotent every slice).
-        ui_sheet_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
+        ui_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
         bool active = ui_consume_activity();
         if (active) s_last_activity_ms = now_ms();
         // A receipt that arrived while asleep (or a sleep that raced the wake)
@@ -343,13 +325,13 @@ static void poll_task(void *arg)
 
     for (;;) {
         // Release input suppression once awake and past the wake-guard (idempotent).
-        ui_sheet_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
+        ui_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
         if (ui_consume_tap()) {
             // A tap that merely woke the screen must not also trigger ingest.
             if (now_ms() >= s_wake_guard_until && net_is_connected()) run_test_ingest();
             continue;
         }
-        if (ui_consume_sheet_open()) {
+        if (ui_consume_swipeup()) {
             run_settings_flow();
             continue;
         }
