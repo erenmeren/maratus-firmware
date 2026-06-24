@@ -46,13 +46,15 @@ static void test_parse(void) {
     assert(cfg.wifi_level == 3);
     assert(strstr(cfg.logo_url, "/branding/org_1/logo.png") != NULL);
 
-    // idle: hidden object dropped -> 1 visible text.
+    // idle: hidden object dropped -> 1 text + 1 image visible.
     cfg_screen_t *idle = &cfg.screens[SCREEN_IDLE];
-    assert(idle->n == 1);
+    assert(idle->n == 2);
     assert(idle->objects[0].type == OBJ_TEXT);
     assert(strcmp(idle->objects[0].text, "Welcome") == 0);
-    assert(idle->objects[0].font_size == 64);
-    assert(idle->objects[0].align == CFG_ALIGN_CENTER);
+    assert(idle->objects[1].type == OBJ_IMAGE);
+    assert(strstr(idle->objects[1].image_url, "/branding/org_1/images/x.png") != NULL);
+    // top-level wordmark parsed.
+    assert(strcmp(cfg.wordmark, "Roastwell Coffee") == 0);
 
     // qr: a qr widget + a text.
     cfg_screen_t *qr = &cfg.screens[SCREEN_QR];

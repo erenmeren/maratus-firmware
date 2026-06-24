@@ -20,6 +20,7 @@ typedef enum {
     OBJ_TEXT, OBJ_ICON,
     OBJ_LOGO, OBJ_CLOCK, OBJ_WIFI, OBJ_QR, OBJ_SPINNER,
     OBJ_COUNTDOWN, OBJ_PAIRING_CODE, OBJ_STEPS,
+    OBJ_IMAGE,
     OBJ_UNKNOWN
 } cfg_obj_type_t;
 
@@ -42,6 +43,8 @@ typedef struct {
     char  icon_url[CFG_URL_LEN];   // presigned (rotates); cache-key derived from path in M5b
     cfg_tint_t icon_tint;
     bool  icon_circle;
+    // image
+    char  image_url[CFG_URL_LEN];   // presigned (rotates); from image.signedUrl
     // clock
     bool  clock_show_date;
     bool  clock_show_weekday;
@@ -61,6 +64,7 @@ typedef struct {
     uint32_t brand_muted;
     uint32_t brand_warn;       // M5a parses with a default; admin sends brandWarn in M5b
     char     logo_url[CFG_URL_LEN];
+    char     wordmark[CFG_TEXT_LEN];   // brand wordmark text for the logo widget
     char     clock_timezone[CFG_TZ_LEN];
     bool     clock_24h;
     int      wifi_level;       // 0..4

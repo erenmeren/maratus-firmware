@@ -44,6 +44,7 @@ static cfg_obj_type_t type_of(const char *s) {
     if (!strcmp(s, "countdown"))   return OBJ_COUNTDOWN;
     if (!strcmp(s, "pairingCode")) return OBJ_PAIRING_CODE;
     if (!strcmp(s, "steps"))       return OBJ_STEPS;
+    if (!strcmp(s, "image"))       return OBJ_IMAGE;
     return OBJ_UNKNOWN;
 }
 
@@ -100,6 +101,10 @@ static void parse_screen(cJSON *objs, cfg_screen_t *out) {
             t->icon_tint = tint_of(icon ? cJSON_GetStringValue(cJSON_GetObjectItem(icon, "tint")) : NULL);
             cJSON *circ = icon ? cJSON_GetObjectItem(icon, "circle") : NULL;
             t->icon_circle = cJSON_IsTrue(circ);
+        } else if (type == OBJ_IMAGE) {
+            cJSON *image = cJSON_GetObjectItem(o, "image");
+            copy_str(t->image_url, CFG_URL_LEN,
+                     image ? cJSON_GetStringValue(cJSON_GetObjectItem(image, "signedUrl")) : NULL);
         } else if (type == OBJ_CLOCK) {
             // Admin/preview default the clock alignment to "center"; honor a stored
             // align but default to center (not the align_of() left fallback) so the
@@ -129,6 +134,7 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
     cfg->brand_muted  = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandMuted")),  0x9CA3AF);
     cfg->brand_warn   = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandWarn")),   0xF59E0B);
     copy_str(cfg->logo_url, CFG_URL_LEN, cJSON_GetStringValue(cJSON_GetObjectItem(root, "logoUrl")));
+    copy_str(cfg->wordmark, CFG_TEXT_LEN, cJSON_GetStringValue(cJSON_GetObjectItem(root, "wordmark")));
 
     cJSON *config = cJSON_GetObjectItem(root, "config");
     copy_str(cfg->clock_timezone, CFG_TZ_LEN,

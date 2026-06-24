@@ -5,6 +5,7 @@
   "brandFg": "#FFFFFF",
   "brandMuted": "#9CA3AF",
   "logoUrl": "https://r2.example.com/branding/org_1/logo.png?sig=ROTATES",
+  "wordmark": "Roastwell Coffee",
   "config": {
     "version": 3,
     "clockTimezone": "America/New_York",
@@ -13,7 +14,8 @@
     "screens": {
       "idle": { "objects": [
         { "id": "t1", "type": "text", "x": 0.1, "y": 0.2, "w": 0.8, "h": 0.15, "visible": true, "z": 1, "text": "Welcome", "fontSize": 64, "align": "center" },
-        { "id": "t2", "type": "text", "x": 0.1, "y": 0.5, "w": 0.8, "h": 0.1, "visible": false, "z": 2, "text": "Hidden", "fontSize": 28, "align": "left" }
+        { "id": "t2", "type": "text", "x": 0.1, "y": 0.5, "w": 0.8, "h": 0.1, "visible": false, "z": 2, "text": "Hidden", "fontSize": 28, "align": "left" },
+        { "id": "img1", "type": "image", "x": 0.3, "y": 0.6, "w": 0.4, "h": 0.2, "visible": true, "z": 3, "image": { "signedUrl": "https://r2.example.com/branding/org_1/images/x.png?sig=ROTATES" } }
       ]},
       "processing": { "objects": [
         { "id": "s1", "type": "spinner", "x": 0.4, "y": 0.4, "w": 0.2, "h": 0.2, "visible": true, "z": 1 }
