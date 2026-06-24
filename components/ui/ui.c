@@ -169,15 +169,16 @@ static void render_placeholder(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg
     lv_obj_clear_flag(ph, LV_OBJ_FLAG_SCROLLABLE);
 }
 
-// Uploaded logo/icon images. URL comes from the top-level logo_url (OBJ_LOGO) or
-// the object's icon_url (OBJ_ICON + ICON_UPLOAD). Render-thread safe: reads the
-// asset cache-ONLY (asset_cache_read_cached, never networks) — a not-yet-prefetched
-// or offline asset misses and falls back to the placeholder outline rather than
-// blocking. On a hit, the cached PNG is wrapped as an in-memory LVGL image source;
-// lodepng decodes it into PSRAM at draw time. Fit inside the geom box preserving
-// aspect (LV_IMAGE_ALIGN_CONTAIN); icons with icon_circle get a circular clip.
+// Uploaded image/icon assets. URL comes from image_url (OBJ_IMAGE) or icon_url
+// (OBJ_ICON + ICON_UPLOAD). OBJ_LOGO no longer routes here — it renders as a
+// text wordmark via render_wordmark. Render-thread safe: reads the asset cache-ONLY
+// (asset_cache_read_cached, never networks) — a not-yet-prefetched or offline asset
+// misses and falls back to the placeholder outline rather than blocking. On a hit,
+// the cached PNG is wrapped as an in-memory LVGL image source; lodepng decodes it
+// into PSRAM at draw time. Fit inside the geom box preserving aspect
+// (LV_IMAGE_ALIGN_CONTAIN); icons with icon_circle get a circular clip.
 static void render_image(lv_obj_t *scr, const cfg_object_t *o) {
-    const char *url = (o->type == OBJ_LOGO) ? s_cfg->logo_url : o->icon_url;
+    const char *url = (o->type == OBJ_IMAGE) ? o->image_url : o->icon_url;
     if (!url || url[0] == '\0') { render_placeholder(scr, o, s_cfg->brand_fg); return; }
 
     uint8_t *png = NULL;
@@ -211,6 +212,23 @@ static void render_image(lv_obj_t *scr, const cfg_object_t *o) {
     }
     lv_obj_add_event_cb(img, on_image_delete, LV_EVENT_DELETE, s);
     lv_image_set_src(img, &s->dsc);   // last: triggers decode-info while src lives
+}
+
+// The logo widget renders the brand wordmark (top-level "wordmark") as centered
+// bold brand-fg text — matches the admin preview's LogoObject. Empty wordmark = no-op.
+static void render_wordmark(lv_obj_t *scr, const cfg_object_t *o) {
+    if (!s_cfg->wordmark[0]) return;
+    px_box_t b = geom_box(o);
+    int px = (int)(o->h * 720.0f * 0.42f);
+    if (px < 8) px = 8;
+    lv_obj_t *lbl = lv_label_create(scr);
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(lbl, b.w > 0 ? b.w : LV_SIZE_CONTENT);
+    lv_label_set_text(lbl, s_cfg->wordmark);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(s_cfg->brand_fg), LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, font_cache_get(px, /*bold*/ true), LV_PART_MAIN);
+    lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_pos(lbl, b.x, b.y);
 }
 
 static char s_clock_time_last[32];     // last text pushed to the time label
@@ -477,9 +495,10 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
     for (int i = 0; i < sc->n; i++) {
         const cfg_object_t *o = &sc->objects[order[i]];
         switch (o->type) {
-            case OBJ_TEXT: render_text(scr, o, s_cfg->brand_fg); break;
-            case OBJ_QR:   render_qr(scr, o); break;
-            case OBJ_LOGO: render_image(scr, o); break;
+            case OBJ_TEXT:  render_text(scr, o, s_cfg->brand_fg); break;
+            case OBJ_QR:    render_qr(scr, o); break;
+            case OBJ_LOGO:  render_wordmark(scr, o); break;
+            case OBJ_IMAGE: render_image(scr, o); break;
             case OBJ_ICON:
                 if (o->icon_src == ICON_UPLOAD) render_image(scr, o);
                 else render_placeholder(scr, o, s_cfg->brand_fg);  // preset sprites: M5c

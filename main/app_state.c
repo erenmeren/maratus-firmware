@@ -159,13 +159,12 @@ static void run_test_ingest(void)
 // under CFG_MAX_OBJECTS * SCREEN_COUNT to bound stack use in the prefetch frame.
 #define MAX_ASSET_REFS 16
 
-// Collect the uploaded-image asset URLs a config references: the top-level
-// logo_url, plus every visible OBJ_ICON with icon_src==ICON_UPLOAD across all
+// Collect the uploaded-image asset URLs a config references: every visible
+// OBJ_ICON with icon_src==ICON_UPLOAD and every visible OBJ_IMAGE across all
 // screens. urls[] alias into cfg (no copy). Returns the count (<= cap).
 static int gather_asset_urls(const device_config_t *cfg, const char *urls[], int cap)
 {
     int n = 0;
-    if (cfg->logo_url[0] && n < cap) urls[n++] = cfg->logo_url;
     for (int s = 0; s < SCREEN_COUNT && n < cap; s++) {
         const cfg_screen_t *sc = &cfg->screens[s];
         for (int i = 0; i < sc->n && n < cap; i++) {
@@ -173,6 +172,8 @@ static int gather_asset_urls(const device_config_t *cfg, const char *urls[], int
             if (o->type == OBJ_ICON && o->icon_src == ICON_UPLOAD &&
                 o->visible && o->icon_url[0]) {
                 urls[n++] = o->icon_url;
+            } else if (o->type == OBJ_IMAGE && o->visible && o->image_url[0] && n < cap) {
+                urls[n++] = o->image_url;
             }
         }
     }
