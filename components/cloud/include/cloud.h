@@ -58,3 +58,8 @@ void (*cloud_config_changed_handler(void))(void);
 void cloud_set_firmware_update_cb(void (*cb)(void));
 // Internal: the registered hook (NULL if none). Used by commands.c.
 void (*cloud_firmware_update_handler(void))(void);
+
+// Trigger callback: invoked with the show_qr url when a trigger command arrives.
+// Registered by the app so the cloud component stays decoupled from app/ui state.
+void cloud_set_trigger_cb(void (*cb)(const char *url));
+void (*cloud_trigger_handler(void))(const char *url);

@@ -27,6 +27,14 @@ static const char *TAG = "ditto";
 // this via callback so the cloud component never depends on ota → no cycle).
 static void ota_force(void) { ota_check_and_update(true); }
 
+// Trigger/show_qr handler: display the receipt QR screen immediately.
+// Mirrors the render_job receipt path (ui_set_qr_url + state + render).
+static void on_trigger_show_qr(const char *url) {
+    ui_set_qr_url(url);
+    app_state_set_state(DEV_QR);
+    ui_render_state(DEV_QR);
+}
+
 // Unauthenticated claim poll: while the device has no NVS device key, show the
 // setup screen and poll GET /api/device/claim with our pairing code. When the
 // operator pairs it in the dashboard the server returns a deviceKey; we persist
@@ -144,6 +152,7 @@ void app_main(void)
     app_state_run();
     cloud_set_config_changed_cb(app_state_request_config);
     cloud_set_firmware_update_cb(ota_force);
+    cloud_set_trigger_cb(on_trigger_show_qr);
 
     // 5) ESC/POS print-job listener on TCP:9100.
     escpos_server_start(render_job_handle);

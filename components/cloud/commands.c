@@ -7,6 +7,7 @@
 #include "cJSON.h"
 #include "cloud.h"
 #include "ui.h"
+#include "command_parse.h"
 
 static const char *TAG = "cmd";
 
@@ -51,6 +52,15 @@ void commands_handle_body(const char *json_body)
             cloud_ack_command(id, true);              // ack BEFORE OTA (which reboots)
             void (*fcb)(void) = cloud_firmware_update_handler();
             if (fcb) fcb();
+        } else if (strcmp(type, "trigger") == 0) {
+            const char *url = command_trigger_show_qr_url(cmd);
+            void (*tcb)(const char *) = cloud_trigger_handler();
+            if (url && tcb) {
+                tcb(url);
+                cloud_ack_command(id, true);   // displayed -> cloud settles (charged)
+            } else {
+                cloud_ack_command(id, false);  // bad/missing url or no handler -> cloud releases
+            }
         } else {
             cloud_ack_command(id, true);              // unknown: ack + ignore
         }

@@ -370,3 +370,7 @@ void (*cloud_config_changed_handler(void))(void) { return s_cfg_changed_cb; }
 static void (*s_fw_update_cb)(void);
 void cloud_set_firmware_update_cb(void (*cb)(void)) { s_fw_update_cb = cb; }
 void (*cloud_firmware_update_handler(void))(void) { return s_fw_update_cb; }
+
+static void (*s_trigger_cb)(const char *url) = NULL;
+void cloud_set_trigger_cb(void (*cb)(const char *url)) { s_trigger_cb = cb; }
+void (*cloud_trigger_handler(void))(const char *url) { return s_trigger_cb; }
