@@ -2,7 +2,7 @@
 CC      ?= cc
 CFLAGS  := -std=c11 -Wall -Wextra -g -O0 \
            -I../../components/devcfg/include -I../../components/devcfg -Ivendor \
-           -I../../components/assetcache/include
+           -I../../components/assetcache/include -I../../components/cloud/include
 SRCS    := test_cfg.c vendor/cJSON.c \
            ../../components/devcfg/cfg_parse.c \
            ../../components/devcfg/render_geom.c \
@@ -18,6 +18,7 @@ SRCS    := test_cfg.c vendor/cJSON.c \
            ../../components/devcfg/brightness.c \
            ../../components/assetcache/asset_key.c \
            ../../components/assetcache/asset_evict.c \
+           ../../components/cloud/command_parse.c \
            vendor/sha1.c
 
 run: $(SRCS)

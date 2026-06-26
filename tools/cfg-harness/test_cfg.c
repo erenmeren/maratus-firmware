@@ -16,6 +16,7 @@
 #include "gesture.h"
 #include "overrides.h"
 #include "brightness.h"
+#include "command_parse.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -479,6 +480,32 @@ static void test_gesture_snap(void) {
     printf("test_gesture_snap OK\n");
 }
 
+static void test_trigger_show_qr(void) {
+    cJSON *ok = cJSON_Parse("{\"type\":\"trigger\",\"action\":\"show_qr\",\"payload\":{\"url\":\"https://e.co/r/x\"}}");
+    assert(ok);
+    const char *u = command_trigger_show_qr_url(ok);
+    assert(u && strcmp(u, "https://e.co/r/x") == 0);
+    cJSON_Delete(ok);
+
+    cJSON *nourl = cJSON_Parse("{\"action\":\"show_qr\",\"payload\":{}}");
+    assert(command_trigger_show_qr_url(nourl) == NULL);
+    cJSON_Delete(nourl);
+
+    cJSON *empty = cJSON_Parse("{\"action\":\"show_qr\",\"payload\":{\"url\":\"\"}}");
+    assert(command_trigger_show_qr_url(empty) == NULL);
+    cJSON_Delete(empty);
+
+    cJSON *other = cJSON_Parse("{\"action\":\"print\",\"payload\":{\"url\":\"https://e.co\"}}");
+    assert(command_trigger_show_qr_url(other) == NULL);
+    cJSON_Delete(other);
+
+    cJSON *nopayload = cJSON_Parse("{\"action\":\"show_qr\"}");
+    assert(command_trigger_show_qr_url(nopayload) == NULL);
+    cJSON_Delete(nopayload);
+
+    printf("test_trigger_show_qr OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -499,6 +526,7 @@ int main(void) {
     test_gesture_snap();
     test_devset();
     test_brightness();
+    test_trigger_show_qr();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
