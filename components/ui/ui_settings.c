@@ -11,7 +11,7 @@
 // Every public function takes the LVGL port lock internally, matching ui.c's
 // locking discipline.
 //
-// VISUAL: restyled to match the dReceipt staff mockups (PinScreen / MenuScreen).
+// VISUAL: restyled to match the Ditto staff mockups (PinScreen / MenuScreen).
 // All colors derive from the tenant brand (brand_bg/fg/accent) via lv_color_mix
 // so the screens look right whether the brand bg is light or dark. The public
 // API, callbacks, volatile flags and statics are unchanged so run_settings_flow()
@@ -413,7 +413,7 @@ void ui_settings_show_menu(lv_obj_t *parent) {
         { LV_SYMBOL_WIFI,     "Network & Wi-Fi", "Scan and connect",      UI_SET_WIFI },
         { LV_SYMBOL_SETTINGS, "Device settings", "Brightness, sleep",     UI_SET_DEVICE },
         { LV_SYMBOL_LIST,     "About",           "Device info",           UI_SET_ABOUT },
-        { LV_SYMBOL_IMAGE,    "Test print",      "Send a sample receipt", UI_SET_TEST_PRINT },
+        { LV_SYMBOL_IMAGE,    "Test print",      "Send a sample document", UI_SET_TEST_PRINT },
         { LV_SYMBOL_POWER,    "Restart device",  "Reboots in ~30s",       UI_SET_REBOOT },
     };
     const int n_rows = (int)(sizeof(rows) / sizeof(rows[0]));

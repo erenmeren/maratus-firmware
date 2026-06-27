@@ -27,8 +27,8 @@ static const char *TAG = "ditto";
 // this via callback so the cloud component never depends on ota → no cycle).
 static void ota_force(void) { ota_check_and_update(true); }
 
-// Trigger/show_qr handler: display the receipt QR screen immediately.
-// Mirrors the render_job receipt path (ui_set_qr_url + state + render).
+// Trigger/show_qr handler: display the document QR screen immediately.
+// Mirrors the render_job document path (ui_set_qr_url + state + render).
 static void on_trigger_show_qr(const char *url) {
     ui_set_qr_url(url);
     app_state_set_state(DEV_QR);

@@ -68,7 +68,7 @@ typedef struct {
     char     clock_timezone[CFG_TZ_LEN];
     bool     clock_24h;
     int      wifi_level;       // 0..4
-    int      qr_timeout_seconds;  // receipt/QR auto-return timeout, 15..180
+    int      qr_timeout_seconds;  // document/QR auto-return timeout, 15..180
     // M7 org-wide device policies (from the payload "device" block).
     struct {
         int  brightness;                  // 10..100

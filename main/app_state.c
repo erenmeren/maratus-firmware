@@ -39,7 +39,7 @@ static volatile bool s_config_dirty = true;   // fetch once after first connect
 static volatile bool s_display_asleep = false;
 static volatile uint32_t s_last_activity_ms = 0;
 static volatile uint32_t s_wake_guard_until = 0;   // ignore taps until this time (swallow the wake touch)
-// Set true (escpos task) when a receipt arrives while run_settings_flow is mid-flow;
+// Set true (escpos task) when a document arrives while run_settings_flow is mid-flow;
 // the flow polls this and returns within one 50 ms slice. volatile for cross-task read.
 static volatile bool s_settings_abort = false;
 
@@ -115,7 +115,7 @@ void app_state_set_state(dev_state_t st) {
     // A print job arriving while asleep must light the screen so the QR is visible.
     if (s_display_asleep && (st == DEV_PROCESSING || st == DEV_QR))
         display_wake(devset_eff_brightness(&g_dev, s_cfg_buf[s_cfg_live]->device.brightness));
-    // A receipt arriving while Settings is open must show the live QR. Signal any
+    // A document arriving while Settings is open must show the live QR. Signal any
     // in-flight settings flow to abort; render_job already loads the QR screen, and
     // the aborting flow deletes its own settings screen. (called from the escpos task.)
     if (st == DEV_PROCESSING || st == DEV_QR) {
@@ -130,7 +130,7 @@ void app_state_set_state(dev_state_t st) {
 #define OTA_CHECK_EVERY  50
 static int s_ota_poll_ctr = 0;
 
-// M3: upload the bundled test PNG and show the returned receipt URL as a QR.
+// M3: upload the bundled test PNG and show the returned document URL as a QR.
 // Replaced by the live ESC/POS render path in M4.
 static void run_test_ingest(void)
 {
@@ -143,7 +143,7 @@ static void run_test_ingest(void)
     static char url[256];
     int status = cloud_post_document(png, len, url, sizeof(url));
     if (status == 201 && url[0]) {
-        ESP_LOGI(TAG, "receipt ready: %s", url);
+        ESP_LOGI(TAG, "document ready: %s", url);
         s_state = DEV_QR;
         ui_set_qr_url(url);
         ui_set_countdown(s_cfg_buf[s_cfg_live]->qr_timeout_seconds);
@@ -283,7 +283,7 @@ static void close_settings(lv_obj_t *scr) {
 
 // Swipe-up → PIN gate (if configured) → settings menu, on a full-screen overlay
 // that slides up. Blocks until the user closes the menu, runs a test print, or
-// reboots — or until a receipt aborts the flow.
+// reboots — or until a document aborts the flow.
 static void run_settings_flow(void) {
     const device_config_t *cfg = s_cfg_buf[s_cfg_live];
     ui_settings_action_t act;
@@ -406,7 +406,7 @@ static void run_settings_flow(void) {
 }
 
 // Wait up to total_ms, but break early (~500ms granularity) to auto-return from
-// the receipt screen when its countdown expires. Avoids extra cloud polls.
+// the document screen when its countdown expires. Avoids extra cloud polls.
 static void idle_wait_or_qr_expiry(int total_ms) {
     const int slice = 500;
     // Check at 0, slice, 2*slice, ... and once more at total_ms (delay between
@@ -428,7 +428,7 @@ static void idle_wait_or_qr_expiry(int total_ms) {
         ui_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
         bool active = ui_consume_activity();
         if (active) s_last_activity_ms = now_ms();
-        // A receipt that arrived while asleep (or a sleep that raced the wake)
+        // A document that arrived while asleep (or a sleep that raced the wake)
         // must light the screen so the QR is visible.
         if (s_display_asleep && (s_state == DEV_PROCESSING || s_state == DEV_QR)) {
             display_wake(devset_eff_brightness(&g_dev, cfg->device.brightness));
@@ -496,7 +496,7 @@ static void poll_task(void *arg)
                     // settings" is on, else the admin's pushed brightness).
                     display_apply_brightness(devset_eff_brightness(&g_dev, s_cfg_buf[next]->device.brightness));
                     time_sync_set_tz(s_cfg_buf[next]->clock_timezone);  // POSIX TZ from payload
-                    ui_set_countdown(s_cfg_buf[next]->qr_timeout_seconds);  // keep duration current for any receipt path
+                    ui_set_countdown(s_cfg_buf[next]->qr_timeout_seconds);  // keep duration current for any document path
                     s_cfg_live = next;
                     ui_render_state(s_state);           // re-render current screen with new config (cache hits)
                 }

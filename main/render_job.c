@@ -13,7 +13,7 @@ static const char *TAG = "job";
 
 // Drive both the UI and app_state's logical state together, so a config-changed
 // re-render (poll_task paints ui_render_state(s_state)) preserves whatever this
-// receipt job is showing instead of clobbering it back to idle.
+// document job is showing instead of clobbering it back to idle.
 static void go(dev_state_t st)
 {
     app_state_set_state(st);
@@ -39,11 +39,11 @@ void render_job_handle(const uint8_t *data, size_t len)
     free(png);
 
     if (status == 201 && url[0]) {
-        ESP_LOGI(TAG, "receipt ready: %s", url);
+        ESP_LOGI(TAG, "document ready: %s", url);
         // The QR's countdown arms from s_cd_pending (kept current by app_state on
         // each config apply) when the screen builds, and auto-returns to idle via
         // the expiry flag poll_task watches. Publishing s_state=DEV_QR keeps a
-        // mid-receipt config refresh on the QR instead of clobbering it to idle.
+        // mid-document config refresh on the QR instead of clobbering it to idle.
         ui_set_qr_url(url);
         go(DEV_QR);
     } else {
