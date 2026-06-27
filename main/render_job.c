@@ -35,7 +35,7 @@ void render_job_handle(const uint8_t *data, size_t len)
     ESP_LOGI(TAG, "rendered %dx%d -> PNG %u bytes", w, h, (unsigned)png_len);
 
     static char url[256];
-    int status = cloud_post_receipt(png, png_len, url, sizeof(url));
+    int status = cloud_post_document(png, png_len, url, sizeof(url));
     free(png);
 
     if (status == 201 && url[0]) {

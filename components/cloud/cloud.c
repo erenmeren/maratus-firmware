@@ -119,7 +119,7 @@ int cloud_ack_command(const char *command_id, bool ok)
     return status;
 }
 
-int cloud_post_receipt(const uint8_t *png, size_t png_len, char *url_out, int url_cap)
+int cloud_post_document(const uint8_t *png, size_t png_len, char *url_out, int url_cap)
 {
     if (url_out && url_cap > 0) url_out[0] = '\0';
     if (!png || png_len == 0) return -1;
@@ -132,7 +132,7 @@ int cloud_post_receipt(const uint8_t *png, size_t png_len, char *url_out, int ur
     char head[256];
     int head_len = snprintf(head, sizeof(head),
         "--%s\r\n"
-        "Content-Disposition: form-data; name=\"file\"; filename=\"receipt.png\"\r\n"
+        "Content-Disposition: form-data; name=\"file\"; filename=\"document.png\"\r\n"
         "Content-Type: image/png\r\n\r\n", boundary);
 
     char tail[256];

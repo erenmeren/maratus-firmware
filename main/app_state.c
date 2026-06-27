@@ -141,7 +141,7 @@ static void run_test_ingest(void)
     const uint8_t *png = assets_test_png(&len);
 
     static char url[256];
-    int status = cloud_post_receipt(png, len, url, sizeof(url));
+    int status = cloud_post_document(png, len, url, sizeof(url));
     if (status == 201 && url[0]) {
         ESP_LOGI(TAG, "receipt ready: %s", url);
         s_state = DEV_QR;
