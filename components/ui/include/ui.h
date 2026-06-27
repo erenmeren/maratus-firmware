@@ -36,7 +36,7 @@ void ui_set_online(bool online);
 // Set the wifi widget signal strength (0..4 bars). Clamped. From live RSSI.
 void ui_set_wifi_level(int level);
 
-// Arm the receipt-screen countdown to start at `seconds` on the next render of a
+// Arm the document-screen countdown to start at `seconds` on the next render of a
 // screen that contains a countdown object. Resets the expired flag.
 void ui_set_countdown(int seconds);
 

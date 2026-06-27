@@ -119,7 +119,7 @@ bool png_encode_mono1(const uint8_t *gray, int w, int h, uint8_t **out, size_t *
     if (!gray || w <= 0 || h <= 0) return false;
 
     // 1-bit grayscale: PNG packs 8 pixels per byte, MSB-first, sample 1 = white,
-    // 0 = black. Receipt content is strictly bilevel (white bg + black ink) so
+    // 0 = black. Document content is strictly bilevel (white bg + black ink) so
     // thresholding at mid-gray is lossless. Each row = 1 filter byte (0 = none)
     // + ceil(w/8) packed bytes; padding bits in the last byte are ignored by the
     // width and left 0.

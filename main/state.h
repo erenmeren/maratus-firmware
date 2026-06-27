@@ -10,6 +10,6 @@ void app_state_request_config(void);
 
 // Publish the current logical screen state. Called by the ESC/POS render path
 // (render_job, a separate task) so that a config-changed re-render — which paints
-// ui_render_state(s_state) — preserves a live receipt/QR screen instead of
+// ui_render_state(s_state) — preserves a live document/QR screen instead of
 // clobbering it back to idle. s_state is a single word; access is lock-free.
 void app_state_set_state(dev_state_t st);

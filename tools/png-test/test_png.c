@@ -17,7 +17,7 @@ static void dump(const char *path, const uint8_t *d, size_t n) {
 int main(void) {
     uint8_t *gray = malloc(W * H);
     // White (0xFF) background with black (0x00) ink: border, diagonal, and a
-    // filled block — representative bilevel receipt content.
+    // filled block — representative bilevel document content.
     for (int y = 0; y < H; y++) {
         for (int x = 0; x < W; x++) {
             int black = (x == 0 || y == 0 || x == W - 1 || y == H - 1) // border

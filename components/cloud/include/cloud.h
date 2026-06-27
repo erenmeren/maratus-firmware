@@ -19,9 +19,9 @@ int cloud_get_commands(char *out, int cap);
 int cloud_ack_command(const char *command_id, bool ok);
 
 // POST /api/ingest with a PNG image (multipart field "file") + minimal metadata.
-// On HTTP 201, copies the returned receipt URL into `url_out` (NUL-terminated,
+// On HTTP 201, copies the returned document URL into `url_out` (NUL-terminated,
 // up to url_cap-1). Returns the HTTP status, or -1 on transport/allocation error.
-int cloud_post_receipt(const uint8_t *png, size_t png_len, char *url_out, int url_cap);
+int cloud_post_document(const uint8_t *png, size_t png_len, char *url_out, int url_cap);
 
 // GET /api/device/config with the stored ETag (cfg->etag) as If-None-Match.
 //  - 200: parses brand colors + idle text objects into *cfg (cfg->valid = true,
