@@ -26,7 +26,7 @@
 #include "nvs.h"
 
 static const char *TAG = "state";
-// Written by poll_task and by render_job (the ESC/POS task) via app_state_set_state;
+// Written by poll_task via app_state_set_state;
 // volatile for cross-task visibility. A single enum word — read/write is atomic.
 static volatile dev_state_t s_state = DEV_BOOT;
 // Double-buffered config (parse into the idle buffer, publish under the LVGL lock).
@@ -39,7 +39,7 @@ static volatile bool s_config_dirty = true;   // fetch once after first connect
 static volatile bool s_display_asleep = false;
 static volatile uint32_t s_last_activity_ms = 0;
 static volatile uint32_t s_wake_guard_until = 0;   // ignore taps until this time (swallow the wake touch)
-// Set true (escpos task) when a document arrives while run_settings_flow is mid-flow;
+// Set true when a trigger arrives while run_settings_flow is mid-flow;
 // the flow polls this and returns within one 50 ms slice. volatile for cross-task read.
 static volatile bool s_settings_abort = false;
 
@@ -49,7 +49,7 @@ static inline uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1
 // settings" switch: when use_device is 0 (fresh NVS) the effective values follow
 // the admin's pushed policy exactly; when 1 the device-local values win.
 // Persisted in NVS namespace "ditto". Init to a fresh struct at declaration so
-// the escpos task's app_state_set_state wake path can't read a zero-initialised
+// the app_state_set_state wake path can't read a zero-initialised
 // struct in the boot window before overrides_load() runs (use_device=0 means it
 // follows cloud regardless).
 static device_settings_t g_dev = { .use_device = 0, .brightness = -1, .sleep = -1 };
@@ -115,9 +115,9 @@ void app_state_set_state(dev_state_t st) {
     // A print job arriving while asleep must light the screen so the QR is visible.
     if (s_display_asleep && (st == DEV_PROCESSING || st == DEV_QR))
         display_wake(devset_eff_brightness(&g_dev, s_cfg_buf[s_cfg_live]->device.brightness));
-    // A document arriving while Settings is open must show the live QR. Signal any
-    // in-flight settings flow to abort; render_job already loads the QR screen, and
-    // the aborting flow deletes its own settings screen. (called from the escpos task.)
+    // A trigger arriving while Settings is open must show the live QR. Signal any
+    // in-flight settings flow to abort; on_trigger_show_qr already loads the QR
+    // screen, and the aborting flow deletes its own settings screen.
     if (st == DEV_PROCESSING || st == DEV_QR) {
         s_settings_abort = true;
     }
@@ -129,31 +129,6 @@ void app_state_set_state(dev_state_t st) {
 #define POLL_BACKOFF_MAX 60000
 #define OTA_CHECK_EVERY  50
 static int s_ota_poll_ctr = 0;
-
-// M3: upload the bundled test PNG and show the returned document URL as a QR.
-// Replaced by the live ESC/POS render path in M4.
-static void run_test_ingest(void)
-{
-    ui_render_state(DEV_PROCESSING);
-    s_state = DEV_PROCESSING;
-
-    size_t len = 0;
-    const uint8_t *png = assets_test_png(&len);
-
-    static char url[256];
-    int status = cloud_post_document(png, len, url, sizeof(url));
-    if (status == 201 && url[0]) {
-        ESP_LOGI(TAG, "document ready: %s", url);
-        s_state = DEV_QR;
-        ui_set_qr_url(url);
-        ui_set_countdown(s_cfg_buf[s_cfg_live]->qr_timeout_seconds);
-        ui_render_state(DEV_QR);
-    } else {
-        ESP_LOGW(TAG, "ingest failed (status=%d)", status);
-        s_state = DEV_IDLE;
-        ui_render_state(DEV_IDLE);
-    }
-}
 
 // Most configs reference only a logo + a handful of uploaded icons; cap well
 // under CFG_MAX_OBJECTS * SCREEN_COUNT to bound stack use in the prefetch frame.
@@ -354,10 +329,6 @@ static void run_settings_flow(void) {
                     ui_settings_show_menu(scr);
                     break;
                 }
-                case UI_SET_TEST_PRINT:
-                    close_settings(scr);
-                    run_test_ingest();
-                    return;
                 case UI_SET_REBOOT:
                     esp_restart();
                     break;
@@ -464,8 +435,6 @@ static void poll_task(void *arg)
         // Release input suppression once awake and past the wake-guard (idempotent).
         ui_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
         if (ui_consume_tap()) {
-            // A tap that merely woke the screen must not also trigger ingest.
-            if (now_ms() >= s_wake_guard_until && net_is_connected()) run_test_ingest();
             continue;
         }
         if (ui_consume_swipeup()) {

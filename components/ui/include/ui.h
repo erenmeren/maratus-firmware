@@ -90,7 +90,6 @@ void ui_wifi_prompt_password(const char *ssid);
 
 typedef enum {
     UI_SET_WIFI,        // user tapped "Wi-Fi Setup"
-    UI_SET_TEST_PRINT,  // user tapped "Test Print"
     UI_SET_REBOOT,      // user tapped "Reboot"
     UI_SET_CLOSE,       // user tapped "Close" or PIN "Cancel"
     UI_SET_ABOUT,       // user tapped "About" (read-only device info sub-screen)

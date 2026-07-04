@@ -4,9 +4,6 @@
 #include "ui.h"
 #include "net.h"
 #include "state.h"
-#include "escpos_server.h"
-#include "render_job.h"
-#include "render.h"
 #include "appcfg.h"
 #include "nvs_flash.h"
 #include "cloud.h"
@@ -28,7 +25,7 @@ static const char *TAG = "ditto";
 static void ota_force(void) { ota_check_and_update(true); }
 
 // Trigger/show_qr handler: display the document QR screen immediately.
-// Mirrors the render_job document path (ui_set_qr_url + state + render).
+// Live trigger handler: show a QR of the URL and enter the QR screen.
 static void on_trigger_show_qr(const char *url) {
     ui_set_qr_url(url);
     app_state_set_state(DEV_QR);
@@ -98,7 +95,6 @@ void app_main(void)
     bsp_display_start_with_config(&disp_cfg);
     bsp_display_backlight_on();
     bsp_display_brightness_set(100);   // ensure the panel isn't dark (PWM duty)
-    render_set_roll_width(appcfg_roll_width());
 
     // 2) Build + show the idle screen (ui takes the LVGL lock internally).
     ui_init();
@@ -153,8 +149,4 @@ void app_main(void)
     cloud_set_config_changed_cb(app_state_request_config);
     cloud_set_firmware_update_cb(ota_force);
     cloud_set_trigger_cb(on_trigger_show_qr);
-
-    // 5) ESC/POS print-job listener on TCP:9100.
-    escpos_server_start(render_job_handle);
-    ESP_LOGI(TAG, "print server up on :9100");
 }
