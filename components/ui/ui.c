@@ -43,6 +43,19 @@ static int        s_cd_pending = 60;   // duration the next render should arm
 static int        s_cd_remaining;      // seconds left on the active widget
 static bool       s_cd_expired;        // set at 0, consumed by the state machine
 
+static lv_obj_t  *s_boot_bar;          // splash progress bar (NULL off-splash)
+static lv_obj_t  *s_boot_lbl;          // splash status label (NULL off-splash)
+
+typedef struct { int pct; const char *label; } boot_stage_info_t;
+static const boot_stage_info_t BOOT_STAGES[] = {
+    [BOOT_STARTING] = { 10,  "Starting up..." },
+    [BOOT_CONFIG]   = { 25,  "Loading saved settings..." },
+    [BOOT_WIFI]     = { 40,  "Connecting to Wi-Fi..." },
+    [BOOT_CLOUD]    = { 70,  "Contacting Ditto..." },
+    [BOOT_READY]    = { 100, "Ready" },
+    [BOOT_OFFLINE]  = { -1,  "Starting offline..." },   // label-only
+};
+
 #define SWIPE_UP_MIN_PX 150
 static volatile bool s_swipeup = false;            // set on a swipe-up release; consumed by poll_task
 static int  s_press_x, s_press_y;                  // touch-down coords for the swipe test
@@ -459,7 +472,7 @@ static void render_steps(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
     }
 }
 
-static lv_obj_t *build_splash(void) {
+static lv_obj_t *build_splash(bool with_progress) {
     font_cache_begin_pass();
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, lv_color_hex(DITTO_GREEN), LV_PART_MAIN);
@@ -469,6 +482,27 @@ static lv_obj_t *build_splash(void) {
     lv_obj_set_style_text_color(title, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_text_font(title, font_cache_get(64, /*bold*/ true), LV_PART_MAIN);
     lv_obj_center(title);
+    if (with_progress) {
+        lv_obj_t *bar = lv_bar_create(scr);
+        lv_obj_set_size(bar, 320, 8);
+        lv_bar_set_range(bar, 0, 100);
+        lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+        lv_obj_set_style_radius(bar, 4, LV_PART_MAIN);
+        lv_obj_set_style_radius(bar, 4, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(bar, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_30, LV_PART_MAIN);          // track: white @ ~25%
+        lv_obj_set_style_bg_color(bar, lv_color_white(), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);  // indicator: solid white
+        lv_obj_align(bar, LV_ALIGN_CENTER, 0, 80);
+        lv_obj_t *lbl = lv_label_create(scr);
+        lv_label_set_text(lbl, "");
+        lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_opa(lbl, LV_OPA_80, LV_PART_MAIN);
+        lv_obj_set_style_text_font(lbl, font_cache_get(20, false), LV_PART_MAIN);
+        lv_obj_align_to(lbl, bar, LV_ALIGN_OUT_BOTTOM_MID, 0, 14);
+        s_boot_bar = bar;
+        s_boot_lbl = lbl;
+    }
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(scr, on_screen_click,   LV_EVENT_CLICKED,  NULL);
     lv_obj_add_event_cb(scr, on_screen_press,   LV_EVENT_PRESSED,  NULL);
@@ -478,7 +512,7 @@ static lv_obj_t *build_splash(void) {
 
 static lv_obj_t *build_screen(dev_screen_t screen) {
     font_cache_begin_pass();
-    if (!s_cfg || !s_cfg->valid) return build_splash();
+    if (!s_cfg || !s_cfg->valid) return build_splash(false);
     const cfg_screen_t *sc = &s_cfg->screens[screen];
 
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -529,7 +563,7 @@ void ui_init(void) {
     lv_draw_buf_handlers_t *ih = lv_draw_buf_get_image_handlers();
     ih->buf_malloc_cb = img_psram_malloc;
     ih->buf_free_cb   = img_psram_free;
-    s_active = build_splash();
+    s_active = build_splash(true);
     lv_screen_load(s_active);
     lvgl_port_unlock();
 }
@@ -552,7 +586,9 @@ void ui_render_state(dev_state_t st) {
     s_cd_expired = false;   // re-render restarts the countdown; a pending expiry is stale
     s_cd_time    = NULL;
     s_cd_bar     = NULL;
-    lv_obj_t *scr = (st == DEV_BOOT) ? build_splash() : build_screen(screen);
+    s_boot_bar = NULL;   // cleared each render; build_splash(true) reinstalls
+    s_boot_lbl = NULL;
+    lv_obj_t *scr = (st == DEV_BOOT) ? build_splash(true) : build_screen(screen);
     lv_obj_t *old = s_active;
     s_active = scr;
     lv_screen_load(scr);
@@ -661,5 +697,16 @@ bool ui_swipeup_pending(void) {                 // non-consuming peek (idle_wait
 void ui_set_input_suppressed(bool s) {
     lvgl_port_lock(0);
     s_input_suppressed = s;
+    lvgl_port_unlock();
+}
+
+void ui_boot_progress(boot_stage_t stage) {
+    if ((unsigned)stage > BOOT_OFFLINE) return;   // enum may be unsigned; single-sided guard
+    lvgl_port_lock(0);
+    if (s_boot_bar && s_boot_lbl) {
+        const boot_stage_info_t *si = &BOOT_STAGES[stage];
+        if (si->pct >= 0) lv_bar_set_value(s_boot_bar, si->pct, LV_ANIM_ON);
+        lv_label_set_text(s_boot_lbl, si->label);
+    }
     lvgl_port_unlock();
 }
