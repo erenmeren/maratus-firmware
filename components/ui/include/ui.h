@@ -22,6 +22,23 @@ void ui_set_config(const device_config_t *cfg);
 // splash for DEV_BOOT or when no valid config is set.
 void ui_render_state(dev_state_t st);
 
+// --- Boot progress (splash chrome) -----------------------------------------
+// Stages of the boot loading bar shown on the built-in splash. The bar/label
+// only exist on the boot splash; ui_boot_progress is a safe no-op on any
+// other screen.
+typedef enum {
+    BOOT_STARTING,   // 10%  "Starting up..."
+    BOOT_CONFIG,     // 25%  "Loading saved settings..."
+    BOOT_WIFI,       // 40%  "Connecting to Wi-Fi..."
+    BOOT_CLOUD,      // 70%  "Contacting Ditto..."
+    BOOT_READY,      // 100% "Ready"
+    BOOT_OFFLINE,    // label-only: "Starting offline..."
+} boot_stage_t;
+
+// Animate the splash bar to the stage's percent and set its status label.
+// Takes the LVGL port lock; no-op when the boot splash is not active.
+void ui_boot_progress(boot_stage_t stage);
+
 // Stash the URL the qr widget should encode on the next/ current qr render.
 void ui_set_qr_url(const char *url);
 

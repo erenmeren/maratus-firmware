@@ -96,30 +96,35 @@ void app_main(void)
     bsp_display_backlight_on();
     bsp_display_brightness_set(100);   // ensure the panel isn't dark (PWM duty)
 
-    // 2) Build + show the idle screen (ui takes the LVGL lock internally).
+    // 2) Build + show the boot splash (ui takes the LVGL lock internally).
     ui_init();
+    ui_boot_progress(BOOT_STARTING);
 
-    // 2b) Render any cached config immediately (before Wi-Fi); else built-in splash.
+    // 2b) Load any cached config (before Wi-Fi) so the eventual idle render can
+    // use it. The screen STAYS on the boot splash until app_state releases the
+    // boot gate (first cloud 200, or the offline timeout).
     // device_config_t is ~67KB; keep it out of internal .bss (PSRAM, CPU-read only, no DMA).
     static device_config_t *g_cfg = NULL;
     g_cfg = heap_caps_calloc(1, sizeof(*g_cfg), MALLOC_CAP_SPIRAM);
     if (g_cfg) {
         cloud_config_load_cached(g_cfg);
         ui_set_config(g_cfg);
-        ui_render_state(g_cfg->valid ? DEV_IDLE : DEV_BOOT);
-        ESP_LOGI(TAG, "initial screen shown (valid_cfg=%d)", g_cfg->valid);
+        ESP_LOGI(TAG, "cached config loaded (valid=%d)", g_cfg->valid);
     } else {
-        ESP_LOGE(TAG, "g_cfg PSRAM alloc failed; showing splash");
-        ui_render_state(DEV_BOOT);
+        ESP_LOGE(TAG, "g_cfg PSRAM alloc failed; continuing without cached config");
     }
+    ui_boot_progress(BOOT_CONFIG);
 
     // 3) Wi-Fi: connect with stored/Kconfig creds, else run on-screen setup (first boot).
     net_init();
+    ui_boot_progress(BOOT_WIFI);
+    bool ran_wifi_setup = false;
     if (appcfg_has_wifi_creds() ||
         (appcfg_wifi_ssid()[0] && strcmp(appcfg_wifi_ssid(), "changeme") != 0)) {
         net_connect(appcfg_wifi_ssid(), appcfg_wifi_password());
     } else {
-        wifi_setup_run();
+        wifi_setup_run();          // replaces the splash with the Wi-Fi setup UI
+        ran_wifi_setup = true;
     }
     ESP_LOGI(TAG, "Wi-Fi connected=%d", net_is_connected());
 
@@ -144,7 +149,10 @@ void app_main(void)
         return;
     }
 
-    // 4) Continuous poll loop + device state machine.
+    // 4) Boot gate: if the Wi-Fi setup UI replaced the splash, bring it back;
+    // then wait for first cloud contact (app_state releases the gate to idle).
+    if (ran_wifi_setup) ui_render_state(DEV_BOOT);
+    if (net_is_connected()) ui_boot_progress(BOOT_CLOUD);
     app_state_run();
     cloud_set_config_changed_cb(app_state_request_config);
     cloud_set_firmware_update_cb(ota_force);
