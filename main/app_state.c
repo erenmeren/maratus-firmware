@@ -130,6 +130,14 @@ void app_state_set_state(dev_state_t st) {
 #define OTA_CHECK_EVERY  50
 static int s_ota_poll_ctr = 0;
 
+// Boot gate: stay on the splash until the first successful cloud poll, or
+// give up after this long (measured from app_state_run) and start offline.
+#define BOOT_GATE_TIMEOUT_MS 25000
+#define BOOT_READY_HOLD_MS   300     // let the full bar be perceivable
+#define BOOT_OFFLINE_HOLD_MS 1000    // let "Starting offline..." be readable
+static bool    s_boot_gate = false;
+static int64_t s_boot_start_ms;
+
 // Most configs reference only a logo + a handful of uploaded icons; cap well
 // under CFG_MAX_OBJECTS * SCREEN_COUNT to bound stack use in the prefetch frame.
 #define MAX_ASSET_REFS 16
@@ -428,10 +436,21 @@ static void poll_task(void *arg)
 {
     static char body[1024];
     int backoff = POLL_BACKOFF_MIN;
-    s_state = DEV_IDLE;
+    s_state = s_boot_gate ? DEV_BOOT : DEV_IDLE;
     s_last_activity_ms = now_ms();
 
     for (;;) {
+        // Boot gate fallback: still not online after the timeout → show the
+        // cached idle screen and keep retrying in the background (self-heals).
+        if (s_boot_gate && now_ms() - s_boot_start_ms >= BOOT_GATE_TIMEOUT_MS) {
+            s_boot_gate = false;
+            ESP_LOGW(TAG, "boot gate timed out; starting offline");
+            ui_boot_progress(BOOT_OFFLINE);
+            vTaskDelay(pdMS_TO_TICKS(BOOT_OFFLINE_HOLD_MS));
+            s_state = DEV_IDLE;
+            ui_render_state(DEV_IDLE);
+        }
+
         // Release input suppression once awake and past the wake-guard (idempotent).
         ui_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
         if (ui_consume_tap()) {
@@ -452,6 +471,13 @@ static void poll_task(void *arg)
             time_sync_start();                 // idempotent; SNTP runs once Wi-Fi is up
             int rssi = 0;
             if (esp_wifi_sta_get_rssi(&rssi) == ESP_OK) ui_set_wifi_level(rssi_to_level(rssi));
+            if (s_boot_gate) {
+                s_boot_gate = false;
+                ui_boot_progress(BOOT_READY);
+                vTaskDelay(pdMS_TO_TICKS(BOOT_READY_HOLD_MS));
+                s_state = DEV_IDLE;
+                ui_render_state(DEV_IDLE);   // cached config; the config fetch below re-renders fresh
+            }
             commands_handle_body(body);   // may esp_restart() on reboot
             if (s_config_dirty) {
                 s_config_dirty = false;
@@ -493,12 +519,15 @@ void app_state_run(void)
     s_cfg_buf[1] = heap_caps_calloc(1, sizeof(device_config_t), MALLOC_CAP_SPIRAM);
     if (!s_cfg_buf[0] || !s_cfg_buf[1]) {
         ESP_LOGE(TAG, "config buffer PSRAM alloc failed; running without live config");
-        return;   // boot splash/cached config from app_main stays on screen; no poll task
+        ui_render_state(DEV_IDLE);   // fall back to app_main's cached config; no poll task
+        return;
     }
     overrides_load();   // restore device settings (use_device=0 == follow cloud)
     cloud_config_load_cached(s_cfg_buf[s_cfg_live]);   // seed ETag so the first fetch can 304
     ui_set_config(s_cfg_buf[s_cfg_live]);
     if (s_cfg_buf[s_cfg_live]->valid)
         display_apply_brightness(devset_eff_brightness(&g_dev, s_cfg_buf[s_cfg_live]->device.brightness));
+    s_boot_gate = true;
+    s_boot_start_ms = now_ms();
     xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, NULL);
 }
