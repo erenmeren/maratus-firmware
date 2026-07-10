@@ -18,3 +18,10 @@ bool provisioning_parse_claim(const char *json, char *key_out, size_t key_len);
 // and a pairingCode widget) for an unprovisioned device that can't fetch config.
 // Sets cfg->valid = true. Other screens are left empty.
 void provisioning_default_setup_config(device_config_t *cfg);
+
+// The registry serial is the P4's own eFuse base MAC — the same MAC esptool
+// prints during factory flashing. Do NOT use esp_wifi_get_mac()/ESP_MAC_WIFI_STA:
+// that is the C6 radio module's MAC, which differs from the P4's and changes if
+// the radio module is ever swapped. Writes 12 lowercase hex chars + NUL into
+// out (must be >= 13 bytes); out[0] == '\0' if the eFuse read fails.
+void provisioning_get_serial(char out[13]);

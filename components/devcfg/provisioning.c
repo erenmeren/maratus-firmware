@@ -1,6 +1,8 @@
 #include "provisioning.h"
 #include <string.h>
+#include <stdio.h>
 #include "cJSON.h"
+#include "esp_mac.h"
 
 static const char ALPHA[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 32 chars, no ambiguous
 
@@ -48,4 +50,14 @@ void provisioning_default_setup_config(device_config_t *cfg) {
     pc->type = OBJ_PAIRING_CODE; pc->visible = true; pc->x = 0.2f; pc->y = 0.66f; pc->w = 0.6f; pc->h = 0.14f; pc->z = 2;
     s->n = i;
     cfg->valid = true;
+}
+
+// See provisioning.h for the eFuse-vs-wifi-MAC trap this must not repeat.
+void provisioning_get_serial(char out[13]) {
+    uint8_t mac[6] = {0};
+    out[0] = '\0';
+    if (esp_efuse_mac_get_default(mac) == ESP_OK) {
+        snprintf(out, 13, "%02x%02x%02x%02x%02x%02x",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
 }
