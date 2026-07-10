@@ -6,7 +6,6 @@
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
-#include "esp_mac.h"
 #include "cJSON.h"
 #include "nvs.h"
 #include "appcfg.h"
@@ -67,27 +66,13 @@ int cloud_get_commands(char *out, int cap)
     return status;
 }
 
-// The registry serial is the P4's own eFuse base MAC — the same MAC esptool
-// prints during factory flashing. Do NOT use esp_wifi_get_mac()/ESP_MAC_WIFI_STA:
-// that is the C6 radio module's MAC, which differs from the P4's and changes if
-// the radio module is ever swapped.
-static void serial_from_efuse(char out[13])
-{
-    uint8_t mac[6] = {0};
-    out[0] = '\0';
-    if (esp_efuse_mac_get_default(mac) == ESP_OK) {
-        snprintf(out, 13, "%02x%02x%02x%02x%02x%02x",
-                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    }
-}
-
 bool cloud_claim_poll(const char *code, char *key_out, size_t key_len)
 {
     if (key_out && key_len) key_out[0] = '\0';
     char body[256];
     resp_t resp = { .buf = body, .cap = sizeof(body), .len = 0 };
     char serial[13];
-    serial_from_efuse(serial);
+    provisioning_get_serial(serial);
     char url[256];
     snprintf(url, sizeof(url), "%s/api/device/claim?code=%s&serial=%s",
              appcfg_base_url(), code, serial);

@@ -1,5 +1,6 @@
 #include "ui.h"
 #include <string.h>
+#include <stdio.h>
 #include <time.h>
 #include "lvgl.h"
 #include "draw/lv_draw_buf_private.h"   // lv_draw_buf_handlers_t fields (swap image alloc → PSRAM)
@@ -13,6 +14,7 @@
 #include "asset_cache.h"
 #include "clock_format.h"
 #include "time_sync.h"
+#include "provisioning.h"
 
 #define DITTO_GREEN   0x10A765
 #define DITTO_ONLINE  0x37C871
@@ -549,6 +551,26 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
     // Online status dot removed per product decision; connectivity will be shown
     // by the wifi widget (M5c). add_status_dot() retained but unused.
     (void)add_status_dot;
+
+    // Setup screen: render the device serial in small muted type at the very
+    // bottom, so a support call can read it off even once the unit is mounted
+    // and the label QR is unreachable. Drawn directly (not a config object) so
+    // it can't be overridden by any config and stays immune to layout drift.
+    if (screen == SCREEN_SETUP) {
+        char serial[13];
+        provisioning_get_serial(serial);
+        if (serial[0]) {
+            char buf[20];
+            snprintf(buf, sizeof(buf), "SN %s", serial);
+            lv_obj_t *lbl = lv_label_create(scr);
+            lv_label_set_text(lbl, buf);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(s_cfg->brand_fg), LV_PART_MAIN);
+            lv_obj_set_style_text_opa(lbl, LV_OPA_60, LV_PART_MAIN);  // muted (no separate muted color on device)
+            lv_obj_set_style_text_font(lbl, font_cache_get(14, false), LV_PART_MAIN);
+            lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+            lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, -8);
+        }
+    }
     return scr;
 }
 
