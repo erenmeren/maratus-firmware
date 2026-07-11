@@ -16,10 +16,15 @@
 // ever exhausted we degrade to LV_FONT_DEFAULT instead of destroying
 // anything.
 
-// Two faces (regular + bold), so the cache holds (px, bold) entries. Bumped
-// from 12 to 16 to give the grow-once cache headroom now that slots are
-// never reclaimed.
-#define FONT_CACHE_MAX 16
+// Two faces (regular + bold), so the cache holds (px, bold) entries.
+// 32 because slots are never reclaimed: the union of every distinct (px,bold)
+// ever requested accumulates for the whole uptime. The fixed screens (splash,
+// PIN, menu, About, device settings, Wi-Fi setup) alone use ~14 combos;
+// config-driven branding sizes (text objects, wordmark, clock time+date,
+// countdown, pairing/steps) come on top and can change on config re-push.
+// The array itself is cheap (~1 KB); real font RAM scales with sizes actually
+// requested, not with this cap.
+#define FONT_CACHE_MAX 32
 
 static const char *TAG = "font_cache";
 

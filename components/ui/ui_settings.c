@@ -214,7 +214,7 @@ void ui_settings_show_pin(lv_obj_t *parent) {
     // Delete any previous instance
     if (s_pin_screen) { lv_obj_delete(s_pin_screen); s_pin_screen = NULL; }
 
-    font_cache_begin_pass();   // pin fonts for this build pass
+    font_cache_begin_pass();   // no-op (API compat) — cache never evicts
     pal_t p = settings_palette();
     const lv_font_t *f_title  = font_cache_get(30, true);
     const lv_font_t *f_sub    = font_cache_get(17, false);
@@ -358,7 +358,7 @@ void ui_settings_show_menu(lv_obj_t *parent) {
     if (s_about_screen) { lv_obj_delete(s_about_screen); s_about_screen = NULL; }
     if (s_device_screen) { lv_obj_delete(s_device_screen); s_device_screen = NULL; }
 
-    font_cache_begin_pass();   // pin fonts for this build pass
+    font_cache_begin_pass();   // no-op (API compat) — cache never evicts
     pal_t p = settings_palette();
     const lv_font_t *f_title = font_cache_get(30, true);
     const lv_font_t *f_row   = font_cache_get(23, true);

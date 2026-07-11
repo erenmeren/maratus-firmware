@@ -112,7 +112,7 @@ void ui_wifi_show(void) {
     // can't leak PSRAM or hold unpinned font-cache pointers.
     if (s_wscreen) { lv_obj_delete(s_wscreen); s_wscreen = NULL; }
     s_sel_pending = s_rescan_pending = s_connect_pending = s_back_pending = s_exit_pending = false;
-    font_cache_begin_pass();                          // pin this screen's fonts
+    font_cache_begin_pass();                          // no-op (API compat) — cache never evicts
     const lv_font_t *f_title  = font_cache_get(28, true);
     const lv_font_t *f_status = font_cache_get(20, false);
     const lv_font_t *f_row    = font_cache_get(22, false);
