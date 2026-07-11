@@ -180,7 +180,7 @@ bool ui_settings_consume_action(ui_settings_action_t *act);
 // Build the read-only "About" sub-screen into `parent`. `info_block` is a
 // pre-formatted multi-line string ("label\tvalue\n" per line) built by the
 // orchestrator; each line renders as a row (muted label left, fg value right),
-// with a green/red status dot for "Online"/"Listening"/"Offline" values. A Back
+// with a green/red status dot for "Online"/"Offline" values. A Back
 // button latches UI_SET_BACK via the shared action flag. PASSIVE.
 void ui_settings_show_about(lv_obj_t *parent, const char *info_block);
 
