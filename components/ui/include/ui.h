@@ -67,36 +67,53 @@ bool ui_consume_tap(void);
 // from ui_consume_tap (a completed tap): used to detect activity for sleep/wake.
 bool ui_consume_activity(void);
 
-// --- Wi-Fi setup screen (M6a-2) -------------------------------------------
+// --- Wi-Fi setup screen (M6a-2; staged redesign 2026-07-11) ----------------
 // A bespoke, INTERACTIVE screen (not config-object-driven). It is PASSIVE: an
-// orchestrator pushes data in (set_results/set_status/prompt_*) and reads user
-// intent out via the consume_* flags. Network calls live in the orchestrator,
-// never in the LVGL callbacks. All functions take the LVGL port lock internally.
+// orchestrator pushes data in (set_results/set_status/prompt_*/show_*) and
+// reads user intent out via the consume_* flags. Network calls live in the
+// orchestrator, never in the LVGL callbacks. All functions take the LVGL port
+// lock internally. Two stages on one screen: a full-height network list, then
+// a password panel titled with the chosen SSID (keyboard lives there).
 
-// Build + load the Wi-Fi setup screen.
+// Build + load the Wi-Fi setup screen (starts in the network-list stage).
 void ui_wifi_show(void);
+
+// Return to the network-list stage (Back button / restart of the flow).
+void ui_wifi_show_list(void);
+
+// Show the password panel in "Connecting..." mode: title = ssid, status
+// "Connecting...", input row + keyboard + back chip hidden. Call right before
+// net_connect(); do NOT also call ui_wifi_set_status("Connecting...").
+void ui_wifi_show_connecting(const char *ssid);
 
 // Replace the SSID list with `n` scan results (plus "Other network..." + "Rescan").
 void ui_wifi_set_results(const net_ap_t *aps, int n);
 
-// Update the status line at the top of the screen.
+// Update the status line (shown on both stages).
 void ui_wifi_set_status(const char *text);
 
 // True (once) if the user picked a list row. *idx = result index, or <0 / *manual
 // = true for the "Other network..." row. Cleared on read.
 bool ui_wifi_consume_selection(int *idx, bool *manual);
 
-// True (once) if the user tapped Connect. Copies the SSID + password the
+// True (once) if the user tapped Connect/Next. Copies the SSID + password the
 // orchestrator should use (depends on manual vs picked-network mode). Cleared on read.
 bool ui_wifi_consume_connect(char *ssid, int ssid_cap, char *pass, int pass_cap);
 
 // True (once) if the user tapped Rescan. Cleared on read.
 bool ui_wifi_consume_rescan(void);
 
-// Put the textarea into manual-SSID entry mode (plain text, "Network name").
+// True (once) if the user tapped Back on the password stage. Cleared on read.
+bool ui_wifi_consume_back(void);
+
+// Switch to the password panel in manual-SSID entry mode (title "Other
+// network", plain text, "Network name", button "Next"). NOTE: overwrites the
+// status line — set error status AFTER calling this.
 void ui_wifi_prompt_ssid(void);
 
-// Put the textarea into password entry mode for `ssid` (masked, "Password").
+// Switch to the password panel for `ssid` (title = ssid, masked, "Password",
+// button "Connect"). NOTE: overwrites the status line — set error status
+// AFTER calling this.
 void ui_wifi_prompt_password(const char *ssid);
 
 // --- Settings screens (M7) ------------------------------------------------
