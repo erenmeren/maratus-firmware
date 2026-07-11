@@ -104,6 +104,10 @@ static void show_stage_pw(bool with_input) {
 
 void ui_wifi_show(void) {
     lvgl_port_lock(0);
+    // Re-entry (Settings -> Wi-Fi Setup): drop the previous screen so it
+    // can't leak PSRAM or hold unpinned font-cache pointers.
+    if (s_wscreen) { lv_obj_delete(s_wscreen); s_wscreen = NULL; }
+    s_sel_pending = s_rescan_pending = s_connect_pending = s_back_pending = false;
     font_cache_begin_pass();                          // pin this screen's fonts
     const lv_font_t *f_title  = font_cache_get(28, true);
     const lv_font_t *f_status = font_cache_get(20, false);
@@ -247,7 +251,7 @@ void ui_wifi_set_results(const net_ap_t *aps, int n) {
     lv_obj_clean(s_list);
     for (int i = 0; i < n; i++) add_row(LV_SYMBOL_WIFI, aps[i].ssid, list_cb, i);
     add_row(LV_SYMBOL_PLUS, "Other network...", list_cb, -1);
-    add_row(LV_SYMBOL_REFRESH, "Rescan", rescan_cb, 0);
+    add_row(LV_SYMBOL_REFRESH, "Rescan", rescan_cb, -1);
     lvgl_port_unlock();
 }
 
