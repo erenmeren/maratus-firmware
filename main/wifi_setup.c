@@ -31,7 +31,7 @@ void wifi_setup_run(void) {
             n = wifi_util_dedupe_sort(uaps, n);
             for (int i = 0; i < n; i++) { memcpy(aps[i].ssid, uaps[i].ssid, sizeof(aps[i].ssid)); aps[i].ssid[32]='\0'; aps[i].rssi = uaps[i].rssi; aps[i].open = uaps[i].open; }
             ui_wifi_set_results(aps, n);
-            ui_wifi_set_status(n ? "Choose your Wi-Fi" : "No networks - tap Rescan");
+            ui_wifi_set_status(n ? "" : "No networks - tap Rescan");
             st = LIST;
         } else if (st == LIST) {
             int idx; bool manual;
@@ -46,7 +46,12 @@ void wifi_setup_run(void) {
             }
         } else if (st == PASSWORD) {
             char es[33], ep[64];
-            if (ui_wifi_consume_connect(es, sizeof(es), ep, sizeof(ep))) {
+            if (ui_wifi_consume_back()) {
+                ssid[0] = '\0'; pass[0] = '\0'; open = false;
+                ui_wifi_show_list();
+                ui_wifi_set_status(n ? "" : "No networks - tap Rescan");
+                st = LIST;
+            } else if (ui_wifi_consume_connect(es, sizeof(es), ep, sizeof(ep))) {
                 if (ssid[0] == '\0') {                      // manual SSID just entered
                     strncpy(ssid, es, sizeof(ssid)-1); ssid[sizeof(ssid)-1]='\0';
                     if (!wifi_util_valid_ssid(ssid)) { ui_wifi_set_status("Enter a network name"); ssid[0]='\0'; }
@@ -58,14 +63,14 @@ void wifi_setup_run(void) {
                 }
             }
         } else if (st == CONNECT) {
-            ui_wifi_set_status("Connecting...");
+            ui_wifi_show_connecting(ssid);
             if (net_connect(ssid, pass)) {
                 appcfg_store_wifi_creds(ssid, pass);
                 ESP_LOGI(TAG, "connected + stored creds for '%s'", ssid);
                 return;
             }
-            ui_wifi_set_status("Couldn't connect - check the password");
             ui_wifi_prompt_password(ssid);
+            ui_wifi_set_status("Couldn't connect - check the password");
             st = PASSWORD;
         }
         vTaskDelay(pdMS_TO_TICKS(100));
