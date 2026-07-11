@@ -196,8 +196,8 @@ static int rssi_to_level(int rssi) {
 }
 
 // Build the About sub-screen content: one "label\tvalue\n" line per fact
-// (firmware, IP, MAC, Wi-Fi, signal, Online, print listener). Rendered as a
-// read-only card list by ui_settings_show_about.
+// (firmware, IP, MAC, Wi-Fi, signal, Online). Rendered as a read-only card
+// list by ui_settings_show_about.
 static void build_about_info(char *out, size_t n) {
     char ssid[33] = "\xe2\x80\x94";  // em-dash when not connected
     char bars[8]  = "\xe2\x80\x94";
@@ -226,8 +226,7 @@ static void build_about_info(char *out, size_t n) {
              "MAC\t%s\n"
              "Wi-Fi\t%s\n"
              "Signal\t%s\n"
-             "Online\t%s\n"
-             "Print listener\tListening",
+             "Online\t%s",
              CONFIG_DITTO_FW_VERSION, ip, mac, ssid, bars,
              net_is_connected() ? "Online" : "Offline");
 }

@@ -489,8 +489,8 @@ bool ui_settings_consume_action(ui_settings_action_t *act) {
 // Public API — About screen (read-only device info)
 // --------------------------------------------------------------------------
 // Renders `info_block` (one "label\tvalue" per line, '\n'-separated) as a card
-// list: muted label left, fg value right. Online/Listening get a green dot,
-// Offline a red dot. A back button (card-style LV_SYMBOL_LEFT chip) latches
+// list: muted label left, fg value right. Online gets a green dot, Offline a
+// red dot. A back button (card-style LV_SYMBOL_LEFT chip) latches
 // UI_SET_BACK via the shared action flag (reusing menu_action_cb). PASSIVE.
 
 #define ABOUT_DOT_GREEN 0x2BB673
@@ -587,7 +587,7 @@ void ui_settings_show_about(lv_obj_t *parent, const char *info_block) {
         lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
         // A status value gets a small colored dot to its left.
-        bool good = (strcmp(value, "Online") == 0) || (strcmp(value, "Listening") == 0);
+        bool good = (strcmp(value, "Online") == 0);
         bool bad  = (strcmp(value, "Offline") == 0);
 
         lv_obj_t *val = lv_label_create(row);
