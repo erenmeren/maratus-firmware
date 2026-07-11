@@ -383,12 +383,13 @@ void ui_settings_show_menu(lv_obj_t *parent) {
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, PAD, PAD);
 
     // 2. Card rows.
+    // chevron: navigation rows get a › affordance; action rows (Restart) don't.
     struct { const char *icon; const char *label; const char *sub;
-             ui_settings_action_t act; } rows[4] = {
-        { LV_SYMBOL_WIFI,     "Network & Wi-Fi", "Scan and connect",      UI_SET_WIFI },
-        { LV_SYMBOL_SETTINGS, "Device settings", "Brightness, sleep",     UI_SET_DEVICE },
-        { LV_SYMBOL_LIST,     "About",           "Device info",           UI_SET_ABOUT },
-        { LV_SYMBOL_POWER,    "Restart device",  "Reboots in ~30s",       UI_SET_REBOOT },
+             ui_settings_action_t act; bool chevron; } rows[4] = {
+        { LV_SYMBOL_WIFI,     "Network & Wi-Fi", "Scan and connect",      UI_SET_WIFI,   true  },
+        { LV_SYMBOL_SETTINGS, "Device settings", "Brightness, sleep",     UI_SET_DEVICE, true  },
+        { LV_SYMBOL_LIST,     "About",           "Device info",           UI_SET_ABOUT,  true  },
+        { LV_SYMBOL_POWER,    "Restart device",  "Reboots in ~30s",       UI_SET_REBOOT, false },
     };
     const int n_rows = (int)(sizeof(rows) / sizeof(rows[0]));
 
@@ -436,11 +437,13 @@ void ui_settings_show_menu(lv_obj_t *parent) {
         lv_obj_set_style_text_color(sub, p.muted, 0);
         lv_obj_align(sub, LV_ALIGN_LEFT_MID, 52 + 20, 13);
 
-        // Right: chevron.
-        lv_obj_t *chev = lv_label_create(btn);
-        lv_label_set_text(chev, LV_SYMBOL_RIGHT);
-        lv_obj_set_style_text_color(chev, p.muted, 0);
-        lv_obj_align(chev, LV_ALIGN_RIGHT_MID, 0, 0);
+        // Right: chevron (navigation rows only).
+        if (rows[i].chevron) {
+            lv_obj_t *chev = lv_label_create(btn);
+            lv_label_set_text(chev, LV_SYMBOL_RIGHT);
+            lv_obj_set_style_text_color(chev, p.muted, 0);
+            lv_obj_align(chev, LV_ALIGN_RIGHT_MID, 0, 0);
+        }
     }
 
     // 3. Dark Exit button pinned at the bottom (full width, accent off — uses fg).
@@ -455,25 +458,12 @@ void ui_settings_show_menu(lv_obj_t *parent) {
     lv_obj_add_event_cb(exit_btn, menu_action_cb, LV_EVENT_CLICKED,
                         (void *)(intptr_t)UI_SET_CLOSE);
 
-    // Icon (default font) + "Close" (Open Sans) side by side, centered.
-    lv_obj_t *exit_row = lv_obj_create(exit_btn);
-    lv_obj_remove_style_all(exit_row);
-    lv_obj_set_size(exit_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(exit_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(exit_row, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(exit_row, 12, 0);
-    lv_obj_clear_flag(exit_row, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_center(exit_row);
-
-    lv_obj_t *exit_ic = lv_label_create(exit_row);
-    lv_label_set_text(exit_ic, LV_SYMBOL_CLOSE);
-    lv_obj_set_style_text_color(exit_ic, p.bg, 0);
-
-    lv_obj_t *exit_lbl = lv_label_create(exit_row);
+    // Plain centered "Close" (Open Sans) — no icon.
+    lv_obj_t *exit_lbl = lv_label_create(exit_btn);
     lv_label_set_text(exit_lbl, "Close");
     lv_obj_set_style_text_font(exit_lbl, f_exit, LV_PART_MAIN);
     lv_obj_set_style_text_color(exit_lbl, p.bg, 0);
+    lv_obj_center(exit_lbl);
 
     lvgl_port_unlock();
 }
