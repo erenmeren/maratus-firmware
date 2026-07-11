@@ -291,16 +291,22 @@ void ui_wifi_prompt_password(const char *ssid) {
 }
 
 bool ui_wifi_consume_selection(int *idx, bool *manual) {
-    if (!s_sel_pending) return false;
-    s_sel_pending = false;
-    if (idx)    *idx = s_sel_idx;
-    if (manual) *manual = s_sel_manual;
-    return true;
+    lvgl_port_lock(0);
+    bool r = s_sel_pending;
+    if (r) {
+        s_sel_pending = false;
+        if (idx)    *idx = s_sel_idx;
+        if (manual) *manual = s_sel_manual;
+    }
+    lvgl_port_unlock();
+    return r;
 }
 
 bool ui_wifi_consume_rescan(void) {
+    lvgl_port_lock(0);
     bool r = s_rescan_pending;
     s_rescan_pending = false;
+    lvgl_port_unlock();
     return r;
 }
 
@@ -313,18 +319,21 @@ bool ui_wifi_consume_back(void) {
 }
 
 bool ui_wifi_consume_connect(char *ssid, int sc, char *pass, int pc) {
-    if (!s_connect_pending) return false;
-    s_connect_pending = false;
-    // Reads the textarea, so take the lock (matches ui.c's consume locking).
+    // Flag test-and-clear + textarea read all happen under one lock (matches
+    // ui.c's consume locking).
     lvgl_port_lock(0);
-    const char *txt = lv_textarea_get_text(s_ta);
-    if (s_manual_mode) {
-        strncpy(ssid, txt, sc - 1); ssid[sc - 1] = '\0';
-        pass[0] = '\0';
-    } else {
-        strncpy(ssid, s_typed_ssid, sc - 1); ssid[sc - 1] = '\0';
-        strncpy(pass, txt, pc - 1);          pass[pc - 1] = '\0';
+    bool r = s_connect_pending;
+    if (r) {
+        s_connect_pending = false;
+        const char *txt = lv_textarea_get_text(s_ta);
+        if (s_manual_mode) {
+            strncpy(ssid, txt, sc - 1); ssid[sc - 1] = '\0';
+            pass[0] = '\0';
+        } else {
+            strncpy(ssid, s_typed_ssid, sc - 1); ssid[sc - 1] = '\0';
+            strncpy(pass, txt, pc - 1);          pass[pc - 1] = '\0';
+        }
     }
     lvgl_port_unlock();
-    return true;
+    return r;
 }
