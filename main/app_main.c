@@ -123,7 +123,7 @@ void app_main(void)
         (appcfg_wifi_ssid()[0] && strcmp(appcfg_wifi_ssid(), "changeme") != 0)) {
         net_connect(appcfg_wifi_ssid(), appcfg_wifi_password());
     } else {
-        wifi_setup_run();          // replaces the splash with the Wi-Fi setup UI
+        wifi_setup_run(false);     // replaces the splash with the Wi-Fi setup UI (no exit: first boot)
         ran_wifi_setup = true;
     }
     ESP_LOGI(TAG, "Wi-Fi connected=%d", net_is_connected());

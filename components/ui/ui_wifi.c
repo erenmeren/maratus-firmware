@@ -13,14 +13,16 @@
 //
 // TWO STAGES on ONE screen — panels toggled with LV_OBJ_FLAG_HIDDEN, every
 // widget (keyboard included) created exactly once in ui_wifi_show():
-//   list stage     — title + full-height network list (keyboard hidden)
+//   list stage     — title + full-height network list (keyboard hidden) +
+//                    an optional exit chip (top-right) when entered from
+//                    Settings, so the flow isn't a trap
 //   password stage — back chip + network-name title + status line +
 //                    textarea/Connect row + keyboard (unchanged 720x280)
 
 #define DITTO_GREEN 0x10A765
 
 // screen + list-stage widgets
-static lv_obj_t *s_wscreen, *s_list_panel, *s_list_sub, *s_list;
+static lv_obj_t *s_wscreen, *s_list_panel, *s_list_sub, *s_list, *s_exit;
 // password-stage widgets
 static lv_obj_t *s_pw_panel, *s_back, *s_pw_title, *s_pw_status,
                 *s_input_row, *s_ta, *s_connect_lbl, *s_kb;
@@ -30,6 +32,7 @@ static volatile bool s_sel_manual;        // the tapped row was "Other network..
 static volatile bool s_connect_pending;   // Connect/Next was tapped
 static volatile bool s_rescan_pending;    // Rescan was tapped
 static volatile bool s_back_pending;      // Back chip was tapped
+static volatile bool s_exit_pending;      // Exit chip was tapped (Settings entry only)
 static volatile int  s_sel_idx;           // index of the tapped scan result (<0 = manual)
 
 static char s_typed_ssid[33];             // SSID captured when entering password mode
@@ -45,6 +48,7 @@ static void list_cb(lv_event_t *e) {
 static void connect_cb(lv_event_t *e) { (void)e; s_connect_pending = true; }
 static void rescan_cb(lv_event_t *e)  { (void)e; s_rescan_pending = true; }
 static void back_cb(lv_event_t *e)    { (void)e; s_back_pending = true; }
+static void exit_cb(lv_event_t *e)    { (void)e; s_exit_pending = true; }
 
 // --- internal helpers (caller must hold the LVGL port lock) ----------------
 
@@ -85,7 +89,7 @@ static void show_stage_list(void) {
     lv_obj_clear_flag(s_list_panel, LV_OBJ_FLAG_HIDDEN);
 }
 static void show_stage_pw(bool with_input) {
-    s_sel_pending = false; s_rescan_pending = false;
+    s_sel_pending = false; s_rescan_pending = false; s_exit_pending = false;
     s_connect_pending = false; s_back_pending = false;
     lv_obj_add_flag(s_list_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(s_pw_panel, LV_OBJ_FLAG_HIDDEN);
@@ -107,7 +111,7 @@ void ui_wifi_show(void) {
     // Re-entry (Settings -> Wi-Fi Setup): drop the previous screen so it
     // can't leak PSRAM or hold unpinned font-cache pointers.
     if (s_wscreen) { lv_obj_delete(s_wscreen); s_wscreen = NULL; }
-    s_sel_pending = s_rescan_pending = s_connect_pending = s_back_pending = false;
+    s_sel_pending = s_rescan_pending = s_connect_pending = s_back_pending = s_exit_pending = false;
     font_cache_begin_pass();                          // pin this screen's fonts
     const lv_font_t *f_title  = font_cache_get(28, true);
     const lv_font_t *f_status = font_cache_get(20, false);
@@ -138,6 +142,25 @@ void ui_wifi_show(void) {
     lv_obj_set_style_text_color(s_list_sub, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_text_opa(s_list_sub, LV_OPA_80, LV_PART_MAIN);
     lv_obj_align(s_list_sub, LV_ALIGN_TOP_MID, 0, 70);
+
+    // Exit chip, 56x56, top-right. Only shown when entered from Settings
+    // (ui_wifi_set_exit_visible) — first boot has nothing to fall back to,
+    // so it starts hidden.
+    s_exit = lv_button_create(s_list_panel);
+    lv_obj_remove_style_all(s_exit);
+    lv_obj_set_size(s_exit, 56, 56);
+    lv_obj_align(s_exit, LV_ALIGN_TOP_RIGHT, -20, 20);
+    lv_obj_set_style_radius(s_exit, 16, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_exit, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_exit, LV_OPA_20, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_exit, LV_OPA_40, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_clear_flag(s_exit, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_exit, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_event_cb(s_exit, exit_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *exit_ic = lv_label_create(s_exit);
+    lv_label_set_text(exit_ic, LV_SYMBOL_CLOSE);      // default font: symbol glyphs
+    lv_obj_set_style_text_color(exit_ic, lv_color_white(), LV_PART_MAIN);
+    lv_obj_center(exit_ic);
 
     // Plain scrollable flex column — full styling control (lv_list's theme
     // fights the brand look). 64px rows + 8px gaps, scrolls when overflowing.
@@ -237,6 +260,13 @@ void ui_wifi_show_list(void) {
     lvgl_port_unlock();
 }
 
+void ui_wifi_set_exit_visible(bool visible) {
+    lvgl_port_lock(0);
+    if (visible) lv_obj_clear_flag(s_exit, LV_OBJ_FLAG_HIDDEN);
+    else         lv_obj_add_flag(s_exit, LV_OBJ_FLAG_HIDDEN);
+    lvgl_port_unlock();
+}
+
 void ui_wifi_show_connecting(const char *ssid) {
     lvgl_port_lock(0);
     lv_label_set_text(s_pw_title, ssid ? ssid : "");
@@ -291,16 +321,22 @@ void ui_wifi_prompt_password(const char *ssid) {
 }
 
 bool ui_wifi_consume_selection(int *idx, bool *manual) {
-    if (!s_sel_pending) return false;
-    s_sel_pending = false;
-    if (idx)    *idx = s_sel_idx;
-    if (manual) *manual = s_sel_manual;
-    return true;
+    lvgl_port_lock(0);
+    bool r = s_sel_pending;
+    if (r) {
+        s_sel_pending = false;
+        if (idx)    *idx = s_sel_idx;
+        if (manual) *manual = s_sel_manual;
+    }
+    lvgl_port_unlock();
+    return r;
 }
 
 bool ui_wifi_consume_rescan(void) {
+    lvgl_port_lock(0);
     bool r = s_rescan_pending;
     s_rescan_pending = false;
+    lvgl_port_unlock();
     return r;
 }
 
@@ -312,19 +348,30 @@ bool ui_wifi_consume_back(void) {
     return r;
 }
 
-bool ui_wifi_consume_connect(char *ssid, int sc, char *pass, int pc) {
-    if (!s_connect_pending) return false;
-    s_connect_pending = false;
-    // Reads the textarea, so take the lock (matches ui.c's consume locking).
+bool ui_wifi_consume_exit(void) {
     lvgl_port_lock(0);
-    const char *txt = lv_textarea_get_text(s_ta);
-    if (s_manual_mode) {
-        strncpy(ssid, txt, sc - 1); ssid[sc - 1] = '\0';
-        pass[0] = '\0';
-    } else {
-        strncpy(ssid, s_typed_ssid, sc - 1); ssid[sc - 1] = '\0';
-        strncpy(pass, txt, pc - 1);          pass[pc - 1] = '\0';
+    bool r = s_exit_pending;
+    s_exit_pending = false;
+    lvgl_port_unlock();
+    return r;
+}
+
+bool ui_wifi_consume_connect(char *ssid, int sc, char *pass, int pc) {
+    // Flag test-and-clear + textarea read all happen under one lock (matches
+    // ui.c's consume locking).
+    lvgl_port_lock(0);
+    bool r = s_connect_pending;
+    if (r) {
+        s_connect_pending = false;
+        const char *txt = lv_textarea_get_text(s_ta);
+        if (s_manual_mode) {
+            strncpy(ssid, txt, sc - 1); ssid[sc - 1] = '\0';
+            pass[0] = '\0';
+        } else {
+            strncpy(ssid, s_typed_ssid, sc - 1); ssid[sc - 1] = '\0';
+            strncpy(pass, txt, pc - 1);          pass[pc - 1] = '\0';
+        }
     }
     lvgl_port_unlock();
-    return true;
+    return r;
 }

@@ -312,9 +312,11 @@ static void run_settings_flow(void) {
             switch (act) {
                 case UI_SET_WIFI:
                     // wifi_setup_run() lv_screen_loads its own screen, replacing scr
-                    // as the active screen (scr stays alive, hidden). After it returns,
-                    // rebuild the menu into scr and slide scr back up.
-                    wifi_setup_run();
+                    // as the active screen (scr stays alive, hidden). After it returns
+                    // (connected, or exited via the exit chip — allow_exit=true leaves
+                    // the current connection untouched), rebuild the menu into scr and
+                    // slide scr back up.
+                    wifi_setup_run(true);
                     build_settings_info(info, sizeof(info));
                     ui_settings_set_info(info);
                     ui_settings_show_menu(scr);

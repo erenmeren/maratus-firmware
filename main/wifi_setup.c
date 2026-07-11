@@ -12,7 +12,7 @@
 static const char *TAG = "wifi-setup";
 #define MAX_APS 24
 
-void wifi_setup_run(void) {
+void wifi_setup_run(bool allow_exit) {
     static net_ap_t aps[MAX_APS];
     wifi_ap_t uaps[MAX_APS];
     int n = 0;
@@ -21,6 +21,7 @@ void wifi_setup_run(void) {
     enum { SCAN, LIST, PASSWORD, CONNECT } st = SCAN;
 
     ui_wifi_show();
+    ui_wifi_set_exit_visible(allow_exit);
     for (;;) {
         if (st == SCAN) {
             ui_wifi_set_status("Scanning...");
@@ -35,6 +36,7 @@ void wifi_setup_run(void) {
             st = LIST;
         } else if (st == LIST) {
             int idx; bool manual;
+            if (allow_exit && ui_wifi_consume_exit()) return;
             if (ui_wifi_consume_rescan()) { st = SCAN; }
             else if (ui_wifi_consume_selection(&idx, &manual)) {
                 if (manual) { open = false; ssid[0] = '\0'; ui_wifi_prompt_ssid(); st = PASSWORD; }
