@@ -240,14 +240,7 @@ void ui_settings_show_pin(lv_obj_t *parent) {
     lv_obj_set_style_text_color(title, p.fg, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 96);
 
-    // 3a. Always-visible muted helper line.
-    lv_obj_t *helper = lv_label_create(s_pin_screen);
-    lv_label_set_text(helper, "Staff access");
-    lv_obj_set_style_text_font(helper, f_sub, LV_PART_MAIN);
-    lv_obj_set_style_text_color(helper, p.muted, 0);
-    lv_obj_align(helper, LV_ALIGN_TOP_MID, 0, 140);
-
-    // 3b. Error line (hidden by default), overlaid on the helper position.
+    // 3. Error line (hidden by default), just under the title.
     s_pin_error_lbl = lv_label_create(s_pin_screen);
     lv_label_set_text(s_pin_error_lbl, "Incorrect PIN");
     lv_obj_set_style_text_font(s_pin_error_lbl, f_sub, LV_PART_MAIN);
