@@ -301,8 +301,10 @@ bool ui_wifi_consume_rescan(void) {
 }
 
 bool ui_wifi_consume_back(void) {
+    lvgl_port_lock(0);
     bool r = s_back_pending;
     s_back_pending = false;
+    lvgl_port_unlock();
     return r;
 }
 
