@@ -72,8 +72,9 @@ bool ui_consume_activity(void);
 // orchestrator pushes data in (set_results/set_status/prompt_*/show_*) and
 // reads user intent out via the consume_* flags. Network calls live in the
 // orchestrator, never in the LVGL callbacks. All functions take the LVGL port
-// lock internally. Two stages on one screen: a full-height network list, then
-// a password panel titled with the chosen SSID (keyboard lives there).
+// lock internally. Two stages on one screen: a full-height network list (with
+// an optional exit chip for the Settings entry path), then a password panel
+// titled with the chosen SSID (keyboard lives there).
 
 // Build + load the Wi-Fi setup screen (starts in the network-list stage).
 void ui_wifi_show(void);
@@ -105,6 +106,13 @@ bool ui_wifi_consume_rescan(void);
 
 // True (once) if the user tapped Back on the password stage. Cleared on read.
 bool ui_wifi_consume_back(void);
+
+// Show/hide the list-stage exit chip (top-right). Only the Settings entry
+// path should show it — first boot has no prior connection to fall back to.
+void ui_wifi_set_exit_visible(bool visible);
+
+// True (once) if the user tapped the exit chip on the list stage. Cleared on read.
+bool ui_wifi_consume_exit(void);
 
 // Switch to the password panel in manual-SSID entry mode (title "Other
 // network", plain text, "Network name", button "Next"). NOTE: overwrites the
