@@ -195,28 +195,6 @@ static int rssi_to_level(int rssi) {
     return 0;
 }
 
-// Build a human-readable settings info string (firmware version, Wi-Fi SSID,
-// signal bars, IP address, online status). Device name/ID are not stored on-device
-// and are intentionally omitted.
-static void build_settings_info(char *out, int cap) {
-    char ssid[33] = "\xe2\x80\x94";  // em-dash (UTF-8) when not connected
-    int bars = 0;
-    char ip[16] = "\xe2\x80\x94";
-    wifi_ap_record_t ap;
-    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
-        snprintf(ssid, sizeof(ssid), "%s", (const char *)ap.ssid);
-        bars = rssi_to_level(ap.rssi);
-    }
-    esp_netif_t *nif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    esp_netif_ip_info_t ipi;
-    if (nif && esp_netif_get_ip_info(nif, &ipi) == ESP_OK && ipi.ip.addr != 0)
-        snprintf(ip, sizeof(ip), IPSTR, IP2STR(&ipi.ip));
-    snprintf(out, cap,
-             "Firmware: %s\nWi-Fi: %s (%d/4)\nIP: %s\nStatus: %s",
-             CONFIG_DITTO_FW_VERSION, ssid, bars, ip,
-             net_is_connected() ? "Online" : "Offline");
-}
-
 // Build the About sub-screen content: one "label\tvalue\n" line per fact
 // (firmware, IP, MAC, Wi-Fi, signal, Online, print listener). Rendered as a
 // read-only card list by ui_settings_show_about.
@@ -275,7 +253,6 @@ static void run_settings_flow(void) {
     // Build the settings screen and slide it up. auto_del=false: the branding
     // screen it replaces is still owned by ui.c (s_active) — must NOT be deleted.
     lv_obj_t *scr = lv_obj_create(NULL);
-    char info[160];
 
     if (cfg->device.settings_password_hash[0]) {
         ui_settings_show_pin(scr);
@@ -302,8 +279,6 @@ static void run_settings_flow(void) {
 
     // Menu — build into the SAME scr (ui_settings_show_menu deletes the old pin
     // child container and adds the menu; scr is already the active screen).
-    build_settings_info(info, sizeof(info));
-    ui_settings_set_info(info);
     ui_settings_show_menu(scr);
 
     for (;;) {
@@ -317,8 +292,6 @@ static void run_settings_flow(void) {
                     // the current connection untouched), rebuild the menu into scr and
                     // slide scr back up.
                     wifi_setup_run(true);
-                    build_settings_info(info, sizeof(info));
-                    ui_settings_set_info(info);
                     ui_settings_show_menu(scr);
                     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_MOVE_TOP, 220, 0, false);
                     break;

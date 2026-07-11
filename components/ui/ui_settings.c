@@ -118,7 +118,6 @@ static void pin_cancel_cb(lv_event_t *e);
 // --------------------------------------------------------------------------
 
 static lv_obj_t *s_menu_screen;
-static lv_obj_t *s_menu_info_lbl;
 static lv_obj_t *s_about_screen;
 static lv_obj_t *s_device_screen;
 
@@ -134,8 +133,6 @@ static volatile int  s_dev_sl;            // chosen encoded value 0/60/120/300/6
 
 static volatile ui_settings_action_t s_action;
 static volatile bool                 s_action_set;
-
-static char s_info_text[256];   // last text pushed by ui_settings_set_info
 
 static void menu_action_cb(lv_event_t *e) {
     ui_settings_action_t act = (ui_settings_action_t)(intptr_t)lv_event_get_user_data(e);
@@ -348,18 +345,6 @@ bool ui_settings_consume_pin(char *out, int cap) {
 }
 
 // --------------------------------------------------------------------------
-// Public API — info setter (can be called before show_menu)
-// --------------------------------------------------------------------------
-
-void ui_settings_set_info(const char *text) {
-    lvgl_port_lock(0);
-    strncpy(s_info_text, text ? text : "", sizeof(s_info_text) - 1);
-    s_info_text[sizeof(s_info_text) - 1] = '\0';
-    if (s_menu_info_lbl) lv_label_set_text(s_menu_info_lbl, s_info_text);
-    lvgl_port_unlock();
-}
-
-// --------------------------------------------------------------------------
 // Public API — Menu screen
 // --------------------------------------------------------------------------
 
@@ -376,7 +361,6 @@ void ui_settings_show_menu(lv_obj_t *parent) {
     font_cache_begin_pass();   // pin fonts for this build pass
     pal_t p = settings_palette();
     const lv_font_t *f_title = font_cache_get(30, true);
-    const lv_font_t *f_info  = font_cache_get(16, false);
     const lv_font_t *f_row   = font_cache_get(23, true);
     const lv_font_t *f_sub   = font_cache_get(16, false);
     const lv_font_t *f_exit  = font_cache_get(22, true);
@@ -391,21 +375,12 @@ void ui_settings_show_menu(lv_obj_t *parent) {
 
     const int PAD = 40;
 
-    // 1. Header — title left, info (s_menu_info_lbl) right.
+    // 1. Header — title only. (Device facts live on the About sub-screen.)
     lv_obj_t *title = lv_label_create(s_menu_screen);
     lv_label_set_text(title, "Settings");
     lv_obj_set_style_text_font(title, f_title, LV_PART_MAIN);
     lv_obj_set_style_text_color(title, p.fg, 0);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, PAD, PAD);
-
-    s_menu_info_lbl = lv_label_create(s_menu_screen);
-    lv_label_set_long_mode(s_menu_info_lbl, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(s_menu_info_lbl, 300);
-    lv_label_set_text(s_menu_info_lbl, s_info_text[0] ? s_info_text : "");
-    lv_obj_set_style_text_font(s_menu_info_lbl, f_info, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_menu_info_lbl, p.muted, 0);
-    lv_obj_set_style_text_align(s_menu_info_lbl, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(s_menu_info_lbl, LV_ALIGN_TOP_RIGHT, -PAD, PAD + 6);
 
     // 2. Card rows.
     struct { const char *icon; const char *label; const char *sub;
@@ -916,7 +891,6 @@ void ui_settings_reset(void) {
     s_pin_entry_lbl = NULL;
     s_pin_error_lbl = NULL;
     s_menu_screen   = NULL;
-    s_menu_info_lbl = NULL;
     s_about_screen  = NULL;
     s_device_screen = NULL;
     lvgl_port_unlock();

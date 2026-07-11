@@ -170,10 +170,7 @@ void ui_settings_pin_set_error(bool show);
 // `cap-1` chars, NUL-terminated) and clears the buffer. Cleared on read.
 bool ui_settings_consume_pin(char *out, int cap);
 
-// Set the device-info block text shown at the top of the menu screen.
-void ui_settings_set_info(const char *text);
-
-// Build the menu screen (info label + 4 action buttons) into `parent`.
+// Build the menu screen (4 action buttons) into `parent`.
 void ui_settings_show_menu(lv_obj_t *parent);
 
 // True (once) if the user tapped a menu button. Writes the action into `*act`.
