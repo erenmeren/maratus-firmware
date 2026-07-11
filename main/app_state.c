@@ -342,7 +342,12 @@ static void run_settings_flow(void) {
                         if (g_dev.use_device && ui_settings_consume_brightness(&v)) display_apply_brightness(v);     // live
                         if (g_dev.use_device && ui_settings_consume_brightness_commit(&v)) { devset_set_brightness(&g_dev, v); overrides_save(); }
                         int e;
-                        if (g_dev.use_device && ui_settings_consume_sleep(&e)) { devset_set_sleep(&g_dev, e); overrides_save(); s_last_activity_ms = now_ms(); }
+                        if (g_dev.use_device && ui_settings_consume_sleep(&e)) {
+                            devset_set_sleep(&g_dev, e); overrides_save(); s_last_activity_ms = now_ms();
+                            ui_settings_show_device(scr, g_dev.use_device,
+                                devset_eff_brightness(&g_dev, cfg->device.brightness),
+                                devset_eff_sleep(&g_dev, cloud_sleep_encoded(cfg)));   // re-render so the tapped chip highlights
+                        }
                         if (ui_settings_consume_action(&act) && act == UI_SET_BACK)
                             break;
                         vTaskDelay(pdMS_TO_TICKS(50));
