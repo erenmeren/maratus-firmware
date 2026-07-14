@@ -331,6 +331,9 @@ static void test_screen_colors(void) {
     assert(cfg_parse_json(j6, &cfg));
     assert(cfg.screens[SCREEN_IDLE].has_colors == true);
     assert(cfg.screens[SCREEN_IDLE].col_accent == 0x10A765);
+    assert(cfg.screens[SCREEN_IDLE].col_bg     == 0x111827);
+    assert(cfg.screens[SCREEN_IDLE].col_fg     == 0xF9FAFB);
+    assert(cfg.screens[SCREEN_IDLE].col_muted  == 0x9CA3AF);
 
     printf("test_screen_colors OK\n");
 }
