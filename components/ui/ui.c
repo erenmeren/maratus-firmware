@@ -192,20 +192,20 @@ static void render_placeholder(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg
 // the cached PNG is wrapped as an in-memory LVGL image source; lodepng decodes it
 // into PSRAM at draw time. Fit inside the geom box preserving aspect
 // (LV_IMAGE_ALIGN_CONTAIN); icons with icon_circle get a circular clip.
-static void render_image(lv_obj_t *scr, const cfg_object_t *o) {
+static void render_image(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
     const char *url = (o->type == OBJ_IMAGE) ? o->image_url : o->icon_url;
-    if (!url || url[0] == '\0') { render_placeholder(scr, o, s_cfg->brand_fg); return; }
+    if (!url || url[0] == '\0') { render_placeholder(scr, o, fg); return; }
 
     uint8_t *png = NULL;
     size_t   png_len = 0;
     if (asset_cache_read_cached(url, &png, &png_len) != ESP_OK || png_len < 8) {
         if (png) heap_caps_free(png);
-        render_placeholder(scr, o, s_cfg->brand_fg);   // not cached yet → outline
+        render_placeholder(scr, o, fg);   // not cached yet → outline
         return;
     }
 
     img_src_t *s = heap_caps_malloc(sizeof(img_src_t), MALLOC_CAP_SPIRAM);
-    if (!s) { heap_caps_free(png); render_placeholder(scr, o, s_cfg->brand_fg); return; }
+    if (!s) { heap_caps_free(png); render_placeholder(scr, o, fg); return; }
     memset(s, 0, sizeof(*s));
     s->png = png;
     // Variable (in-memory) image source: data points at the encoded PNG bytes;
@@ -517,8 +517,13 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
     if (!s_cfg || !s_cfg->valid) return build_splash(false);
     const cfg_screen_t *sc = &s_cfg->screens[screen];
 
+    // Effective palette: the screen's override when present, else global brand.
+    const uint32_t bg     = sc->has_colors ? sc->col_bg     : s_cfg->brand_bg;
+    const uint32_t fg     = sc->has_colors ? sc->col_fg     : s_cfg->brand_fg;
+    const uint32_t accent = sc->has_colors ? sc->col_accent : s_cfg->brand_accent;
+
     lv_obj_t *scr = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(s_cfg->brand_bg), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(bg), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
@@ -531,21 +536,21 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
     for (int i = 0; i < sc->n; i++) {
         const cfg_object_t *o = &sc->objects[order[i]];
         switch (o->type) {
-            case OBJ_TEXT:  render_text(scr, o, s_cfg->brand_fg); break;
+            case OBJ_TEXT:  render_text(scr, o, fg); break;
             case OBJ_QR:    render_qr(scr, o); break;
             case OBJ_LOGO:  render_wordmark(scr, o); break;
-            case OBJ_IMAGE: render_image(scr, o); break;
+            case OBJ_IMAGE: render_image(scr, o, fg); break;
             case OBJ_ICON:
-                if (o->icon_src == ICON_UPLOAD) render_image(scr, o);
-                else render_placeholder(scr, o, s_cfg->brand_fg);  // preset sprites: M5c
+                if (o->icon_src == ICON_UPLOAD) render_image(scr, o, fg);
+                else render_placeholder(scr, o, fg);  // preset sprites: M5c
                 break;
-            case OBJ_CLOCK:   render_clock(scr, o, s_cfg->brand_fg); break;
-            case OBJ_WIFI:    render_wifi(scr, o, s_cfg->brand_fg); break;
-            case OBJ_SPINNER:   render_spinner(scr, o, s_cfg->brand_accent); break;
-            case OBJ_COUNTDOWN: render_countdown(scr, o, s_cfg->brand_fg, s_cfg->brand_accent); break;
-            case OBJ_PAIRING_CODE: render_pairing_code(scr, o, s_cfg->brand_fg); break;
-            case OBJ_STEPS:        render_steps(scr, o, s_cfg->brand_fg); break;
-            default:       render_placeholder(scr, o, s_cfg->brand_fg); break;  // M5c remaining
+            case OBJ_CLOCK:   render_clock(scr, o, fg); break;
+            case OBJ_WIFI:    render_wifi(scr, o, fg); break;
+            case OBJ_SPINNER:   render_spinner(scr, o, accent); break;
+            case OBJ_COUNTDOWN: render_countdown(scr, o, fg, accent); break;
+            case OBJ_PAIRING_CODE: render_pairing_code(scr, o, fg); break;
+            case OBJ_STEPS:        render_steps(scr, o, fg); break;
+            default:       render_placeholder(scr, o, fg); break;  // M5c remaining
         }
     }
     // Online status dot removed per product decision; connectivity will be shown
@@ -564,7 +569,7 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
             snprintf(buf, sizeof(buf), "SN %s", serial);
             lv_obj_t *lbl = lv_label_create(scr);
             lv_label_set_text(lbl, buf);
-            lv_obj_set_style_text_color(lbl, lv_color_hex(s_cfg->brand_fg), LV_PART_MAIN);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(fg), LV_PART_MAIN);
             lv_obj_set_style_text_opa(lbl, LV_OPA_60, LV_PART_MAIN);  // muted (no separate muted color on device)
             lv_obj_set_style_text_font(lbl, font_cache_get(14, false), LV_PART_MAIN);
             lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
