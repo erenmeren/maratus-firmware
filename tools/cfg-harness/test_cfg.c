@@ -275,6 +275,69 @@ static void test_qr_timeout(void) {
     printf("test_qr_timeout OK\n");
 }
 
+static void test_screen_colors(void) {
+    device_config_t cfg;
+
+    // 1) valid override on idle -> has_colors true, values parsed.
+    // 2) sibling screen with no "colors" key at all -> has_colors false.
+    const char *j1 =
+        "{\"version\":\"v1\",\"config\":{\"screens\":{"
+        "\"idle\":{\"objects\":[],\"colors\":{\"accent\":\"#10a765\",\"bg\":\"#111827\","
+        "\"fg\":\"#f9fafb\",\"muted\":\"#9ca3af\"}},"
+        "\"processing\":{\"objects\":[]}"
+        "}}}";
+    assert(cfg_parse_json(j1, &cfg));
+    cfg_screen_t *idle = &cfg.screens[SCREEN_IDLE];
+    assert(idle->has_colors == true);
+    assert(idle->col_bg == 0x111827);
+    assert(idle->col_fg == 0xF9FAFB);
+    assert(idle->col_accent == 0x10A765);
+    assert(idle->col_muted == 0x9CA3AF);
+    cfg_screen_t *processing = &cfg.screens[SCREEN_PROCESSING];
+    assert(processing->has_colors == false);
+
+    // 3) partial override (only 3 of 4 keys) -> has_colors false.
+    const char *j3 =
+        "{\"version\":\"v1\",\"config\":{\"screens\":{"
+        "\"idle\":{\"objects\":[],\"colors\":{\"accent\":\"#10a765\",\"bg\":\"#111827\","
+        "\"fg\":\"#f9fafb\"}}"
+        "}}}";
+    assert(cfg_parse_json(j3, &cfg));
+    assert(cfg.screens[SCREEN_IDLE].has_colors == false);
+
+    // 4) invalid hex in one key ("nope") -> has_colors false.
+    const char *j4 =
+        "{\"version\":\"v1\",\"config\":{\"screens\":{"
+        "\"idle\":{\"objects\":[],\"colors\":{\"accent\":\"nope\",\"bg\":\"#111827\","
+        "\"fg\":\"#f9fafb\",\"muted\":\"#9ca3af\"}}"
+        "}}}";
+    assert(cfg_parse_json(j4, &cfg));
+    assert(cfg.screens[SCREEN_IDLE].has_colors == false);
+
+    // 5) colors present but not an object ("colors":"dark") -> has_colors false.
+    const char *j5 =
+        "{\"version\":\"v1\",\"config\":{\"screens\":{"
+        "\"idle\":{\"objects\":[],\"colors\":\"dark\"}"
+        "}}}";
+    assert(cfg_parse_json(j5, &cfg));
+    assert(cfg.screens[SCREEN_IDLE].has_colors == false);
+
+    // 6) '#'-less hex ("10a765") -> accepted (has_colors true).
+    const char *j6 =
+        "{\"version\":\"v1\",\"config\":{\"screens\":{"
+        "\"idle\":{\"objects\":[],\"colors\":{\"accent\":\"10a765\",\"bg\":\"111827\","
+        "\"fg\":\"f9fafb\",\"muted\":\"9ca3af\"}}"
+        "}}}";
+    assert(cfg_parse_json(j6, &cfg));
+    assert(cfg.screens[SCREEN_IDLE].has_colors == true);
+    assert(cfg.screens[SCREEN_IDLE].col_accent == 0x10A765);
+    assert(cfg.screens[SCREEN_IDLE].col_bg     == 0x111827);
+    assert(cfg.screens[SCREEN_IDLE].col_fg     == 0xF9FAFB);
+    assert(cfg.screens[SCREEN_IDLE].col_muted  == 0x9CA3AF);
+
+    printf("test_screen_colors OK\n");
+}
+
 static void test_device_defaults(void) {
     const char *json = "{\"version\":\"v\",\"config\":{}}";   // no "device" block
     device_config_t cfg;
@@ -516,6 +579,7 @@ int main(void) {
     test_clock();
     test_mmss();
     test_qr_timeout();
+    test_screen_colors();
     test_device_defaults();
     test_provisioning();
     test_wifi_util();

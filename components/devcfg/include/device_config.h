@@ -53,6 +53,10 @@ typedef struct {
 typedef struct {
     cfg_object_t objects[CFG_MAX_OBJECTS];
     int n;
+    // Per-screen palette override (config.screens[s].colors). All four parse or
+    // has_colors stays false — never partially applied.
+    bool     has_colors;
+    uint32_t col_bg, col_fg, col_accent, col_muted;
 } cfg_screen_t;
 
 typedef struct {

@@ -26,6 +26,24 @@ static uint32_t parse_hex_color(const char *s, uint32_t dflt) {
     return v;
 }
 
+/* Strict: true only if s is 6 hex digits (optionally '#'-prefixed); no default. */
+static bool parse_hex_color_strict(const char *s, uint32_t *out) {
+    if (!s) return false;
+    if (*s == '#') s++;
+    if (strlen(s) != 6) return false;
+    uint32_t v = 0;
+    for (int i = 0; i < 6; i++) {
+        char c = s[i]; int d;
+        if      (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        else return false;
+        v = (v << 4) | (uint32_t)d;
+    }
+    *out = v;
+    return true;
+}
+
 static cfg_align_t align_of(const char *s) {
     if (s && strcmp(s, "center") == 0) return CFG_ALIGN_CENTER;
     if (s && strcmp(s, "right")  == 0) return CFG_ALIGN_RIGHT;
@@ -173,6 +191,15 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
         cJSON *scr = screens ? cJSON_GetObjectItem(screens, SCREEN_NAMES[i]) : NULL;
         cJSON *objs = scr ? cJSON_GetObjectItem(scr, "objects") : NULL;
         parse_screen(objs, &cfg->screens[i]);
+
+        cJSON *cols = scr ? cJSON_GetObjectItem(scr, "colors") : NULL;
+        cfg_screen_t *cs = &cfg->screens[i];
+        cs->has_colors =
+            cJSON_IsObject(cols) &&
+            parse_hex_color_strict(cJSON_GetStringValue(cJSON_GetObjectItem(cols, "bg")),     &cs->col_bg) &&
+            parse_hex_color_strict(cJSON_GetStringValue(cJSON_GetObjectItem(cols, "fg")),     &cs->col_fg) &&
+            parse_hex_color_strict(cJSON_GetStringValue(cJSON_GetObjectItem(cols, "accent")), &cs->col_accent) &&
+            parse_hex_color_strict(cJSON_GetStringValue(cJSON_GetObjectItem(cols, "muted")),  &cs->col_muted);
     }
 
     cfg->valid = true;
