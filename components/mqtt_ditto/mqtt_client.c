@@ -25,8 +25,8 @@ static void on_cmd_message(const char *data, int len)
     if (!cmd) { ESP_LOGW(TAG, "bad cmd json"); return; }
     dev_command_t dc;
     if (command_parse_into(cmd, &dc)) {
-        if (xQueueSend(s_cmd_q, &dc, 0) == pdTRUE && s_wake_cb) s_wake_cb();
-        else if (s_cmd_q == NULL) { /* not started */ }
+        if (xQueueSend(s_cmd_q, &dc, 0) == pdTRUE) { if (s_wake_cb) s_wake_cb(); }
+        else ESP_LOGW(TAG, "cmd queue full, dropping %s", dc.command_id);
     }
     cJSON_Delete(cmd);
 }
@@ -124,6 +124,7 @@ int mqtt_ack(const char *command_id, bool ok)
     cJSON_AddStringToObject(j, "commandId", command_id);
     cJSON_AddBoolToObject(j, "ok", ok);
     char *body = cJSON_PrintUnformatted(j);
+    if (!body) { cJSON_Delete(j); return -1; }
     int r = esp_mqtt_client_publish(s_client, topic, body, 0, 1, 0);   // QoS 1
     cJSON_free(body); cJSON_Delete(j);
     return r < 0 ? -1 : 0;
@@ -137,6 +138,7 @@ void mqtt_publish_hb(const char *version)
     cJSON *j = cJSON_CreateObject();
     cJSON_AddStringToObject(j, "version", version ? version : "");
     char *body = cJSON_PrintUnformatted(j);
+    if (!body) { cJSON_Delete(j); return; }
     esp_mqtt_client_publish(s_client, topic, body, 0, 1, 0);
     cJSON_free(body); cJSON_Delete(j);
 }

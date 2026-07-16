@@ -458,7 +458,13 @@ static void poll_task(void *arg)
             continue;
         }
         // Drain any MQTT-delivered commands first (instant path). Harmless when empty.
-        { dev_command_t mc; while (mqtt_poll_command(&mc)) dispatch_command(&mc, mqtt_ack); }
+        {
+            dev_command_t mc;
+            while (mqtt_poll_command(&mc)) {
+                if (mqtt_is_connected()) dispatch_command(&mc, mqtt_ack);
+                else ESP_LOGW(TAG, "mqtt cmd %s dropped (disconnected); HTTP will redeliver", mc.command_id);
+            }
+        }
 
         bool mqtt_up = mqtt_is_connected();
         int status = mqtt_up ? 200 : cloud_get_commands(body, sizeof(body));
@@ -474,7 +480,7 @@ static void poll_task(void *arg)
                 s_state = DEV_IDLE;
                 ui_render_state(DEV_IDLE);   // cached config; the config fetch below re-renders fresh
             }
-            if (!mqtt_up) commands_handle_body(body);   // MQTT commands arrived via the queue above
+            if (!mqtt_up) commands_handle_body(body);   // may esp_restart() on reboot
             if (s_config_dirty) {
                 s_config_dirty = false;
                 int next = s_cfg_live ^ 1;
