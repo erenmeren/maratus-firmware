@@ -21,6 +21,40 @@ static void do_identify(void)
     }
 }
 
+void dispatch_command(const dev_command_t *cmd, ack_fn_t ack)
+{
+    const char *id = cmd->command_id;
+    ESP_LOGI(TAG, "command %s type=%s", id, cmd->type);
+
+    if (strcmp(cmd->type, "identify") == 0) {
+        do_identify();
+        ack(id, true);
+    } else if (strcmp(cmd->type, "reboot") == 0) {
+        ack(id, true);   // ack BEFORE restarting
+        ESP_LOGI(TAG, "rebooting");
+        vTaskDelay(pdMS_TO_TICKS(300));
+        esp_restart();   // does not return
+    } else if (strcmp(cmd->type, "config-changed") == 0 || strcmp(cmd->type, "refresh") == 0) {
+        void (*cb)(void) = cloud_config_changed_handler();
+        if (cb) cb();
+        ack(id, true);
+    } else if (strcmp(cmd->type, "firmware-update") == 0) {
+        ack(id, true);   // ack BEFORE OTA (which reboots)
+        void (*fcb)(void) = cloud_firmware_update_handler();
+        if (fcb) fcb();
+    } else if (strcmp(cmd->type, "trigger") == 0) {
+        void (*tcb)(const char *) = cloud_trigger_handler();
+        if (cmd->url[0] && tcb) {
+            tcb(cmd->url);
+            ack(id, true);    // displayed -> cloud settles (charged)
+        } else {
+            ack(id, false);   // bad/missing url or no handler -> cloud releases
+        }
+    } else {
+        ack(id, true);   // unknown: ack + ignore
+    }
+}
+
 void commands_handle_body(const char *json_body)
 {
     if (!json_body || !json_body[0]) return;
@@ -30,40 +64,9 @@ void commands_handle_body(const char *json_body)
     cJSON *cmds = cJSON_GetObjectItem(root, "commands");
     int n = cJSON_IsArray(cmds) ? cJSON_GetArraySize(cmds) : 0;
     for (int i = 0; i < n; i++) {
-        cJSON *cmd = cJSON_GetArrayItem(cmds, i);
-        const char *id = cJSON_GetStringValue(cJSON_GetObjectItem(cmd, "id"));
-        const char *type = cJSON_GetStringValue(cJSON_GetObjectItem(cmd, "type"));
-        if (!id || !type) continue;
-        ESP_LOGI(TAG, "command %s type=%s", id, type);
-
-        if (strcmp(type, "identify") == 0) {
-            do_identify();
-            cloud_ack_command(id, true);
-        } else if (strcmp(type, "reboot") == 0) {
-            cloud_ack_command(id, true);   // ack BEFORE restarting
-            ESP_LOGI(TAG, "rebooting");
-            vTaskDelay(pdMS_TO_TICKS(300));
-            esp_restart();                 // does not return
-        } else if (strcmp(type, "config-changed") == 0 || strcmp(type, "refresh") == 0) {
-            void (*cb)(void) = cloud_config_changed_handler();
-            if (cb) cb();
-            cloud_ack_command(id, true);
-        } else if (strcmp(type, "firmware-update") == 0) {
-            cloud_ack_command(id, true);              // ack BEFORE OTA (which reboots)
-            void (*fcb)(void) = cloud_firmware_update_handler();
-            if (fcb) fcb();
-        } else if (strcmp(type, "trigger") == 0) {
-            const char *url = command_trigger_show_qr_url(cmd);
-            void (*tcb)(const char *) = cloud_trigger_handler();
-            if (url && tcb) {
-                tcb(url);
-                cloud_ack_command(id, true);   // displayed -> cloud settles (charged)
-            } else {
-                cloud_ack_command(id, false);  // bad/missing url or no handler -> cloud releases
-            }
-        } else {
-            cloud_ack_command(id, true);              // unknown: ack + ignore
-        }
+        dev_command_t c;
+        if (command_parse_into(cJSON_GetArrayItem(cmds, i), &c))
+            dispatch_command(&c, cloud_ack_command);
     }
     cJSON_Delete(root);
 }

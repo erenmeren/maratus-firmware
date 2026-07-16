@@ -606,6 +606,30 @@ static void test_mqtt_topics(void) {
     printf("test_mqtt_topics OK\n");
 }
 
+static void test_command_parse_into(void) {
+    dev_command_t c;
+    cJSON *ok = cJSON_Parse("{\"id\":\"cmd_1\",\"type\":\"trigger\",\"action\":\"show_qr\",\"payload\":{\"url\":\"https://x/y\"}}");
+    assert(command_parse_into(ok, &c));
+    assert(strcmp(c.command_id, "cmd_1") == 0);
+    assert(strcmp(c.type, "trigger") == 0);
+    assert(strcmp(c.action, "show_qr") == 0);
+    assert(strcmp(c.url, "https://x/y") == 0);
+    cJSON_Delete(ok);
+
+    // non-trigger: type/id copied, url empty
+    cJSON *rb = cJSON_Parse("{\"id\":\"cmd_2\",\"type\":\"reboot\"}");
+    assert(command_parse_into(rb, &c));
+    assert(strcmp(c.type, "reboot") == 0 && c.url[0] == '\0');
+    cJSON_Delete(rb);
+
+    // missing id or type → false
+    cJSON *bad = cJSON_Parse("{\"type\":\"reboot\"}");
+    assert(!command_parse_into(bad, &c));
+    cJSON_Delete(bad);
+
+    printf("test_command_parse_into OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -630,6 +654,7 @@ int main(void) {
     test_devset();
     test_brightness();
     test_trigger_show_qr();
+    test_command_parse_into();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
