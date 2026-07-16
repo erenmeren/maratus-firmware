@@ -777,9 +777,15 @@ Leave the device idle ~6 min. Confirm the admin's `lastSeenAt` keeps updating (t
 
 Block the broker (e.g. disable Wi-Fi briefly, or firewall the broker host). Confirm the serial log shows `mqtt: disconnected`, the device resumes HTTP command polling within ~15 s, and a trigger still renders (via HTTP, acked via HTTP). Restore connectivity → `mqtt: connected` again and HTTP command polling stops (serial shows no more `cloud_get_commands` when MQTT up).
 
-- [ ] **Step 7: Memory soak**
+- [ ] **Step 7: Memory soak + concurrent-TLS peak (the spec's biggest risk)**
 
 Leave the device connected ~30 min under occasional triggers. Confirm the periodic internal-DRAM logs stay stable (no downward drift / leak) and the device never restarts from an allocation failure.
+
+Then explicitly exercise the two moments where a **third** concurrent internal-DRAM TLS session stacks on top of the persistent MQTT session + the base HTTPS client — this is the worst-case memory peak the spec flagged and it is NOT covered by idle soak:
+- **Trigger during asset prefetch:** push a config change that adds/changes a branding asset (so `prefetch_and_evict_assets` runs an HTTPS asset fetch) while MQTT is connected, and fire a trigger in the same window. Log `heap_caps_get_free_size(MALLOC_CAP_INTERNAL)` at the peak.
+- **Firmware-update while MQTT connected:** issue a `firmware-update` command (OTA download via `esp_https_ota`) with MQTT connected. Log peak internal-DRAM during the download.
+
+Record the two peak free-internal-DRAM values. If either approaches exhaustion (device instability / alloc failures), apply the spec's documented contingency — `mqtt_stop()` around the large HTTPS transfer, then `mqtt_start()` after — as a fast-follow. Measure before mitigating (per the spec).
 
 - [ ] **Step 8: Old-cloud compatibility**
 
