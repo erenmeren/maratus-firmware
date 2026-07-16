@@ -24,6 +24,8 @@
 #include "overrides.h"
 #include "brightness.h"
 #include "nvs.h"
+#include "mqtt_client_ditto.h"
+#include "appcfg.h"          // appcfg_fw_version
 
 static const char *TAG = "state";
 // Written by poll_task via app_state_set_state;
@@ -129,6 +131,15 @@ void app_state_set_state(dev_state_t st) {
 #define POLL_BACKOFF_MAX 60000
 #define OTA_CHECK_EVERY  50
 static int s_ota_poll_ctr = 0;
+
+static TaskHandle_t s_poll_handle;
+#define MQTT_IDLE_MS 30000
+#define HB_EVERY_MS  300000          // 5 min
+static int64_t s_last_hb_ms;
+static bool s_was_mqtt_up;
+
+// Called from the esp-mqtt task: wake poll_task so it drains mqtt_poll_command().
+static void on_mqtt_wake(void) { if (s_poll_handle) xTaskNotifyGive(s_poll_handle); }
 
 // Boot gate: stay on the splash until the first successful cloud poll, or
 // give up after this long (measured from app_state_run) and start offline.
@@ -407,7 +418,9 @@ static void idle_wait_or_qr_expiry(int total_ms) {
         } else if (s_display_asleep) {
             display_wake(wake_br);   // sleep off -> ensure the panel is on
         }
-        if (waited < total_ms) vTaskDelay(pdMS_TO_TICKS(slice));
+        if (waited < total_ms) {
+            if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(slice)) > 0) return;  // MQTT command queued → drain now
+        }
     }
 }
 
@@ -444,7 +457,11 @@ static void poll_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
-        int status = cloud_get_commands(body, sizeof(body));
+        // Drain any MQTT-delivered commands first (instant path). Harmless when empty.
+        { dev_command_t mc; while (mqtt_poll_command(&mc)) dispatch_command(&mc, mqtt_ack); }
+
+        bool mqtt_up = mqtt_is_connected();
+        int status = mqtt_up ? 200 : cloud_get_commands(body, sizeof(body));
         if (status == 200) {
             ui_set_online(true);
             time_sync_start();                 // idempotent; SNTP runs once Wi-Fi is up
@@ -457,7 +474,7 @@ static void poll_task(void *arg)
                 s_state = DEV_IDLE;
                 ui_render_state(DEV_IDLE);   // cached config; the config fetch below re-renders fresh
             }
-            commands_handle_body(body);   // may esp_restart() on reboot
+            if (!mqtt_up) commands_handle_body(body);   // MQTT commands arrived via the queue above
             if (s_config_dirty) {
                 s_config_dirty = false;
                 int next = s_cfg_live ^ 1;
@@ -472,16 +489,23 @@ static void poll_task(void *arg)
                     time_sync_set_tz(s_cfg_buf[next]->clock_timezone);  // POSIX TZ from payload
                     ui_set_countdown(s_cfg_buf[next]->qr_timeout_seconds);  // keep duration current for any document path
                     s_cfg_live = next;
+                    if (s_cfg_buf[s_cfg_live]->mqtt.enabled) mqtt_start(s_cfg_buf[s_cfg_live]);
+                    else mqtt_stop();
                     ui_render_state(s_state);           // re-render current screen with new config (cache hits)
                 }
             }
+            if (mqtt_up) {
+                if (!s_was_mqtt_up) { mqtt_publish_hb(appcfg_fw_version()); s_last_hb_ms = now_ms(); }  // immediate hb on connect → cloud republishes pending
+                else if (now_ms() - s_last_hb_ms >= HB_EVERY_MS) { mqtt_publish_hb(appcfg_fw_version()); s_last_hb_ms = now_ms(); }
+            }
+            s_was_mqtt_up = mqtt_up;
             backoff = POLL_BACKOFF_MIN;
             ota_mark_valid_if_pending();   // healthy check-in → confirm any freshly-OTA'd image
             if (++s_ota_poll_ctr >= OTA_CHECK_EVERY) {
                 s_ota_poll_ctr = 0;
                 ota_check_and_update(false);   // may reboot
             }
-            idle_wait_or_qr_expiry(POLL_IDLE_MS);
+            idle_wait_or_qr_expiry(mqtt_up ? MQTT_IDLE_MS : POLL_IDLE_MS);
         } else {
             ESP_LOGW(TAG, "poll failed (status=%d), backoff=%dms", status, backoff);
             ui_set_online(false);
@@ -508,5 +532,8 @@ void app_state_run(void)
         display_apply_brightness(devset_eff_brightness(&g_dev, s_cfg_buf[s_cfg_live]->device.brightness));
     s_boot_gate = true;
     s_boot_start_ms = now_ms();
-    xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, NULL);
+    mqtt_set_wake_cb(on_mqtt_wake);
+    if (s_cfg_buf[s_cfg_live]->valid && s_cfg_buf[s_cfg_live]->mqtt.enabled && net_is_connected())
+        mqtt_start(s_cfg_buf[s_cfg_live]);   // start from cached config on boot (fast connect)
+    xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, &s_poll_handle);
 }
