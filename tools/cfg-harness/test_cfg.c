@@ -17,6 +17,7 @@
 #include "overrides.h"
 #include "brightness.h"
 #include "command_parse.h"
+#include "mqtt_topics.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -597,6 +598,14 @@ static void test_mqtt_block(void) {
     printf("test_mqtt_block OK\n");
 }
 
+static void test_mqtt_topics(void) {
+    char t[64];
+    mqtt_topic_cmd(t, sizeof(t), "dev_9"); assert(strcmp(t, "d/dev_9/cmd") == 0);
+    mqtt_topic_ack(t, sizeof(t), "dev_9"); assert(strcmp(t, "d/dev_9/ack") == 0);
+    mqtt_topic_hb(t, sizeof(t), "dev_9");  assert(strcmp(t, "d/dev_9/hb") == 0);
+    printf("test_mqtt_topics OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -610,6 +619,7 @@ int main(void) {
     test_screen_colors();
     test_device_defaults();
     test_mqtt_block();
+    test_mqtt_topics();
     test_provisioning();
     test_wifi_util();
     test_ota_manifest();
