@@ -569,6 +569,34 @@ static void test_trigger_show_qr(void) {
     printf("test_trigger_show_qr OK\n");
 }
 
+static void test_mqtt_block(void) {
+    // present + full → enabled, fields copied, port kept
+    const char *j1 = "{\"version\":\"1\",\"mqtt\":{\"host\":\"b.example.com\",\"port\":8883,\"clientId\":\"dev_9\",\"username\":\"dev_9\"}}";
+    device_config_t c1; assert(cfg_parse_json(j1, &c1));
+    assert(c1.mqtt.enabled);
+    assert(strcmp(c1.mqtt.host, "b.example.com") == 0);
+    assert(c1.mqtt.port == 8883);
+    assert(strcmp(c1.mqtt.client_id, "dev_9") == 0);
+    assert(strcmp(c1.mqtt.username, "dev_9") == 0);
+
+    // absent → disabled
+    const char *j2 = "{\"version\":\"1\"}";
+    device_config_t c2; assert(cfg_parse_json(j2, &c2));
+    assert(!c2.mqtt.enabled);
+
+    // present but empty host → disabled
+    const char *j3 = "{\"version\":\"1\",\"mqtt\":{\"host\":\"\",\"username\":\"dev_9\"}}";
+    device_config_t c3; assert(cfg_parse_json(j3, &c3));
+    assert(!c3.mqtt.enabled);
+
+    // host present, port omitted → default 8883
+    const char *j4 = "{\"version\":\"1\",\"mqtt\":{\"host\":\"h\",\"clientId\":\"d\",\"username\":\"d\"}}";
+    device_config_t c4; assert(cfg_parse_json(j4, &c4));
+    assert(c4.mqtt.enabled && c4.mqtt.port == 8883);
+
+    printf("test_mqtt_block OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -581,6 +609,7 @@ int main(void) {
     test_qr_timeout();
     test_screen_colors();
     test_device_defaults();
+    test_mqtt_block();
     test_provisioning();
     test_wifi_util();
     test_ota_manifest();

@@ -186,6 +186,16 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
     copy_str(cfg->device.settings_password_salt, sizeof(cfg->device.settings_password_salt),
              dev ? cJSON_GetStringValue(cJSON_GetObjectItem(dev, "settingsPasswordSalt")) : NULL);
 
+    cJSON *mq = cJSON_GetObjectItem(root, "mqtt");
+    if (mq) {
+        copy_str(cfg->mqtt.host, sizeof(cfg->mqtt.host), cJSON_GetStringValue(cJSON_GetObjectItem(mq, "host")));
+        copy_str(cfg->mqtt.client_id, sizeof(cfg->mqtt.client_id), cJSON_GetStringValue(cJSON_GetObjectItem(mq, "clientId")));
+        copy_str(cfg->mqtt.username, sizeof(cfg->mqtt.username), cJSON_GetStringValue(cJSON_GetObjectItem(mq, "username")));
+        cJSON *port = cJSON_GetObjectItem(mq, "port");
+        cfg->mqtt.port = cJSON_IsNumber(port) ? (int)port->valuedouble : 8883;
+        cfg->mqtt.enabled = (cfg->mqtt.host[0] != '\0');
+    }
+
     cJSON *screens = config ? cJSON_GetObjectItem(config, "screens") : NULL;
     for (int i = 0; i < SCREEN_COUNT; i++) {
         cJSON *scr = screens ? cJSON_GetObjectItem(screens, SCREEN_NAMES[i]) : NULL;

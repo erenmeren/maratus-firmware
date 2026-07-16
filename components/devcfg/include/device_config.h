@@ -80,5 +80,14 @@ typedef struct {
         char settings_password_hash[65];  // sha256(salt+pin) hex; "" = unset
         char settings_password_salt[33];  // "" = unset
     } device;
+    // MQTT transport (from the payload "mqtt" block). enabled=false when the
+    // cloud omits it (MQTT off / old cloud) → device stays on HTTP polling.
+    struct {
+        bool enabled;
+        char host[128];
+        int  port;
+        char client_id[64];
+        char username[64];
+    } mqtt;
     cfg_screen_t screens[SCREEN_COUNT];
 } device_config_t;
