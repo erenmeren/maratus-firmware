@@ -138,6 +138,10 @@ void mqtt_publish_hb(const char *version)
     mqtt_topic_hb(topic, sizeof(topic), s_device_id);
     cJSON *j = cJSON_CreateObject();
     cJSON_AddStringToObject(j, "version", version ? version : "");
+    // Free internal DRAM (bytes) so the cloud can watch the concurrent-TLS
+    // memory high-water mark remotely (this device's serial is unreliable).
+    cJSON_AddNumberToObject(j, "heap",
+        (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
     char *body = cJSON_PrintUnformatted(j);
     if (!body) { cJSON_Delete(j); return; }
     esp_mqtt_client_publish(s_client, topic, body, 0, 1, 0);
