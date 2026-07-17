@@ -20,7 +20,10 @@ static void copy_field(char *dst, size_t cap, const char *src) {
 
 bool command_parse_into(const cJSON *cmd, dev_command_t *out) {
     if (!cmd || !out) return false;
-    const char *id   = cJSON_GetStringValue(cJSON_GetObjectItem((cJSON *)cmd, "id"));
+    // MQTT command payloads use "commandId"; HTTP poll-response commands use "id".
+    // Accept either so the same parser serves both transports.
+    const char *id   = cJSON_GetStringValue(cJSON_GetObjectItem((cJSON *)cmd, "commandId"));
+    if (!id) id      = cJSON_GetStringValue(cJSON_GetObjectItem((cJSON *)cmd, "id"));
     const char *type = cJSON_GetStringValue(cJSON_GetObjectItem((cJSON *)cmd, "type"));
     if (!id || !type) return false;
     copy_field(out->command_id, sizeof(out->command_id), id);

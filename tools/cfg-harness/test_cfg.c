@@ -627,6 +627,13 @@ static void test_command_parse_into(void) {
     assert(!command_parse_into(bad, &c));
     cJSON_Delete(bad);
 
+    // MQTT format: command id arrives as "commandId" (not "id")
+    cJSON *mq = cJSON_Parse("{\"commandId\":\"cmd_9\",\"type\":\"trigger\",\"action\":\"show_qr\",\"payload\":{\"url\":\"https://a/b\"}}");
+    assert(command_parse_into(mq, &c));
+    assert(strcmp(c.command_id, "cmd_9") == 0);
+    assert(strcmp(c.url, "https://a/b") == 0);
+    cJSON_Delete(mq);
+
     printf("test_command_parse_into OK\n");
 }
 
