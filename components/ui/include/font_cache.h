@@ -16,3 +16,8 @@ const lv_font_t *font_cache_get(int px, bool bold);
 // No-op, retained for API compatibility with existing callers. The cache
 // never evicts or destroys fonts, so there is no pass to begin or pin.
 void font_cache_begin_pass(void);
+
+// Number of font slots currently in use (0..32). Reported on the heartbeat so
+// the cloud can attribute a one-time internal-DRAM step to font-face creation
+// (e.g. the first Settings-screen render) rather than a leak.
+int font_cache_used(void);

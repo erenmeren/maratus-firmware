@@ -45,6 +45,12 @@ void font_cache_init(const void *reg_ttf, size_t reg_len,
 // ui_wifi.c). The cache no longer evicts, so there is nothing to pin.
 void font_cache_begin_pass(void) {}
 
+int font_cache_used(void) {
+    int n = 0;
+    for (int i = 0; i < FONT_CACHE_MAX; i++) if (s_slots[i].font) n++;
+    return n;
+}
+
 const lv_font_t *font_cache_get(int px, bool bold) {
     if (px < 8) px = 8;
     if (px > 160) px = 160;

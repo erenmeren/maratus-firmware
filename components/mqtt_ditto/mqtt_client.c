@@ -131,7 +131,7 @@ int mqtt_ack(const char *command_id, bool ok)
     return r < 0 ? -1 : 0;
 }
 
-void mqtt_publish_hb(const char *version)
+void mqtt_publish_hb(const char *version, int fonts)
 {
     if (!s_client || !s_connected) return;
     char topic[80];
@@ -142,6 +142,9 @@ void mqtt_publish_hb(const char *version)
     // memory high-water mark remotely (this device's serial is unreliable).
     cJSON_AddNumberToObject(j, "heap",
         (double)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    // Font-cache slots in use: a jump here alongside a heap drop confirms the
+    // one-time internal-DRAM step is font-face creation, not a leak.
+    if (fonts >= 0) cJSON_AddNumberToObject(j, "fonts", (double)fonts);
     char *body = cJSON_PrintUnformatted(j);
     if (!body) { cJSON_Delete(j); return; }
     esp_mqtt_client_publish(s_client, topic, body, 0, 1, 0);
