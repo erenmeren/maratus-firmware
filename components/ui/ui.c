@@ -197,6 +197,18 @@ static void render_placeholder(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg
 static volatile int s_last_img_state = -1000;
 int ui_last_image_state(void) { return s_last_img_state; }
 
+// Number of OBJ_IMAGE objects in the LIVE applied config (all screens). -1 if
+// no valid config is applied. Reported on the heartbeat so we can tell whether
+// the config the device is actually running even contains the branding image.
+int ui_live_image_count(void) {
+    if (!s_cfg || !s_cfg->valid) return -1;
+    int n = 0;
+    for (int s = 0; s < SCREEN_COUNT; s++)
+        for (int i = 0; i < s_cfg->screens[s].n; i++)
+            if (s_cfg->screens[s].objects[i].type == OBJ_IMAGE) n++;
+    return n;
+}
+
 static void render_image(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
     const bool is_img = (o->type == OBJ_IMAGE);
     const char *url = is_img ? o->image_url : o->icon_url;

@@ -54,6 +54,10 @@ void ui_set_online(bool online);
 // -1000 none · -2 empty url · 0 cache miss (placeholder) · 1 cache hit (decoded).
 int ui_last_image_state(void);
 
+// # of OBJ_IMAGE objects in the live applied config (-1 if none applied), for
+// heartbeat diagnostics: is the branding image even in the config the device runs?
+int ui_live_image_count(void);
+
 // Set the wifi widget signal strength (0..4 bars). Clamped. From live RSSI.
 void ui_set_wifi_level(int level);
 

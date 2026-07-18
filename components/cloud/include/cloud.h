@@ -43,6 +43,12 @@ esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len);
 // -1000 never attempted · -1 transport/TLS error · -2 too large · else HTTP status.
 int cloud_last_asset_status(void);
 
+// Diagnostics for the most recent cloud_get_config (heartbeat).
+// status: HTTP code (200/304) · -1 transport error · -1000 none yet.
+// parse_ok: 1 last 200 parsed valid · 0 last 200 parse failed · -1000 no 200 yet.
+int cloud_last_config_status(void);
+int cloud_last_parse_ok(void);
+
 // GET /api/device/claim?code=<code> (unauthenticated). On HTTP 200 parses the
 // returned deviceKey into key_out (NUL-terminated, up to key_len-1) and returns
 // true. Otherwise leaves key_out empty and returns false.

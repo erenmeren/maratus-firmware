@@ -131,7 +131,8 @@ int mqtt_ack(const char *command_id, bool ok)
     return r < 0 ? -1 : 0;
 }
 
-void mqtt_publish_hb(const char *version, int fonts, int afetch, int aimg)
+void mqtt_publish_hb(const char *version, int fonts, int afetch, int aimg,
+                     int cfgimg, int cfgstat, int cfgparse)
 {
     if (!s_client || !s_connected) return;
     char topic[80];
@@ -147,8 +148,11 @@ void mqtt_publish_hb(const char *version, int fonts, int afetch, int aimg)
     if (fonts >= 0) cJSON_AddNumberToObject(j, "fonts", (double)fonts);
     // Image-render diagnostics: afetch = last asset GET status, aimg = last image
     // render state (see mqtt_client_ditto.h). Pinpoints fetch vs decode/render.
-    if (afetch > -999) cJSON_AddNumberToObject(j, "afetch", (double)afetch);
-    if (aimg   > -999) cJSON_AddNumberToObject(j, "aimg",   (double)aimg);
+    if (afetch   > -999) cJSON_AddNumberToObject(j, "afetch",   (double)afetch);
+    if (aimg     > -999) cJSON_AddNumberToObject(j, "aimg",     (double)aimg);
+    if (cfgimg   > -999) cJSON_AddNumberToObject(j, "cfgimg",   (double)cfgimg);
+    if (cfgstat  > -999) cJSON_AddNumberToObject(j, "cfgstat",  (double)cfgstat);
+    if (cfgparse > -999) cJSON_AddNumberToObject(j, "cfgparse", (double)cfgparse);
     char *body = cJSON_PrintUnformatted(j);
     if (!body) { cJSON_Delete(j); return; }
     esp_mqtt_client_publish(s_client, topic, body, 0, 1, 0);

@@ -306,6 +306,14 @@ void cloud_config_load_cached(device_config_t *cfg)
     nvs_close(h);
 }
 
+// Diagnostics for the most recent cloud_get_config, reported on the heartbeat.
+// -1000 = none yet. status: HTTP code (200/304) or -1 transport error.
+// parse_ok: 1 last 200 parsed valid, 0 last 200 failed to parse, -1000 no 200 yet.
+static volatile int s_last_config_status = -1000;
+static volatile int s_last_parse_ok = -1000;
+int cloud_last_config_status(void) { return s_last_config_status; }
+int cloud_last_parse_ok(void) { return s_last_parse_ok; }
+
 int cloud_get_config(device_config_t *cfg)
 {
     char url[256];
@@ -333,14 +341,15 @@ int cloud_get_config(device_config_t *cfg)
         status = esp_http_client_get_status_code(c);
         body[resp.len] = '\0';
         if (status == 200) {
-            if (cfg_parse_json(body, cfg)) { cfg_save_nvs(body); ESP_LOGI(TAG, "config updated"); }
-            else ESP_LOGW(TAG, "config parse failed");
+            if (cfg_parse_json(body, cfg)) { s_last_parse_ok = 1; cfg_save_nvs(body); ESP_LOGI(TAG, "config updated"); }
+            else { s_last_parse_ok = 0; ESP_LOGW(TAG, "config parse failed (%u bytes)", (unsigned)resp.len); }
         } else if (status == 304) {
             ESP_LOGI(TAG, "config not modified");
         }
     } else {
         ESP_LOGE(TAG, "GET /config failed");
     }
+    s_last_config_status = status;
     esp_http_client_cleanup(c);
     return status;
 }
