@@ -192,17 +192,25 @@ static void render_placeholder(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg
 // the cached PNG is wrapped as an in-memory LVGL image source; lodepng decodes it
 // into PSRAM at draw time. Fit inside the geom box preserving aspect
 // (LV_IMAGE_ALIGN_CONTAIN); icons with icon_circle get a circular clip.
+// Diagnostic: state of the last OBJ_IMAGE render, reported on the heartbeat.
+// -1000 none yet · -2 empty url · 0 cache miss (placeholder) · 1 cache hit (decoded).
+static volatile int s_last_img_state = -1000;
+int ui_last_image_state(void) { return s_last_img_state; }
+
 static void render_image(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
-    const char *url = (o->type == OBJ_IMAGE) ? o->image_url : o->icon_url;
-    if (!url || url[0] == '\0') { render_placeholder(scr, o, fg); return; }
+    const bool is_img = (o->type == OBJ_IMAGE);
+    const char *url = is_img ? o->image_url : o->icon_url;
+    if (!url || url[0] == '\0') { if (is_img) s_last_img_state = -2; render_placeholder(scr, o, fg); return; }
 
     uint8_t *png = NULL;
     size_t   png_len = 0;
     if (asset_cache_read_cached(url, &png, &png_len) != ESP_OK || png_len < 8) {
         if (png) heap_caps_free(png);
+        if (is_img) s_last_img_state = 0;
         render_placeholder(scr, o, fg);   // not cached yet → outline
         return;
     }
+    if (is_img) s_last_img_state = 1;
 
     img_src_t *s = heap_caps_malloc(sizeof(img_src_t), MALLOC_CAP_SPIRAM);
     if (!s) { heap_caps_free(png); render_placeholder(scr, o, fg); return; }

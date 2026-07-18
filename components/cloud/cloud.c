@@ -226,6 +226,12 @@ static esp_err_t on_asset_evt(esp_http_client_event_t *e)
     return ESP_OK;
 }
 
+// Diagnostic: outcome of the most recent asset GET, reported on the heartbeat.
+// -1000 = never attempted; -1 = transport/TLS perform error; -2 = too large;
+// else the HTTP status (200 ok, 403 expired-url, …).
+static volatile int s_last_asset_status = -1000;
+int cloud_last_asset_status(void) { return s_last_asset_status; }
+
 esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len)
 {
     if (!url || !out || !out_len) return ESP_ERR_INVALID_ARG;
@@ -249,10 +255,13 @@ esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len)
     esp_err_t err = esp_http_client_perform(c);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "asset GET failed: %s", esp_err_to_name(err));
+        s_last_asset_status = -1;
     } else if (resp.overflow) {
         ESP_LOGE(TAG, "asset too large (> %d bytes)", ASSET_MAX_BYTES);
+        s_last_asset_status = -2;
     } else {
         int status = esp_http_client_get_status_code(c);
+        s_last_asset_status = status;
         if (status == 200 && resp.buf && resp.len > 0) {
             ESP_LOGI(TAG, "asset GET -> 200, %u bytes", (unsigned)resp.len);
             *out = resp.buf;

@@ -131,7 +131,7 @@ int mqtt_ack(const char *command_id, bool ok)
     return r < 0 ? -1 : 0;
 }
 
-void mqtt_publish_hb(const char *version, int fonts)
+void mqtt_publish_hb(const char *version, int fonts, int afetch, int aimg)
 {
     if (!s_client || !s_connected) return;
     char topic[80];
@@ -145,6 +145,10 @@ void mqtt_publish_hb(const char *version, int fonts)
     // Font-cache slots in use: a jump here alongside a heap drop confirms the
     // one-time internal-DRAM step is font-face creation, not a leak.
     if (fonts >= 0) cJSON_AddNumberToObject(j, "fonts", (double)fonts);
+    // Image-render diagnostics: afetch = last asset GET status, aimg = last image
+    // render state (see mqtt_client_ditto.h). Pinpoints fetch vs decode/render.
+    if (afetch > -999) cJSON_AddNumberToObject(j, "afetch", (double)afetch);
+    if (aimg   > -999) cJSON_AddNumberToObject(j, "aimg",   (double)aimg);
     char *body = cJSON_PrintUnformatted(j);
     if (!body) { cJSON_Delete(j); return; }
     esp_mqtt_client_publish(s_client, topic, body, 0, 1, 0);

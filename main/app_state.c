@@ -502,8 +502,8 @@ static void poll_task(void *arg)
                 }
             }
             if (mqtt_up) {
-                if (!s_was_mqtt_up) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used()); s_last_hb_ms = now_ms(); }  // immediate hb on connect → cloud republishes pending
-                else if (now_ms() - s_last_hb_ms >= HB_EVERY_MS) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used()); s_last_hb_ms = now_ms(); }
+                if (!s_was_mqtt_up) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state()); s_last_hb_ms = now_ms(); }  // immediate hb on connect → cloud republishes pending
+                else if (now_ms() - s_last_hb_ms >= HB_EVERY_MS) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state()); s_last_hb_ms = now_ms(); }
             }
             s_was_mqtt_up = mqtt_up;
             backoff = POLL_BACKOFF_MIN;

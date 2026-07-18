@@ -21,5 +21,6 @@ void mqtt_set_wake_cb(void (*cb)(void));
 // Publish helpers. mqtt_ack matches ack_fn_t. No-ops when not connected.
 int  mqtt_ack(const char *command_id, bool ok);
 // `fonts` = font_cache_used() so the cloud can attribute an internal-DRAM step
-// to font-face creation vs a leak. Pass <0 to omit the field.
-void mqtt_publish_hb(const char *version, int fonts);
+// to font-face creation vs a leak. `afetch` = cloud_last_asset_status(), `aimg` =
+// ui_last_image_state() — image-render diagnostics. Pass <-999 to omit a field.
+void mqtt_publish_hb(const char *version, int fonts, int afetch, int aimg);

@@ -39,6 +39,10 @@ void cloud_config_load_cached(device_config_t *cfg);
 // or transport error frees any partial buffer and returns an esp_err_t != ESP_OK.
 esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len);
 
+// Outcome of the most recent cloud_fetch_asset, for heartbeat diagnostics.
+// -1000 never attempted · -1 transport/TLS error · -2 too large · else HTTP status.
+int cloud_last_asset_status(void);
+
 // GET /api/device/claim?code=<code> (unauthenticated). On HTTP 200 parses the
 // returned deviceKey into key_out (NUL-terminated, up to key_len-1) and returns
 // true. Otherwise leaves key_out empty and returns false.

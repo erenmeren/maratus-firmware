@@ -50,6 +50,10 @@ void ui_set_pairing_code(const char *code);
 // every screen; not a branding object.
 void ui_set_online(bool online);
 
+// State of the last OBJ_IMAGE render, for heartbeat diagnostics.
+// -1000 none · -2 empty url · 0 cache miss (placeholder) · 1 cache hit (decoded).
+int ui_last_image_state(void);
+
 // Set the wifi widget signal strength (0..4 bars). Clamped. From live RSSI.
 void ui_set_wifi_level(int level);
 
