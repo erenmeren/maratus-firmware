@@ -462,6 +462,7 @@ static void poll_task(void *arg)
         }
         if (!net_is_connected()) {
             ui_set_online(false);
+            ui_set_wifi_level(0);   // network lost: empty the wifi bars immediately
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
