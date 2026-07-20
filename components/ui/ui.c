@@ -363,19 +363,25 @@ static void render_wifi(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
     lv_obj_set_style_border_width(cont, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(cont, 0, LV_PART_MAIN);
     lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
-    int n = 4;
-    int gap = 3;
-    int barw = ((b.w > 0 ? b.w : 40) - gap * (n - 1)) / n;
+    // Bar proportions match the branding preview's WifiObject (ditto-admin
+    // components/device-preview/printer-preview.tsx): heights 0.45/0.65/0.85/1
+    // of the base (min of container w/h), bar width ~0.22x base, gap ~0.14x
+    // base, corner radius ~0.10x base, active ~85% opacity / inactive ~20%.
+    const float heights[4] = {0.45f, 0.65f, 0.85f, 1.0f};
+    int base = (b.w > 0 ? b.w : 40); if ((b.h > 0 ? b.h : 24) < base) base = (b.h > 0 ? b.h : 24);
+    int barw = (int)(base * 0.22f); if (barw < 1) barw = 1;
+    int gap  = (int)(base * 0.14f); if (gap < 1) gap = 1;
+    int rad  = (int)(base * 0.10f);
     int maxh = (b.h > 0 ? b.h : 24);
-    for (int i = 0; i < n; i++) {
+    for (int i = 0; i < 4; i++) {
         lv_obj_t *bar = lv_obj_create(cont);
-        int bh = maxh * (i + 1) / n;
+        int bh = (int)(maxh * heights[i]);
         lv_obj_set_size(bar, barw, bh);
         lv_obj_set_pos(bar, i * (barw + gap), maxh - bh);
         lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);
-        lv_obj_set_style_radius(bar, 1, LV_PART_MAIN);
+        lv_obj_set_style_radius(bar, rad, LV_PART_MAIN);
         lv_obj_set_style_bg_color(bar, lv_color_hex(fg), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(bar, i < s_wifi_level ? LV_OPA_COVER : LV_OPA_30, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(bar, i < s_wifi_level ? (lv_opa_t)217 : (lv_opa_t)51, LV_PART_MAIN); // ~85% / ~20%
         lv_obj_clear_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
     }
     s_wifi_obj = cont;
@@ -561,8 +567,7 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
             case OBJ_LOGO:  render_wordmark(scr, o); break;
             case OBJ_IMAGE: render_image(scr, o, fg); break;
             case OBJ_ICON:
-                if (o->icon_src == ICON_UPLOAD) render_image(scr, o, fg);
-                else render_placeholder(scr, o, fg);  // preset sprites: M5c
+                if (o->icon_url[0]) render_image(scr, o, fg);  // legacy: treat as an image
                 break;
             case OBJ_CLOCK:   render_clock(scr, o, fg); break;
             case OBJ_WIFI:    render_wifi(scr, o, fg); break;
@@ -686,7 +691,7 @@ void ui_set_wifi_level(int level) {
         uint32_t childcnt = lv_obj_get_child_count(s_wifi_obj);
         for (uint32_t i = 0; i < childcnt; i++) {
             lv_obj_t *bar = lv_obj_get_child(s_wifi_obj, i);
-            lv_obj_set_style_bg_opa(bar, (int)i < s_wifi_level ? LV_OPA_COVER : LV_OPA_30, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(bar, (int)i < s_wifi_level ? (lv_opa_t)217 : (lv_opa_t)51, LV_PART_MAIN); // ~85% / ~20%
         }
     }
     lvgl_port_unlock();

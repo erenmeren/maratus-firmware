@@ -395,7 +395,7 @@ static void idle_wait_or_qr_expiry(int total_ms) {
         const device_config_t *cfg = s_cfg_buf[s_cfg_live];
         // Keep input suppressed while asleep or within the wake-guard; release it
         // once the screen is awake and past the guard (idempotent every slice).
-        ui_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
+        ui_set_input_suppressed(s_boot_gate || s_display_asleep || now_ms() < s_wake_guard_until);
         bool active = ui_consume_activity();
         if (active) s_last_activity_ms = now_ms();
         // A document that arrived while asleep (or a sleep that raced the wake)
@@ -425,6 +425,18 @@ static void idle_wait_or_qr_expiry(int total_ms) {
     }
 }
 
+// Boot gate gave up waiting for the first cloud poll — show the cached idle
+// screen offline and let the loop keep retrying in the background.
+static void boot_gate_fallback_offline(void)
+{
+    s_boot_gate = false;
+    ESP_LOGW(TAG, "boot gate timed out; starting offline");
+    ui_boot_progress(BOOT_OFFLINE);
+    vTaskDelay(pdMS_TO_TICKS(BOOT_OFFLINE_HOLD_MS));
+    s_state = DEV_IDLE;
+    ui_render_state(DEV_IDLE);
+}
+
 static void poll_task(void *arg)
 {
     static char body[1024];
@@ -436,25 +448,21 @@ static void poll_task(void *arg)
         // Boot gate fallback: still not online after the timeout → show the
         // cached idle screen and keep retrying in the background (self-heals).
         if (s_boot_gate && now_ms() - s_boot_start_ms >= BOOT_GATE_TIMEOUT_MS) {
-            s_boot_gate = false;
-            ESP_LOGW(TAG, "boot gate timed out; starting offline");
-            ui_boot_progress(BOOT_OFFLINE);
-            vTaskDelay(pdMS_TO_TICKS(BOOT_OFFLINE_HOLD_MS));
-            s_state = DEV_IDLE;
-            ui_render_state(DEV_IDLE);
+            boot_gate_fallback_offline();
         }
 
         // Release input suppression once awake and past the wake-guard (idempotent).
-        ui_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
-        if (ui_consume_tap()) {
-            continue;
-        }
-        if (ui_consume_swipeup()) {
-            run_settings_flow();
-            continue;
+        ui_set_input_suppressed(s_boot_gate || s_display_asleep || now_ms() < s_wake_guard_until);
+        if (s_boot_gate) {
+            ui_consume_tap();
+            ui_consume_swipeup();
+        } else {
+            if (ui_consume_tap()) continue;
+            if (ui_consume_swipeup()) { run_settings_flow(); continue; }
         }
         if (!net_is_connected()) {
             ui_set_online(false);
+            ui_set_wifi_level(0);   // network lost: empty the wifi bars immediately
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
@@ -468,7 +476,20 @@ static void poll_task(void *arg)
         }
 
         bool mqtt_up = mqtt_is_connected();
-        int status = mqtt_up ? 200 : cloud_get_commands(body, sizeof(body));
+        int status;
+        if (mqtt_up) {
+            status = 200;
+        } else if (s_boot_gate) {
+            int64_t left = BOOT_GATE_TIMEOUT_MS - (now_ms() - s_boot_start_ms);
+            int to = left < 1000 ? 1000 : (int)left;   // floor so a live poll can still finish
+            status = cloud_get_commands_to(body, sizeof(body), to);
+            if (status != 200 && now_ms() - s_boot_start_ms >= BOOT_GATE_TIMEOUT_MS) {
+                boot_gate_fallback_offline();
+                continue;
+            }
+        } else {
+            status = cloud_get_commands(body, sizeof(body));
+        }
         if (status == 200) {
             ui_set_online(true);
             time_sync_start();                 // idempotent; SNTP runs once Wi-Fi is up
