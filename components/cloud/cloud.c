@@ -32,6 +32,11 @@ static esp_err_t on_evt(esp_http_client_event_t *e)
 
 int cloud_get_commands(char *out, int cap)
 {
+    return cloud_get_commands_to(out, cap, 0);
+}
+
+int cloud_get_commands_to(char *out, int cap, int timeout_ms)
+{
     if (out && cap > 0) out[0] = '\0';
     resp_t resp = { .buf = out, .cap = cap, .len = 0 };
 
@@ -49,6 +54,7 @@ int cloud_get_commands(char *out, int cap)
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 10000,
     };
+    if (timeout_ms > 0) cfg.timeout_ms = timeout_ms;
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     esp_http_client_set_header(c, "Authorization", auth);
     esp_http_client_set_header(c, "x-device-version", appcfg_fw_version());

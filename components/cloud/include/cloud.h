@@ -15,6 +15,10 @@
 // online + records firmwareVersion from the x-device-version header).
 int cloud_get_commands(char *out, int cap);
 
+// Like cloud_get_commands but caps the HTTP timeout (ms). timeout_ms <= 0 uses
+// the default. Used during the boot gate to bound splash overshoot.
+int cloud_get_commands_to(char *out, int cap, int timeout_ms);
+
 // POST /api/device/commands/ack with { commandId, ok }. Returns HTTP status or -1.
 int cloud_ack_command(const char *command_id, bool ok);
 

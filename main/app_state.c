@@ -468,7 +468,24 @@ static void poll_task(void *arg)
         }
 
         bool mqtt_up = mqtt_is_connected();
-        int status = mqtt_up ? 200 : cloud_get_commands(body, sizeof(body));
+        int status;
+        if (mqtt_up) {
+            status = 200;
+        } else if (s_boot_gate) {
+            int64_t left = BOOT_GATE_TIMEOUT_MS - (now_ms() - s_boot_start_ms);
+            int to = left < 1000 ? 1000 : (int)left;   // floor so a live poll can still finish
+            status = cloud_get_commands_to(body, sizeof(body), to);
+            if (status != 200 && now_ms() - s_boot_start_ms >= BOOT_GATE_TIMEOUT_MS) {
+                s_boot_gate = false;
+                ESP_LOGW(TAG, "boot gate timed out; starting offline");
+                ui_boot_progress(BOOT_OFFLINE);
+                vTaskDelay(pdMS_TO_TICKS(BOOT_OFFLINE_HOLD_MS));
+                s_state = DEV_IDLE;
+                ui_render_state(DEV_IDLE);
+            }
+        } else {
+            status = cloud_get_commands(body, sizeof(body));
+        }
         if (status == 200) {
             ui_set_online(true);
             time_sync_start();                 // idempotent; SNTP runs once Wi-Fi is up
