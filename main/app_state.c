@@ -395,7 +395,7 @@ static void idle_wait_or_qr_expiry(int total_ms) {
         const device_config_t *cfg = s_cfg_buf[s_cfg_live];
         // Keep input suppressed while asleep or within the wake-guard; release it
         // once the screen is awake and past the guard (idempotent every slice).
-        ui_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
+        ui_set_input_suppressed(s_boot_gate || s_display_asleep || now_ms() < s_wake_guard_until);
         bool active = ui_consume_activity();
         if (active) s_last_activity_ms = now_ms();
         // A document that arrived while asleep (or a sleep that raced the wake)
@@ -445,13 +445,13 @@ static void poll_task(void *arg)
         }
 
         // Release input suppression once awake and past the wake-guard (idempotent).
-        ui_set_input_suppressed(s_display_asleep || now_ms() < s_wake_guard_until);
-        if (ui_consume_tap()) {
-            continue;
-        }
-        if (ui_consume_swipeup()) {
-            run_settings_flow();
-            continue;
+        ui_set_input_suppressed(s_boot_gate || s_display_asleep || now_ms() < s_wake_guard_until);
+        if (s_boot_gate) {
+            ui_consume_tap();
+            ui_consume_swipeup();
+        } else {
+            if (ui_consume_tap()) continue;
+            if (ui_consume_swipeup()) { run_settings_flow(); continue; }
         }
         if (!net_is_connected()) {
             ui_set_online(false);
