@@ -425,6 +425,18 @@ static void idle_wait_or_qr_expiry(int total_ms) {
     }
 }
 
+// Boot gate gave up waiting for the first cloud poll — show the cached idle
+// screen offline and let the loop keep retrying in the background.
+static void boot_gate_fallback_offline(void)
+{
+    s_boot_gate = false;
+    ESP_LOGW(TAG, "boot gate timed out; starting offline");
+    ui_boot_progress(BOOT_OFFLINE);
+    vTaskDelay(pdMS_TO_TICKS(BOOT_OFFLINE_HOLD_MS));
+    s_state = DEV_IDLE;
+    ui_render_state(DEV_IDLE);
+}
+
 static void poll_task(void *arg)
 {
     static char body[1024];
@@ -436,12 +448,7 @@ static void poll_task(void *arg)
         // Boot gate fallback: still not online after the timeout → show the
         // cached idle screen and keep retrying in the background (self-heals).
         if (s_boot_gate && now_ms() - s_boot_start_ms >= BOOT_GATE_TIMEOUT_MS) {
-            s_boot_gate = false;
-            ESP_LOGW(TAG, "boot gate timed out; starting offline");
-            ui_boot_progress(BOOT_OFFLINE);
-            vTaskDelay(pdMS_TO_TICKS(BOOT_OFFLINE_HOLD_MS));
-            s_state = DEV_IDLE;
-            ui_render_state(DEV_IDLE);
+            boot_gate_fallback_offline();
         }
 
         // Release input suppression once awake and past the wake-guard (idempotent).
@@ -476,12 +483,8 @@ static void poll_task(void *arg)
             int to = left < 1000 ? 1000 : (int)left;   // floor so a live poll can still finish
             status = cloud_get_commands_to(body, sizeof(body), to);
             if (status != 200 && now_ms() - s_boot_start_ms >= BOOT_GATE_TIMEOUT_MS) {
-                s_boot_gate = false;
-                ESP_LOGW(TAG, "boot gate timed out; starting offline");
-                ui_boot_progress(BOOT_OFFLINE);
-                vTaskDelay(pdMS_TO_TICKS(BOOT_OFFLINE_HOLD_MS));
-                s_state = DEV_IDLE;
-                ui_render_state(DEV_IDLE);
+                boot_gate_fallback_offline();
+                continue;
             }
         } else {
             status = cloud_get_commands(body, sizeof(body));
