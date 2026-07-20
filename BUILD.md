@@ -232,3 +232,21 @@ Reworks how Settings opens and adds two sub-screens. Branch `feat/swipe-up-setti
 - Host-tested pure cores: `gesture_is_swipe_up`/`gesture_snap`, `devset_*`, `brightness_level_to_duty`
   (`tools/cfg-harness`, `make test`). **CONFIRMED on hardware:** swipe opens Settings, brightness
   feels right at 30–40%, the use-device switch + persistence work, no boot regression (SDIO/Wi-Fi up).
+
+## Icon→image unify + Wi-Fi widget parity (2026-07-20, HW-verified) — fw 0.8.0
+
+Branch `feat/image-unify-widgets` (off main). Carries the two boot-bar fixes
+(cherry-picked `ed9bc27..3e606ee` — gate-budget command timeout bounds splash
+overshoot; touch/swipe suppressed while `s_boot_gate`; `boot_gate_fallback_offline`
+helper) plus the widget/render changes below. Pairs with the cloud change retiring the
+branding `icon` object type in favour of `image` (uploads only).
+- **Wi-Fi widget parity** (`components/ui/ui.c` `render_wifi` + `ui_set_wifi_level`):
+  bars match the admin branding preview — heights 0.45/0.65/0.85/1 of the box, width
+  ~0.22×base, gap ~0.14×base, radius ~0.10×base, active/inactive opacity 217/51.
+- **Wi-Fi drops on disconnect** (`main/app_state.c`): the `!net_is_connected()` poll
+  branch calls `ui_set_wifi_level(0)` so the bars empty on outage instead of freezing
+  "connected". **CONFIRMED on hardware** (b580): killing Wi-Fi empties the bars.
+- **icon→image fallback** (`ui.c` dispatch): a stray legacy `OBJ_ICON` renders via the
+  image path when `icon_url` is set; no preset/sprite code (the preset-icon branch
+  `feat/m5b-preset-icons` was abandoned in favour of uploads-only).
+- Clean `idf.py build`; per-task reviews clean; flashed to b580.
