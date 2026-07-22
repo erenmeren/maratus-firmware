@@ -382,6 +382,7 @@ static void show_home(void) {
     const device_config_t *cfg = s_cfg_buf[s_cfg_live];
     bool pinned = cfg && cfg->valid && cfg->pin_set;
     if (pinned) ui_set_qr_url(cfg->pin_url);
+    else ui_set_qr_url(NULL);   // clear stale pin/trigger url so an idle OBJ_QR can't render it
     s_state = home_state(pinned);
     ui_render_state(s_state);
 }
@@ -532,6 +533,13 @@ static void poll_task(void *arg)
                     // any other screen just re-renders as-is (cache hits).
                     if (s_state == DEV_IDLE || s_state == DEV_PINNED) show_home();
                     else ui_render_state(s_state);
+                } else if (cs != 304) {
+                    // Neither a fresh config applied nor "not modified" — a transport
+                    // error or a 200 that failed to parse. Re-arm so the next poll
+                    // retries; otherwise an acked pin/config-changed command that lost
+                    // this one fetch to a blip would never repaint until some other
+                    // external nudge sets s_config_dirty again.
+                    s_config_dirty = true;
                 }
             }
             if (mqtt_up) {

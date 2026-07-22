@@ -644,6 +644,23 @@ static void test_pin_block(void) {
     assert(strlen(c5.pin_url) == 511);
     assert(c5.pin_url[511] == '\0');
 
+    // (f) re-parsing a pin-less config into an already-pinned cfg clears
+    // pin_set (cfg_parse_json memsets on entry, so a stale pin can't leak
+    // forward into the next poll's config once the cloud drops it).
+    const char *j6 = "{\"version\":\"1\"}";
+    assert(cfg_parse_json(j6, &c1));   // c1 was pinned by (a) above
+    assert(c1.pin_set == false);
+
+    // (g) pin is not an object (e.g. a bare number) -> ignored, pin_set false.
+    const char *j7 = "{\"version\":\"1\",\"pin\":42}";
+    device_config_t c7; assert(cfg_parse_json(j7, &c7));
+    assert(c7.pin_set == false);
+
+    // (h) pin.url present but not a string -> ignored, pin_set false.
+    const char *j8 = "{\"version\":\"1\",\"pin\":{\"url\":123}}";
+    device_config_t c8; assert(cfg_parse_json(j8, &c8));
+    assert(c8.pin_set == false);
+
     printf("test_pin_block OK\n");
 }
 
