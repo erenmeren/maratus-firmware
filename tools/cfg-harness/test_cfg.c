@@ -121,7 +121,15 @@ static void test_map(void) {
     assert(screen_for_state(DEV_PAUSED)     == SCREEN_PAUSED);
     assert(screen_for_state(DEV_SETUP)      == SCREEN_SETUP);
     assert(screen_for_state(DEV_BOOT)       == SCREEN_IDLE);         // boot fallback
+    assert(screen_for_state(DEV_PINNED)     == SCREEN_QR);           // pinned reuses QR layout
     printf("test_map OK\n");
+}
+
+static void test_home_state(void) {
+    // Pure helper: which lifecycle state "go home" lands on, given a pin.
+    assert(home_state(true)  == DEV_PINNED);
+    assert(home_state(false) == DEV_IDLE);
+    printf("test_home_state OK\n");
 }
 
 static void test_asset_key(void) {
@@ -454,6 +462,9 @@ static void test_should_sleep(void) {
     // idle + enabled, window elapsed
     assert(should_sleep(30000, 0, 30, true, DEV_IDLE) == true);    // 30s >= 30s
     assert(should_sleep(45000, 0, 30, true, DEV_IDLE) == true);
+    // DEV_PINNED behaves like DEV_IDLE for sleep purposes.
+    assert(should_sleep(30000, 0, 30, true, DEV_PINNED) == true);  // elapsed -> sleeps
+    assert(should_sleep(10000, 0, 30, true, DEV_PINNED) == false); // not elapsed -> stays awake
     printf("test_should_sleep OK\n");
 }
 
@@ -680,6 +691,7 @@ int main(void) {
     test_geom();
     test_zsort();
     test_map();
+    test_home_state();
     test_asset_key();
     test_asset_evict();
     test_clock();

@@ -12,4 +12,7 @@ typedef enum {
     DEV_SENT,
     DEV_ERROR,
     DEV_PAUSED,
+    // Appended at the end (not renumbering existing states): persistent
+    // pinned-QR idle variant, driven by config's `pin` block.
+    DEV_PINNED,
 } dev_state_t;

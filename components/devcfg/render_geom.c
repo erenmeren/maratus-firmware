@@ -36,10 +36,15 @@ dev_screen_t screen_for_state(dev_state_t st) {
         case DEV_PROCESSING: return SCREEN_PROCESSING;
         case DEV_UPLOADING:  return SCREEN_PROCESSING;
         case DEV_QR:         return SCREEN_QR;
+        case DEV_PINNED:     return SCREEN_QR;   // pinned reuses the QR layout
         case DEV_SENT:       return SCREEN_SENT;
         case DEV_ERROR:      return SCREEN_ERROR;
         case DEV_PAUSED:     return SCREEN_PAUSED;
         case DEV_IDLE:       return SCREEN_IDLE;
         case DEV_BOOT:       default: return SCREEN_IDLE;
     }
+}
+
+dev_state_t home_state(bool pin_set) {
+    return pin_set ? DEV_PINNED : DEV_IDLE;
 }
