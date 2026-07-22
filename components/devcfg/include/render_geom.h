@@ -16,3 +16,7 @@ void cfg_sort_by_z(const cfg_object_t *objs, int n, int *order);
 
 // Map a device lifecycle state to the branding screen it renders.
 dev_screen_t screen_for_state(dev_state_t st);
+
+// Which lifecycle state "go home" lands on: DEV_PINNED when a pin is set
+// (config's `pin` block), otherwise the plain idle screen.
+dev_state_t home_state(bool pin_set);

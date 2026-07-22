@@ -79,6 +79,9 @@ static void test_parse(void) {
                   "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == 0);
     assert(strcmp(cfg.device.settings_password_salt, "abc123") == 0);
 
+    // (f) existing full fixture has no top-level "pin" -> pin_set stays false.
+    assert(cfg.pin_set == false);
+
     free(json);
     printf("test_parse OK\n");
 }
@@ -118,7 +121,15 @@ static void test_map(void) {
     assert(screen_for_state(DEV_PAUSED)     == SCREEN_PAUSED);
     assert(screen_for_state(DEV_SETUP)      == SCREEN_SETUP);
     assert(screen_for_state(DEV_BOOT)       == SCREEN_IDLE);         // boot fallback
+    assert(screen_for_state(DEV_PINNED)     == SCREEN_QR);           // pinned reuses QR layout
     printf("test_map OK\n");
+}
+
+static void test_home_state(void) {
+    // Pure helper: which lifecycle state "go home" lands on, given a pin.
+    assert(home_state(true)  == DEV_PINNED);
+    assert(home_state(false) == DEV_IDLE);
+    printf("test_home_state OK\n");
 }
 
 static void test_asset_key(void) {
@@ -451,6 +462,9 @@ static void test_should_sleep(void) {
     // idle + enabled, window elapsed
     assert(should_sleep(30000, 0, 30, true, DEV_IDLE) == true);    // 30s >= 30s
     assert(should_sleep(45000, 0, 30, true, DEV_IDLE) == true);
+    // DEV_PINNED behaves like DEV_IDLE for sleep purposes.
+    assert(should_sleep(30000, 0, 30, true, DEV_PINNED) == true);  // elapsed -> sleeps
+    assert(should_sleep(10000, 0, 30, true, DEV_PINNED) == false); // not elapsed -> stays awake
     printf("test_should_sleep OK\n");
 }
 
@@ -598,6 +612,58 @@ static void test_mqtt_block(void) {
     printf("test_mqtt_block OK\n");
 }
 
+static void test_pin_block(void) {
+    // (a) pin.url present + non-empty -> pin_set true, url copied.
+    const char *j1 = "{\"version\":\"1\",\"pin\":{\"url\":\"https://x/menu\"}}";
+    device_config_t c1; assert(cfg_parse_json(j1, &c1));
+    assert(c1.pin_set == true);
+    assert(strcmp(c1.pin_url, "https://x/menu") == 0);
+
+    // (b) pin explicitly null -> pin_set false.
+    const char *j2 = "{\"version\":\"1\",\"pin\":null}";
+    device_config_t c2; assert(cfg_parse_json(j2, &c2));
+    assert(c2.pin_set == false);
+
+    // (c) pin absent entirely -> pin_set false.
+    const char *j3 = "{\"version\":\"1\"}";
+    device_config_t c3; assert(cfg_parse_json(j3, &c3));
+    assert(c3.pin_set == false);
+
+    // (d) pin.url present but empty string -> pin_set false.
+    const char *j4 = "{\"version\":\"1\",\"pin\":{\"url\":\"\"}}";
+    device_config_t c4; assert(cfg_parse_json(j4, &c4));
+    assert(c4.pin_set == false);
+
+    // (e) 600-char URL -> truncated to 511 chars + NUL, pin_set still true.
+    char longurl[601];
+    memset(longurl, 'a', 600); longurl[600] = '\0';
+    char j5[700];
+    snprintf(j5, sizeof(j5), "{\"version\":\"1\",\"pin\":{\"url\":\"%s\"}}", longurl);
+    device_config_t c5; assert(cfg_parse_json(j5, &c5));
+    assert(c5.pin_set == true);
+    assert(strlen(c5.pin_url) == 511);
+    assert(c5.pin_url[511] == '\0');
+
+    // (f) re-parsing a pin-less config into an already-pinned cfg clears
+    // pin_set (cfg_parse_json memsets on entry, so a stale pin can't leak
+    // forward into the next poll's config once the cloud drops it).
+    const char *j6 = "{\"version\":\"1\"}";
+    assert(cfg_parse_json(j6, &c1));   // c1 was pinned by (a) above
+    assert(c1.pin_set == false);
+
+    // (g) pin is not an object (e.g. a bare number) -> ignored, pin_set false.
+    const char *j7 = "{\"version\":\"1\",\"pin\":42}";
+    device_config_t c7; assert(cfg_parse_json(j7, &c7));
+    assert(c7.pin_set == false);
+
+    // (h) pin.url present but not a string -> ignored, pin_set false.
+    const char *j8 = "{\"version\":\"1\",\"pin\":{\"url\":123}}";
+    device_config_t c8; assert(cfg_parse_json(j8, &c8));
+    assert(c8.pin_set == false);
+
+    printf("test_pin_block OK\n");
+}
+
 static void test_mqtt_topics(void) {
     char t[64];
     mqtt_topic_cmd(t, sizeof(t), "dev_9"); assert(strcmp(t, "d/dev_9/cmd") == 0);
@@ -642,6 +708,7 @@ int main(void) {
     test_geom();
     test_zsort();
     test_map();
+    test_home_state();
     test_asset_key();
     test_asset_evict();
     test_clock();
@@ -649,6 +716,7 @@ int main(void) {
     test_qr_timeout();
     test_screen_colors();
     test_device_defaults();
+    test_pin_block();
     test_mqtt_block();
     test_mqtt_topics();
     test_provisioning();

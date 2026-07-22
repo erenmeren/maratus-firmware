@@ -27,7 +27,7 @@ menu "Ditto firmware (dev)"
 
     config DITTO_FW_VERSION
         string "Reported firmware version"
-        default "0.8.0"
+        default "0.9.0"
         help
             Sent as the x-device-version header and shown in the admin device list.
 

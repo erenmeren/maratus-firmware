@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
+#include "esp_log.h"
 #include "lvgl.h"
 #include "draw/lv_draw_buf_private.h"   // lv_draw_buf_handlers_t fields (swap image alloc → PSRAM)
 #include "esp_lvgl_port.h"
@@ -20,10 +21,13 @@
 #define DITTO_ONLINE  0x37C871
 #define DITTO_GREY    0x888888
 
+static const char *TAG = "ui";
+
 static const device_config_t *s_cfg;
 static lv_obj_t  *s_active;            // currently displayed screen
 static lv_obj_t  *s_status_dot;        // chrome dot on the active screen
-static char       s_qr_url[256];
+static char       s_qr_url[512];       // matches device_config_t.pin_url / dev_command_t.url (512B)
+static dev_state_t s_render_state = DEV_BOOT;  // last state passed to ui_render_state; OBJ_COUNTDOWN reads this
 static char       s_pairing_code[16];
 static bool       s_online;
 static volatile bool s_tap_requested;
@@ -572,7 +576,7 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
             case OBJ_CLOCK:   render_clock(scr, o, fg); break;
             case OBJ_WIFI:    render_wifi(scr, o, fg); break;
             case OBJ_SPINNER:   render_spinner(scr, o, accent); break;
-            case OBJ_COUNTDOWN: render_countdown(scr, o, fg, accent); break;
+            case OBJ_COUNTDOWN: if (s_render_state != DEV_PINNED) render_countdown(scr, o, fg, accent); break;
             case OBJ_PAIRING_CODE: render_pairing_code(scr, o, fg); break;
             case OBJ_STEPS:        render_steps(scr, o, fg); break;
             default:       render_placeholder(scr, o, fg); break;  // M5c remaining
@@ -629,6 +633,7 @@ void ui_set_config(const device_config_t *cfg) {
 void ui_render_state(dev_state_t st) {
     dev_screen_t screen = screen_for_state(st);
     lvgl_port_lock(0);
+    s_render_state = st;   // build_screen reads this to suppress the countdown when pinned
     if (s_clock_timer) { lv_timer_delete(s_clock_timer); s_clock_timer = NULL; }
     if (s_cd_timer)   { lv_timer_delete(s_cd_timer);   s_cd_timer   = NULL; }
     s_status_dot = NULL;   // cleared each render; build_screen reinstalls it
@@ -653,6 +658,9 @@ void ui_set_qr_url(const char *url) {
     if (!url) {
         s_qr_url[0] = '\0';
     } else {
+        if (strlen(url) > sizeof(s_qr_url) - 1) {
+            ESP_LOGW(TAG, "qr url len=%d exceeds s_qr_url capacity (%d); truncating", (int)strlen(url), (int)sizeof(s_qr_url) - 1);
+        }
         strncpy(s_qr_url, url, sizeof(s_qr_url) - 1);
         s_qr_url[sizeof(s_qr_url) - 1] = '\0';
     }

@@ -9,6 +9,7 @@
 #include "font_cache.h"
 #include "assets.h"
 #include "device_config.h"
+#include "render_geom.h"     // home_state()
 #include "asset_cache.h"
 #include "asset_key.h"
 #include "esp_heap_caps.h"
@@ -375,6 +376,17 @@ static void run_settings_flow(void) {
     }
 }
 
+// Route every "go home" to the pin when one is set. Reads the live config
+// buffer; safe from poll_task (the only caller context).
+static void show_home(void) {
+    const device_config_t *cfg = s_cfg_buf[s_cfg_live];
+    bool pinned = cfg && cfg->valid && cfg->pin_set;
+    if (pinned) ui_set_qr_url(cfg->pin_url);
+    else ui_set_qr_url(NULL);   // clear stale pin/trigger url so an idle OBJ_QR can't render it
+    s_state = home_state(pinned);
+    ui_render_state(s_state);
+}
+
 // Wait up to total_ms, but break early (~500ms granularity) to auto-return from
 // the document screen when its countdown expires. Avoids extra cloud polls.
 static void idle_wait_or_qr_expiry(int total_ms) {
@@ -388,8 +400,7 @@ static void idle_wait_or_qr_expiry(int total_ms) {
         // stays set; the main loop consumes it via ui_consume_swipeup().
         if (ui_swipeup_pending()) return;
         if (ui_consume_countdown_expired()) {
-            s_state = DEV_IDLE;
-            ui_render_state(DEV_IDLE);
+            show_home();
             return;
         }
         const device_config_t *cfg = s_cfg_buf[s_cfg_live];
@@ -433,8 +444,7 @@ static void boot_gate_fallback_offline(void)
     ESP_LOGW(TAG, "boot gate timed out; starting offline");
     ui_boot_progress(BOOT_OFFLINE);
     vTaskDelay(pdMS_TO_TICKS(BOOT_OFFLINE_HOLD_MS));
-    s_state = DEV_IDLE;
-    ui_render_state(DEV_IDLE);
+    show_home();
 }
 
 static void poll_task(void *arg)
@@ -499,8 +509,7 @@ static void poll_task(void *arg)
                 s_boot_gate = false;
                 ui_boot_progress(BOOT_READY);
                 vTaskDelay(pdMS_TO_TICKS(BOOT_READY_HOLD_MS));
-                s_state = DEV_IDLE;
-                ui_render_state(DEV_IDLE);   // cached config; the config fetch below re-renders fresh
+                show_home();   // cached config; the config fetch below re-renders fresh
             }
             if (!mqtt_up) commands_handle_body(body);   // may esp_restart() on reboot
             if (s_config_dirty) {
@@ -519,7 +528,18 @@ static void poll_task(void *arg)
                     s_cfg_live = next;
                     if (s_cfg_buf[s_cfg_live]->mqtt.enabled) mqtt_start(s_cfg_buf[s_cfg_live]);
                     else mqtt_stop();
-                    ui_render_state(s_state);           // re-render current screen with new config (cache hits)
+                    // Idle/pinned re-derive home_state from the fresh config so a
+                    // pin set/clear/URL-change repaints within this poll cycle;
+                    // any other screen just re-renders as-is (cache hits).
+                    if (s_state == DEV_IDLE || s_state == DEV_PINNED) show_home();
+                    else ui_render_state(s_state);
+                } else if (cs != 304) {
+                    // Neither a fresh config applied nor "not modified" — a transport
+                    // error or a 200 that failed to parse. Re-arm so the next poll
+                    // retries; otherwise an acked pin/config-changed command that lost
+                    // this one fetch to a blip would never repaint until some other
+                    // external nudge sets s_config_dirty again.
+                    s_config_dirty = true;
                 }
             }
             if (mqtt_up) {
