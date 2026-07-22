@@ -269,3 +269,45 @@ would truncate.
   - Remove pin → idle.
   - Reboot → pin right after boot gate.
   - Screen-sleep still engages and wakes on touch.
+
+## Pinned screen + styled QR (2026-07-22, pending HIL) — fw 0.10.0
+
+Branch `feat/pinned-screen-styled-qr`. Two independent features:
+
+- **Editable pinned screen** (`components/devcfg/{device_config,cfg_parse,render_geom}`):
+  an 8th screen `SCREEN_PINNED` (index 7, appended last to match cloud's
+  `PRINTER_SCREENS`) parses `config.screens.pinned` through the existing
+  generic per-screen loop. `screen_for_state(DEV_PINNED)` stays a pure,
+  cfg-unaware `SCREEN_QR` fallback (host-testable in isolation); the new
+  cfg-aware `screen_for_pinned(cfg)` is what `ui_render_state` actually calls
+  for `DEV_PINNED` — `SCREEN_PINNED` once the tenant has put objects on that
+  screen, `SCREEN_QR` fallback otherwise (old cached configs, unedited
+  screen). Countdown suppression for `DEV_PINNED` renders is unchanged
+  (state-keyed, not screen-keyed).
+- **Styled QR** (`components/ui/ui.c` `render_qr`, new `components/devcfg/qr_style.c`):
+  replaced the plain `lv_qrcode` widget with a custom draw — `qrcodegen`
+  encodes, then an `lv_canvas` renders dark modules as filled circles
+  (~0.85× the module cell) and the three finder patterns as rounded-rect
+  rings + dots (radius ~1/3 of each shape). One code path for every QR
+  render (trigger/pinned/setup). The canvas pixel buffer is `heap_caps`
+  PSRAM, freed on `LV_EVENT_DELETE` — same lifecycle as `render_image`'s
+  decoded bitmaps; nothing lingers in PSRAM between screen builds. Pure
+  module→pixel geometry (module size, dot diameter, finder radius,
+  finder-cell test) lives in `qr_style.c`/`qr_style.h`, host-tested.
+- **Wording**: setup-screen step 2 "Add a printer to a store" → "Add a
+  screen to a store".
+
+- Host: pinned-screen object parsing + `screen_for_pinned` (NULL/invalid/
+  empty/populated cfg) + QR geometry helper (module size, canvas size, dot
+  diameter, finder radius, finder-cell membership) — `tools/cfg-harness`,
+  all pass.
+- Build: clean `idf.py build`, no new warnings.
+- **Pinned screen + styled QR (0.10.0) — pending HIL (scannability: 2 phones).**
+  HIL checklist (b580):
+  - Pinned screen with tenant-edited objects shows that layout (no countdown)
+    when pinned; an unedited pinned screen still shows the QR-screen fallback.
+  - Trigger QR and pinned QR both scan reliably with 2 phones (iOS + Android
+    camera) at arm's length; if flaky, widen the dot diameter toward 1.0×
+    (square-ish) and retest.
+  - Setup screen reads "Add a screen to a store".
+  - Version 0.10.0 reported on the heartbeat.
