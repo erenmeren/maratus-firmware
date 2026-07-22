@@ -79,6 +79,9 @@ static void test_parse(void) {
                   "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == 0);
     assert(strcmp(cfg.device.settings_password_salt, "abc123") == 0);
 
+    // (f) existing full fixture has no top-level "pin" -> pin_set stays false.
+    assert(cfg.pin_set == false);
+
     free(json);
     printf("test_parse OK\n");
 }
@@ -598,6 +601,41 @@ static void test_mqtt_block(void) {
     printf("test_mqtt_block OK\n");
 }
 
+static void test_pin_block(void) {
+    // (a) pin.url present + non-empty -> pin_set true, url copied.
+    const char *j1 = "{\"version\":\"1\",\"pin\":{\"url\":\"https://x/menu\"}}";
+    device_config_t c1; assert(cfg_parse_json(j1, &c1));
+    assert(c1.pin_set == true);
+    assert(strcmp(c1.pin_url, "https://x/menu") == 0);
+
+    // (b) pin explicitly null -> pin_set false.
+    const char *j2 = "{\"version\":\"1\",\"pin\":null}";
+    device_config_t c2; assert(cfg_parse_json(j2, &c2));
+    assert(c2.pin_set == false);
+
+    // (c) pin absent entirely -> pin_set false.
+    const char *j3 = "{\"version\":\"1\"}";
+    device_config_t c3; assert(cfg_parse_json(j3, &c3));
+    assert(c3.pin_set == false);
+
+    // (d) pin.url present but empty string -> pin_set false.
+    const char *j4 = "{\"version\":\"1\",\"pin\":{\"url\":\"\"}}";
+    device_config_t c4; assert(cfg_parse_json(j4, &c4));
+    assert(c4.pin_set == false);
+
+    // (e) 600-char URL -> truncated to 511 chars + NUL, pin_set still true.
+    char longurl[601];
+    memset(longurl, 'a', 600); longurl[600] = '\0';
+    char j5[700];
+    snprintf(j5, sizeof(j5), "{\"version\":\"1\",\"pin\":{\"url\":\"%s\"}}", longurl);
+    device_config_t c5; assert(cfg_parse_json(j5, &c5));
+    assert(c5.pin_set == true);
+    assert(strlen(c5.pin_url) == 511);
+    assert(c5.pin_url[511] == '\0');
+
+    printf("test_pin_block OK\n");
+}
+
 static void test_mqtt_topics(void) {
     char t[64];
     mqtt_topic_cmd(t, sizeof(t), "dev_9"); assert(strcmp(t, "d/dev_9/cmd") == 0);
@@ -649,6 +687,7 @@ int main(void) {
     test_qr_timeout();
     test_screen_colors();
     test_device_defaults();
+    test_pin_block();
     test_mqtt_block();
     test_mqtt_topics();
     test_provisioning();

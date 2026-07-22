@@ -89,5 +89,9 @@ typedef struct {
         char client_id[64];
         char username[64];
     } mqtt;
+    // Pinned QR (top-level `pin` block): when set, the device shows pin_url as a
+    // persistent QR instead of the idle screen. Cleared pin ⇒ pin_set=false.
+    bool pin_set;
+    char pin_url[512];
     cfg_screen_t screens[SCREEN_COUNT];
 } device_config_t;

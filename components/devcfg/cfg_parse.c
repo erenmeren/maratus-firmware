@@ -196,6 +196,15 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
         cfg->mqtt.enabled = (cfg->mqtt.host[0] != '\0');
     }
 
+    cJSON *pin = cJSON_GetObjectItem(root, "pin");
+    if (cJSON_IsObject(pin)) {
+        const char *purl = cJSON_GetStringValue(cJSON_GetObjectItem(pin, "url"));
+        if (purl && purl[0] != '\0') {
+            copy_str(cfg->pin_url, sizeof(cfg->pin_url), purl);
+            cfg->pin_set = true;
+        }
+    }
+
     cJSON *screens = config ? cJSON_GetObjectItem(config, "screens") : NULL;
     for (int i = 0; i < SCREEN_COUNT; i++) {
         cJSON *scr = screens ? cJSON_GetObjectItem(screens, SCREEN_NAMES[i]) : NULL;
