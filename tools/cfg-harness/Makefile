@@ -7,6 +7,7 @@ CFLAGS  := -std=c11 -Wall -Wextra -g -O0 \
 SRCS    := test_cfg.c vendor/cJSON.c \
            ../../components/devcfg/cfg_parse.c \
            ../../components/devcfg/render_geom.c \
+           ../../components/devcfg/qr_style.c \
            ../../components/devcfg/clock_format.c \
            ../../components/devcfg/provisioning.c \
            ../../components/devcfg/wifi_util.c \
