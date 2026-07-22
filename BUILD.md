@@ -250,3 +250,22 @@ branding `icon` object type in favour of `image` (uploads only).
   image path when `icon_url` is set; no preset/sprite code (the preset-icon branch
   `feat/m5b-preset-icons` was abandoned in favour of uploads-only).
 - Clean `idf.py build`; per-task reviews clean; flashed to b580.
+
+## Pinned QR (2026-07-22, pending HIL) — fw 0.9.0
+
+Branch `feat/pinned-qr`. Adds a persistent (non-expiring) `DEV_PINNED` QR state driven by a
+cloud-set `pin_url`, distinct from the existing trigger-QR countdown flow. `s_qr_url`
+(`components/ui/ui.c`) widened 256B→512B to match both `device_config_t.pin_url` and
+`dev_command_t.url` (512B contracts); `ui_set_qr_url` now `ESP_LOGW`s when an incoming URL
+would truncate.
+
+- Host: `cfg_parse` pin block (set / null / absent / malformed / overlong URL); `home_state`;
+  `should_sleep` with `DEV_PINNED`; `screen_for_state(DEV_PINNED)` — `tools/cfg-harness`, all pass.
+- Build: clean `idf.py build`, no new warnings.
+- **Pinned QR (0.9.0) — pending HIL.** HIL checklist (b580):
+  - Set pin from tenant UI → persistent QR (no countdown) within ~2 s.
+  - Trigger → countdown QR → auto-return to pin.
+  - Change URL → repaint.
+  - Remove pin → idle.
+  - Reboot → pin right after boot gate.
+  - Screen-sleep still engages and wakes on touch.
