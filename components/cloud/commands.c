@@ -38,6 +38,11 @@ void dispatch_command(const dev_command_t *cmd, ack_fn_t ack)
         void (*cb)(void) = cloud_config_changed_handler();
         if (cb) cb();
         ack(id, true);
+    } else if (strcmp(cmd->type, "pin") == 0) {
+        // pin: state lives in config (ETag-folded); refreshing is the whole job.
+        void (*pcb)(void) = cloud_config_changed_handler();
+        if (pcb) pcb();
+        ack(id, true);
     } else if (strcmp(cmd->type, "firmware-update") == 0) {
         ack(id, true);   // ack BEFORE OTA (which reboots)
         void (*fcb)(void) = cloud_firmware_update_handler();
