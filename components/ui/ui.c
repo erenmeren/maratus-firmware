@@ -24,6 +24,7 @@ static const device_config_t *s_cfg;
 static lv_obj_t  *s_active;            // currently displayed screen
 static lv_obj_t  *s_status_dot;        // chrome dot on the active screen
 static char       s_qr_url[256];
+static dev_state_t s_render_state = DEV_BOOT;  // last state passed to ui_render_state; OBJ_COUNTDOWN reads this
 static char       s_pairing_code[16];
 static bool       s_online;
 static volatile bool s_tap_requested;
@@ -572,7 +573,7 @@ static lv_obj_t *build_screen(dev_screen_t screen) {
             case OBJ_CLOCK:   render_clock(scr, o, fg); break;
             case OBJ_WIFI:    render_wifi(scr, o, fg); break;
             case OBJ_SPINNER:   render_spinner(scr, o, accent); break;
-            case OBJ_COUNTDOWN: render_countdown(scr, o, fg, accent); break;
+            case OBJ_COUNTDOWN: if (s_render_state != DEV_PINNED) render_countdown(scr, o, fg, accent); break;
             case OBJ_PAIRING_CODE: render_pairing_code(scr, o, fg); break;
             case OBJ_STEPS:        render_steps(scr, o, fg); break;
             default:       render_placeholder(scr, o, fg); break;  // M5c remaining
@@ -629,6 +630,7 @@ void ui_set_config(const device_config_t *cfg) {
 void ui_render_state(dev_state_t st) {
     dev_screen_t screen = screen_for_state(st);
     lvgl_port_lock(0);
+    s_render_state = st;   // build_screen reads this to suppress the countdown when pinned
     if (s_clock_timer) { lv_timer_delete(s_clock_timer); s_clock_timer = NULL; }
     if (s_cd_timer)   { lv_timer_delete(s_cd_timer);   s_cd_timer   = NULL; }
     s_status_dot = NULL;   // cleared each render; build_screen reinstalls it
