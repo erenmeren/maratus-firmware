@@ -3,7 +3,7 @@
 #include "cJSON.h"
 
 static const char *SCREEN_NAMES[SCREEN_COUNT] = {
-    "idle", "processing", "qr", "sent", "error", "paused", "setup"
+    "idle", "processing", "qr", "sent", "error", "paused", "setup", "pinned"
 };
 _Static_assert(
     sizeof(SCREEN_NAMES) / sizeof(SCREEN_NAMES[0]) == SCREEN_COUNT,

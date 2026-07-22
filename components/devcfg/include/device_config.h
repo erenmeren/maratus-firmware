@@ -10,10 +10,12 @@
 #define CFG_URL_LEN     768   // must hold a full presigned R2 URL (~500 chars + headroom);
                               // config lives in PSRAM so the per-object cost is fine
 
-// Mirrors PRINTER_SCREENS in ditto-admin. Order is the array index — do not reorder.
+// Mirrors PRINTER_SCREENS in ditto-admin. Order is the array index — do not
+// reorder existing entries. SCREEN_PINNED was appended last (2026-07-22) to
+// match the cloud side (lib/printer-layout.ts appends "pinned" last too).
 typedef enum {
     SCREEN_IDLE, SCREEN_PROCESSING, SCREEN_QR, SCREEN_SENT,
-    SCREEN_ERROR, SCREEN_PAUSED, SCREEN_SETUP, SCREEN_COUNT
+    SCREEN_ERROR, SCREEN_PAUSED, SCREEN_SETUP, SCREEN_PINNED, SCREEN_COUNT
 } dev_screen_t;
 
 typedef enum {

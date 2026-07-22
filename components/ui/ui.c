@@ -631,7 +631,12 @@ void ui_set_config(const device_config_t *cfg) {
 }
 
 void ui_render_state(dev_state_t st) {
-    dev_screen_t screen = screen_for_state(st);
+    // screen_for_state() is cfg-unaware (host-testable in isolation) and always
+    // resolves DEV_PINNED to the SCREEN_QR fallback. Here we *do* have a live
+    // config (s_cfg, set by ui_set_config) so DEV_PINNED gets the cfg-aware
+    // screen_for_pinned() call instead, picking SCREEN_PINNED once the tenant
+    // has put objects on that screen.
+    dev_screen_t screen = (st == DEV_PINNED) ? screen_for_pinned(s_cfg) : screen_for_state(st);
     lvgl_port_lock(0);
     s_render_state = st;   // build_screen reads this to suppress the countdown when pinned
     if (s_clock_timer) { lv_timer_delete(s_clock_timer); s_clock_timer = NULL; }

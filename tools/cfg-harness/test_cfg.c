@@ -82,6 +82,10 @@ static void test_parse(void) {
     // (f) existing full fixture has no top-level "pin" -> pin_set stays false.
     assert(cfg.pin_set == false);
 
+    // (g) fixture predates the "pinned" screen key -> parses to an empty
+    // screen (old cached configs), not a crash/garbage.
+    assert(cfg.screens[SCREEN_PINNED].n == 0);
+
     free(json);
     printf("test_parse OK\n");
 }
@@ -121,8 +125,61 @@ static void test_map(void) {
     assert(screen_for_state(DEV_PAUSED)     == SCREEN_PAUSED);
     assert(screen_for_state(DEV_SETUP)      == SCREEN_SETUP);
     assert(screen_for_state(DEV_BOOT)       == SCREEN_IDLE);         // boot fallback
-    assert(screen_for_state(DEV_PINNED)     == SCREEN_QR);           // pinned reuses QR layout
+    assert(screen_for_state(DEV_PINNED)     == SCREEN_QR);           // cfg-unaware fallback
     printf("test_map OK\n");
+}
+
+static void test_screen_for_pinned(void) {
+    // No cfg / not-yet-valid cfg -> safe SCREEN_QR fallback.
+    assert(screen_for_pinned(NULL) == SCREEN_QR);
+    device_config_t invalid; memset(&invalid, 0, sizeof(invalid));
+    invalid.valid = false;
+    assert(screen_for_pinned(&invalid) == SCREEN_QR);
+
+    // Valid cfg, pinned screen empty (old cached config with no "pinned" key,
+    // or a tenant who never edited it) -> SCREEN_QR fallback.
+    device_config_t empty; memset(&empty, 0, sizeof(empty));
+    empty.valid = true;
+    assert(screen_for_pinned(&empty) == SCREEN_QR);
+
+    // Valid cfg, pinned screen has >=1 object -> the dedicated SCREEN_PINNED layout.
+    device_config_t populated; memset(&populated, 0, sizeof(populated));
+    populated.valid = true;
+    populated.screens[SCREEN_PINNED].n = 1;
+    populated.screens[SCREEN_PINNED].objects[0].type = OBJ_QR;
+    assert(screen_for_pinned(&populated) == SCREEN_PINNED);
+
+    printf("test_screen_for_pinned OK\n");
+}
+
+static void test_pinned_screen_parse(void) {
+    // Pinned screen with objects parses like any other screen.
+    const char *j1 =
+        "{\"version\":\"1\",\"config\":{\"screens\":{\"pinned\":{\"objects\":["
+        "{\"type\":\"qr\",\"x\":0.25,\"y\":0.25,\"w\":0.5,\"h\":0.5,\"visible\":true,\"z\":1},"
+        "{\"type\":\"text\",\"x\":0.1,\"y\":0.05,\"w\":0.8,\"h\":0.1,\"visible\":true,\"z\":2,"
+        "\"text\":\"Menu\",\"fontSize\":32,\"align\":\"center\"}"
+        "]}}}}";
+    device_config_t c1; assert(cfg_parse_json(j1, &c1));
+    assert(c1.screens[SCREEN_PINNED].n == 2);
+    assert(c1.screens[SCREEN_PINNED].objects[0].type == OBJ_QR);
+    assert(c1.screens[SCREEN_PINNED].objects[1].type == OBJ_TEXT);
+    assert(strcmp(c1.screens[SCREEN_PINNED].objects[1].text, "Menu") == 0);
+    assert(screen_for_pinned(&c1) == SCREEN_PINNED);
+
+    // Pinned screen present but with an empty objects array -> falls back.
+    const char *j2 = "{\"version\":\"1\",\"config\":{\"screens\":{\"pinned\":{\"objects\":[]}}}}";
+    device_config_t c2; assert(cfg_parse_json(j2, &c2));
+    assert(c2.screens[SCREEN_PINNED].n == 0);
+    assert(screen_for_pinned(&c2) == SCREEN_QR);
+
+    // "pinned" key absent entirely (old cloud) -> also falls back.
+    const char *j3 = "{\"version\":\"1\",\"config\":{\"screens\":{}}}";
+    device_config_t c3; assert(cfg_parse_json(j3, &c3));
+    assert(c3.screens[SCREEN_PINNED].n == 0);
+    assert(screen_for_pinned(&c3) == SCREEN_QR);
+
+    printf("test_pinned_screen_parse OK\n");
 }
 
 static void test_home_state(void) {
@@ -708,6 +765,8 @@ int main(void) {
     test_geom();
     test_zsort();
     test_map();
+    test_screen_for_pinned();
+    test_pinned_screen_parse();
     test_home_state();
     test_asset_key();
     test_asset_evict();
