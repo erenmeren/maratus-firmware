@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
+#include "esp_log.h"
 #include "lvgl.h"
 #include "draw/lv_draw_buf_private.h"   // lv_draw_buf_handlers_t fields (swap image alloc → PSRAM)
 #include "esp_lvgl_port.h"
@@ -20,10 +21,12 @@
 #define DITTO_ONLINE  0x37C871
 #define DITTO_GREY    0x888888
 
+static const char *TAG = "ui";
+
 static const device_config_t *s_cfg;
 static lv_obj_t  *s_active;            // currently displayed screen
 static lv_obj_t  *s_status_dot;        // chrome dot on the active screen
-static char       s_qr_url[256];
+static char       s_qr_url[512];       // matches device_config_t.pin_url / dev_command_t.url (512B)
 static dev_state_t s_render_state = DEV_BOOT;  // last state passed to ui_render_state; OBJ_COUNTDOWN reads this
 static char       s_pairing_code[16];
 static bool       s_online;
@@ -655,6 +658,9 @@ void ui_set_qr_url(const char *url) {
     if (!url) {
         s_qr_url[0] = '\0';
     } else {
+        if (strlen(url) > sizeof(s_qr_url) - 1) {
+            ESP_LOGW(TAG, "qr url len=%d exceeds s_qr_url capacity (%d); truncating", (int)strlen(url), (int)sizeof(s_qr_url) - 1);
+        }
         strncpy(s_qr_url, url, sizeof(s_qr_url) - 1);
         s_qr_url[sizeof(s_qr_url) - 1] = '\0';
     }
