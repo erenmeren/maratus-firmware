@@ -4,6 +4,7 @@
 #include <assert.h>
 #include "cfg_parse.h"
 #include "render_geom.h"
+#include "qr_style.h"
 #include "asset_key.h"
 #include "asset_evict.h"
 #include "clock_format.h"
@@ -82,6 +83,10 @@ static void test_parse(void) {
     // (f) existing full fixture has no top-level "pin" -> pin_set stays false.
     assert(cfg.pin_set == false);
 
+    // (g) fixture predates the "pinned" screen key -> parses to an empty
+    // screen (old cached configs), not a crash/garbage.
+    assert(cfg.screens[SCREEN_PINNED].n == 0);
+
     free(json);
     printf("test_parse OK\n");
 }
@@ -97,6 +102,57 @@ static void test_geom(void) {
     px_box_t b = geom_box(&o);
     assert(b.x == 72 && b.y == 144 && b.w == 576 && b.h == 108);
     printf("test_geom OK\n");
+}
+
+static void test_qr_style(void) {
+    // module_px: fits (modules + 2*quiet) cells inside the box side, floors.
+    // 21-module (version-1) QR, quiet=4 -> 29 cells. 720 / 29 = 24 (floor).
+    assert(qr_module_px(720, 21, 4) == 24);
+    // Exact division.
+    assert(qr_module_px(290, 21, 4) == 10);
+    // Box smaller than modules -> floors to a minimum of 1, never 0 (would
+    // divide-by-zero / infinite-loop callers that step by module_px).
+    assert(qr_module_px(10, 21, 4) == 1);
+    // Degenerate modules count -> 0 (nothing to draw), no crash.
+    assert(qr_module_px(720, 0, 4) == 0);
+
+    // canvas_px: module_px * total cells.
+    assert(qr_canvas_px(24, 21, 4) == 24 * 29);
+    assert(qr_canvas_px(10, 21, 4) == 290);
+
+    // dot diameter: ~0.85x module_px, clamped to [1, module_px].
+    assert(qr_dot_diameter_px(24) == 20);   // round(24*0.85) = 20.4 -> 20
+    assert(qr_dot_diameter_px(10) == 9);    // round(8.5) -> 9 (round-half-up)
+    assert(qr_dot_diameter_px(1)  == 1);    // never vanishes
+    assert(qr_dot_diameter_px(0)  == 1);    // clamped up even for a degenerate cell
+
+    // finder radius: ~1/3 of the shape's pixel size, clamped >= 1.
+    assert(qr_finder_radius_px(7 * 24) == 56);   // 168/3 = 56
+    assert(qr_finder_radius_px(3 * 24) == 24);   // 72/3 = 24
+    assert(qr_finder_radius_px(1) == 1);         // never 0
+
+    // finder-cell test: three 7x7 blocks at fixed corners of a 21-module QR.
+    // Top-left block.
+    assert(qr_in_finder_block(21, 0, 0));
+    assert(qr_in_finder_block(21, 6, 6));
+    assert(!qr_in_finder_block(21, 7, 0));    // just outside the TL block
+    assert(!qr_in_finder_block(21, 0, 7));
+    // Top-right block (modules-7 .. modules-1).
+    assert(qr_in_finder_block(21, 14, 0));
+    assert(qr_in_finder_block(21, 20, 6));
+    assert(!qr_in_finder_block(21, 13, 0));
+    // Bottom-left block.
+    assert(qr_in_finder_block(21, 0, 14));
+    assert(qr_in_finder_block(21, 6, 20));
+    assert(!qr_in_finder_block(21, 0, 13));
+    // Center of the symbol and the bottom-right corner (no finder there —
+    // the 4th corner deliberately has none) are not finder cells.
+    assert(!qr_in_finder_block(21, 10, 10));
+    assert(!qr_in_finder_block(21, 20, 20));
+    // Degenerate/too-small module count -> no finder blocks at all.
+    assert(!qr_in_finder_block(6, 0, 0));
+
+    printf("test_qr_style OK\n");
 }
 
 static void test_zsort(void) {
@@ -121,8 +177,61 @@ static void test_map(void) {
     assert(screen_for_state(DEV_PAUSED)     == SCREEN_PAUSED);
     assert(screen_for_state(DEV_SETUP)      == SCREEN_SETUP);
     assert(screen_for_state(DEV_BOOT)       == SCREEN_IDLE);         // boot fallback
-    assert(screen_for_state(DEV_PINNED)     == SCREEN_QR);           // pinned reuses QR layout
+    assert(screen_for_state(DEV_PINNED)     == SCREEN_QR);           // cfg-unaware fallback
     printf("test_map OK\n");
+}
+
+static void test_screen_for_pinned(void) {
+    // No cfg / not-yet-valid cfg -> safe SCREEN_QR fallback.
+    assert(screen_for_pinned(NULL) == SCREEN_QR);
+    device_config_t invalid; memset(&invalid, 0, sizeof(invalid));
+    invalid.valid = false;
+    assert(screen_for_pinned(&invalid) == SCREEN_QR);
+
+    // Valid cfg, pinned screen empty (old cached config with no "pinned" key,
+    // or a tenant who never edited it) -> SCREEN_QR fallback.
+    device_config_t empty; memset(&empty, 0, sizeof(empty));
+    empty.valid = true;
+    assert(screen_for_pinned(&empty) == SCREEN_QR);
+
+    // Valid cfg, pinned screen has >=1 object -> the dedicated SCREEN_PINNED layout.
+    device_config_t populated; memset(&populated, 0, sizeof(populated));
+    populated.valid = true;
+    populated.screens[SCREEN_PINNED].n = 1;
+    populated.screens[SCREEN_PINNED].objects[0].type = OBJ_QR;
+    assert(screen_for_pinned(&populated) == SCREEN_PINNED);
+
+    printf("test_screen_for_pinned OK\n");
+}
+
+static void test_pinned_screen_parse(void) {
+    // Pinned screen with objects parses like any other screen.
+    const char *j1 =
+        "{\"version\":\"1\",\"config\":{\"screens\":{\"pinned\":{\"objects\":["
+        "{\"type\":\"qr\",\"x\":0.25,\"y\":0.25,\"w\":0.5,\"h\":0.5,\"visible\":true,\"z\":1},"
+        "{\"type\":\"text\",\"x\":0.1,\"y\":0.05,\"w\":0.8,\"h\":0.1,\"visible\":true,\"z\":2,"
+        "\"text\":\"Menu\",\"fontSize\":32,\"align\":\"center\"}"
+        "]}}}}";
+    device_config_t c1; assert(cfg_parse_json(j1, &c1));
+    assert(c1.screens[SCREEN_PINNED].n == 2);
+    assert(c1.screens[SCREEN_PINNED].objects[0].type == OBJ_QR);
+    assert(c1.screens[SCREEN_PINNED].objects[1].type == OBJ_TEXT);
+    assert(strcmp(c1.screens[SCREEN_PINNED].objects[1].text, "Menu") == 0);
+    assert(screen_for_pinned(&c1) == SCREEN_PINNED);
+
+    // Pinned screen present but with an empty objects array -> falls back.
+    const char *j2 = "{\"version\":\"1\",\"config\":{\"screens\":{\"pinned\":{\"objects\":[]}}}}";
+    device_config_t c2; assert(cfg_parse_json(j2, &c2));
+    assert(c2.screens[SCREEN_PINNED].n == 0);
+    assert(screen_for_pinned(&c2) == SCREEN_QR);
+
+    // "pinned" key absent entirely (old cloud) -> also falls back.
+    const char *j3 = "{\"version\":\"1\",\"config\":{\"screens\":{}}}";
+    device_config_t c3; assert(cfg_parse_json(j3, &c3));
+    assert(c3.screens[SCREEN_PINNED].n == 0);
+    assert(screen_for_pinned(&c3) == SCREEN_QR);
+
+    printf("test_pinned_screen_parse OK\n");
 }
 
 static void test_home_state(void) {
@@ -706,8 +815,11 @@ static void test_command_parse_into(void) {
 int main(void) {
     test_parse();
     test_geom();
+    test_qr_style();
     test_zsort();
     test_map();
+    test_screen_for_pinned();
+    test_pinned_screen_parse();
     test_home_state();
     test_asset_key();
     test_asset_evict();

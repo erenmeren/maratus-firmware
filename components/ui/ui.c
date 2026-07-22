@@ -16,6 +16,8 @@
 #include "clock_format.h"
 #include "time_sync.h"
 #include "provisioning.h"
+#include "qrcodegen.h"
+#include "qr_style.h"
 
 #define DITTO_GREEN   0x10A765
 #define DITTO_ONLINE  0x37C871
@@ -160,17 +162,113 @@ static void render_text(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
     lv_obj_set_pos(lbl, b.x, b.y);
 }
 
+// Styled QR (spec: docs/superpowers/specs/2026-07-22-pinned-screen-styled-qr-firmware.md
+// §2). Replaces the plain lv_qrcode widget: qrcodegen encodes, then we hand-draw
+// onto an lv_canvas — dark modules as filled circles (~0.85x the module cell),
+// the 3 finder patterns as rounded-rect rings+dots (outer ring, middle hole,
+// inner dot; radius ~1/3 of each shape's size). One code path for every QR
+// render (trigger/pinned/setup all route through this same object type).
+#define QR_QUIET_MODULES 4   // modules of blank margin inside the object box
+
+static void on_qr_canvas_delete(lv_event_t *e) {
+    heap_caps_free(lv_event_get_user_data(e));   // the PSRAM pixel buffer
+}
+
+static void draw_qr_finder(lv_layer_t *layer, int ox, int oy, int module_px,
+                            lv_color_t dark, lv_color_t light) {
+    lv_draw_rect_dsc_t d;
+    lv_draw_rect_dsc_init(&d);
+    d.bg_opa = LV_OPA_COVER;
+
+    d.bg_color = dark;
+    d.radius = qr_finder_radius_px(7 * module_px);
+    lv_area_t outer = { ox, oy, ox + 7 * module_px - 1, oy + 7 * module_px - 1 };
+    lv_draw_rect(layer, &d, &outer);
+
+    d.bg_color = light;
+    d.radius = qr_finder_radius_px(5 * module_px);
+    lv_area_t mid = { ox + module_px, oy + module_px,
+                       ox + module_px + 5 * module_px - 1, oy + module_px + 5 * module_px - 1 };
+    lv_draw_rect(layer, &d, &mid);
+
+    d.bg_color = dark;
+    d.radius = qr_finder_radius_px(3 * module_px);
+    lv_area_t inner = { ox + 2 * module_px, oy + 2 * module_px,
+                         ox + 2 * module_px + 3 * module_px - 1, oy + 2 * module_px + 3 * module_px - 1 };
+    lv_draw_rect(layer, &d, &inner);
+}
+
 static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
     px_box_t b = geom_box(o);
     int side = b.w < b.h ? b.w : b.h;
     if (side < 32) side = 32;
-    lv_obj_t *qr = lv_qrcode_create(scr);
-    lv_qrcode_set_size(qr, side);
-    lv_qrcode_set_dark_color(qr, lv_color_black());
-    lv_qrcode_set_light_color(qr, lv_color_white());
     const char *url = s_qr_url[0] ? s_qr_url : "https://ditto.app";
-    lv_qrcode_update(qr, url, strlen(url));
-    lv_obj_set_pos(qr, b.x, b.y);
+
+    // qrcodegen needs a temp scratch buffer the same size as the output during
+    // encoding; both sized for the worst case (version 40) so any URL up to the
+    // s_qr_url/pin_url/dev_command_t.url 512B contract always fits. ~4KB each —
+    // PSRAM, not stack (this runs on the LVGL render task).
+    uint8_t *tmp = heap_caps_malloc(qrcodegen_BUFFER_LEN_MAX, MALLOC_CAP_SPIRAM);
+    uint8_t *qr  = heap_caps_malloc(qrcodegen_BUFFER_LEN_MAX, MALLOC_CAP_SPIRAM);
+    if (!tmp || !qr) { heap_caps_free(tmp); heap_caps_free(qr); return; }
+    bool ok = qrcodegen_encodeText(url, tmp, qr, qrcodegen_Ecc_MEDIUM,
+                                    qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
+                                    qrcodegen_Mask_AUTO, true);
+    heap_caps_free(tmp);
+    if (!ok) {
+        heap_caps_free(qr);
+        ESP_LOGW(TAG, "qr encode failed, url len=%d", (int)strlen(url));
+        return;
+    }
+
+    int modules   = qrcodegen_getSize(qr);
+    int module_px = qr_module_px(side, modules, QR_QUIET_MODULES);
+    int canvas_px = qr_canvas_px(module_px, modules, QR_QUIET_MODULES);
+
+    size_t buf_sz = (size_t)canvas_px * (size_t)canvas_px * 2;   // RGB565, 2B/px
+    uint8_t *pixels = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
+    if (!pixels) { heap_caps_free(qr); return; }
+
+    lv_obj_t *canvas = lv_canvas_create(scr);
+    lv_canvas_set_buffer(canvas, pixels, canvas_px, canvas_px, LV_COLOR_FORMAT_RGB565);
+    lv_obj_add_event_cb(canvas, on_qr_canvas_delete, LV_EVENT_DELETE, pixels);
+    lv_canvas_fill_bg(canvas, lv_color_white(), LV_OPA_COVER);
+
+    lv_layer_t layer;
+    lv_canvas_init_layer(canvas, &layer);
+
+    lv_draw_rect_dsc_t dot;
+    lv_draw_rect_dsc_init(&dot);
+    dot.bg_opa = LV_OPA_COVER;
+    dot.bg_color = lv_color_black();
+    dot.radius = LV_RADIUS_CIRCLE;
+    int dot_d   = qr_dot_diameter_px(module_px);
+    int dot_off = (module_px - dot_d) / 2;
+
+    for (int my = 0; my < modules; my++) {
+        for (int mx = 0; mx < modules; mx++) {
+            if (qr_in_finder_block(modules, mx, my)) continue;   // drawn once below
+            if (!qrcodegen_getModule(qr, mx, my)) continue;
+            int px = (QR_QUIET_MODULES + mx) * module_px + dot_off;
+            int py = (QR_QUIET_MODULES + my) * module_px + dot_off;
+            lv_area_t a = { px, py, px + dot_d - 1, py + dot_d - 1 };
+            lv_draw_rect(&layer, &dot, &a);
+        }
+    }
+
+    const int finder_origin[3][2] = { {0, 0}, {modules - 7, 0}, {0, modules - 7} };
+    for (int i = 0; i < 3; i++) {
+        int ox = (QR_QUIET_MODULES + finder_origin[i][0]) * module_px;
+        int oy = (QR_QUIET_MODULES + finder_origin[i][1]) * module_px;
+        draw_qr_finder(&layer, ox, oy, module_px, lv_color_black(), lv_color_white());
+    }
+
+    lv_canvas_finish_layer(canvas, &layer);
+    heap_caps_free(qr);
+
+    int box_w = b.w > 0 ? b.w : side;
+    int box_h = b.h > 0 ? b.h : side;
+    lv_obj_set_pos(canvas, b.x + (box_w - canvas_px) / 2, b.y + (box_h - canvas_px) / 2);
 }
 
 // Placeholder box for object types implemented in M5b/M5c (logo/icon/clock/wifi/
@@ -486,7 +584,7 @@ static void render_pairing_code(lv_obj_t *scr, const cfg_object_t *o, uint32_t f
 
 static const char *const SETUP_STEPS[] = {
     "1.  Open your Ditto dashboard",
-    "2.  Add a printer to a store",
+    "2.  Add a screen to a store",
     "3.  Enter the code below",
 };
 static void render_steps(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
@@ -631,7 +729,12 @@ void ui_set_config(const device_config_t *cfg) {
 }
 
 void ui_render_state(dev_state_t st) {
-    dev_screen_t screen = screen_for_state(st);
+    // screen_for_state() is cfg-unaware (host-testable in isolation) and always
+    // resolves DEV_PINNED to the SCREEN_QR fallback. Here we *do* have a live
+    // config (s_cfg, set by ui_set_config) so DEV_PINNED gets the cfg-aware
+    // screen_for_pinned() call instead, picking SCREEN_PINNED once the tenant
+    // has put objects on that screen.
+    dev_screen_t screen = (st == DEV_PINNED) ? screen_for_pinned(s_cfg) : screen_for_state(st);
     lvgl_port_lock(0);
     s_render_state = st;   // build_screen reads this to suppress the countdown when pinned
     if (s_clock_timer) { lv_timer_delete(s_clock_timer); s_clock_timer = NULL; }

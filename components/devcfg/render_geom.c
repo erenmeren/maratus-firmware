@@ -45,6 +45,11 @@ dev_screen_t screen_for_state(dev_state_t st) {
     }
 }
 
+dev_screen_t screen_for_pinned(const device_config_t *cfg) {
+    if (!cfg || !cfg->valid) return SCREEN_QR;
+    return cfg->screens[SCREEN_PINNED].n > 0 ? SCREEN_PINNED : SCREEN_QR;
+}
+
 dev_state_t home_state(bool pin_set) {
     return pin_set ? DEV_PINNED : DEV_IDLE;
 }
