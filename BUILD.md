@@ -251,7 +251,7 @@ branding `icon` object type in favour of `image` (uploads only).
   `feat/m5b-preset-icons` was abandoned in favour of uploads-only).
 - Clean `idf.py build`; per-task reviews clean; flashed to b580.
 
-## Pinned QR (2026-07-22, pending HIL) — fw 0.9.0
+## Pinned QR (2026-07-22, HIL PASSED 2026-07-23) — fw 0.9.0
 
 Branch `feat/pinned-qr`. Adds a persistent (non-expiring) `DEV_PINNED` QR state driven by a
 cloud-set `pin_url`, distinct from the existing trigger-QR countdown flow. `s_qr_url`
@@ -262,7 +262,7 @@ would truncate.
 - Host: `cfg_parse` pin block (set / null / absent / malformed / overlong URL); `home_state`;
   `should_sleep` with `DEV_PINNED`; `screen_for_state(DEV_PINNED)` — `tools/cfg-harness`, all pass.
 - Build: clean `idf.py build`, no new warnings.
-- **Pinned QR (0.9.0) — pending HIL.** HIL checklist (b580):
+- **Pinned QR (0.9.0) — HIL PASSED 2026-07-23** (b580: OTA converge + pin command acked remotely + pinned render confirmed on-device). Original checklist:
   - Set pin from tenant UI → persistent QR (no countdown) within ~2 s.
   - Trigger → countdown QR → auto-return to pin.
   - Change URL → repaint.
@@ -270,7 +270,9 @@ would truncate.
   - Reboot → pin right after boot gate.
   - Screen-sleep still engages and wakes on touch.
 
-## Pinned screen + styled QR (2026-07-22, pending HIL) — fw 0.10.0
+## Pinned screen + styled QR (2026-07-22, HIL PASSED 2026-07-23) — fw 0.10.0
+
+> HIL result: b580 OTA-converged to 0.10.0; styled rounded-module QR **scanned successfully by phone camera** (user-verified); pinned screen renders. Scannability gate closed.
 
 Branch `feat/pinned-screen-styled-qr`. Two independent features:
 
