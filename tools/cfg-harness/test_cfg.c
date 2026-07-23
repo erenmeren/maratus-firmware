@@ -93,6 +93,10 @@ static void test_parse(void) {
     assert(cfg.qr_fg == 0x111111);
     assert(cfg.qr_bg == 0xFFFFFF);
 
+    // (i) fixture also predates qrCorner/qrShadow -> defaults (rounded, no shadow).
+    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+    assert(cfg.qr_shadow == false);
+
     free(json);
     printf("test_parse OK\n");
 }
@@ -504,6 +508,48 @@ static void test_qr_shape_colors(void) {
     assert(cfg.qr_bg == 0xFFFFFF);
 
     printf("test_qr_shape_colors OK\n");
+}
+
+static void test_qr_corner_shadow(void) {
+    device_config_t cfg;
+
+    // absent -> defaults (rounded, no shadow) — matches the cloud's
+    // DEFAULT_QR_STYLE.qrCorner/qrShadow.
+    const char *j1 = "{\"version\":\"v1\",\"config\":{}}";
+    assert(cfg_parse_json(j1, &cfg));
+    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+    assert(cfg.qr_shadow == false);
+
+    // explicit recognized values pass through.
+    const char *j2 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"square\",\"qrShadow\":true}}";
+    assert(cfg_parse_json(j2, &cfg));
+    assert(cfg.qr_corner == QR_CORNER_SQUARE);
+    assert(cfg.qr_shadow == true);
+
+    const char *j3 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"rounded\",\"qrShadow\":false}}";
+    assert(cfg_parse_json(j3, &cfg));
+    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+    assert(cfg.qr_shadow == false);   // explicit false stays false, not just "absent -> false"
+
+    // unknown corner string -> default rounded.
+    const char *j4 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"beveled\"}}";
+    assert(cfg_parse_json(j4, &cfg));
+    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+
+    // non-bool qrShadow -> default false (never crash on a wrong JSON type).
+    const char *j5 = "{\"version\":\"v1\",\"config\":{\"qrShadow\":\"yes\"}}";
+    assert(cfg_parse_json(j5, &cfg));
+    assert(cfg.qr_shadow == false);
+
+    const char *j6 = "{\"version\":\"v1\",\"config\":{\"qrShadow\":1}}";
+    assert(cfg_parse_json(j6, &cfg));
+    assert(cfg.qr_shadow == false);
+
+    const char *j7 = "{\"version\":\"v1\",\"config\":{\"qrShadow\":null}}";
+    assert(cfg_parse_json(j7, &cfg));
+    assert(cfg.qr_shadow == false);
+
+    printf("test_qr_corner_shadow OK\n");
 }
 
 static void test_screen_colors(void) {
@@ -937,6 +983,7 @@ int main(void) {
     test_mmss();
     test_qr_timeout();
     test_qr_shape_colors();
+    test_qr_corner_shadow();
     test_screen_colors();
     test_device_defaults();
     test_pin_block();
