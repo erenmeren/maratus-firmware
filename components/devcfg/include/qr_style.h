@@ -67,3 +67,19 @@ typedef struct {
 } qr_module_style_t;
 
 qr_module_style_t qr_module_style(qr_shape_t shape, int module_px);
+
+// QR background-plate corner treatment (config.qrCorner, a sibling of
+// qrShape/qrFg/qrBg/qrShadow inside "config"). ROUNDED is the default for
+// absent/unknown values (mirrors the cloud's DEFAULT_QR_STYLE.qrCorner in
+// ditto-admin lib/printer-layout.ts).
+typedef enum { QR_CORNER_SQUARE, QR_CORNER_ROUNDED } qr_corner_t;
+
+// Corner radius, in canvas px, for the QR background plate: ~6% of
+// canvas_px when ROUNDED (matches the cloud's lib/qr-svg.ts
+// qrBackgroundRadius(dim, "rounded") = dim * 0.06), 0 (square) otherwise.
+// Applied as the QR canvas lv_obj's own `radius` style — LVGL clips an
+// image/canvas widget's own pixel content to that rounded rect at composite
+// time (lv_image.c's draw_dsc.clip_radius), so no pixel-format/alpha change
+// is needed to get "transparent" corners: whatever sits behind the canvas
+// (the screen background) simply shows through the clipped-away corners.
+int qr_bg_radius_px(int canvas_px, qr_corner_t corner);

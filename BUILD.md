@@ -345,3 +345,47 @@ Org-wide QR look (`config.qrShape`/`qrFg`/`qrBg` — siblings of
 - Build: clean `idf.py build`, no new warnings.
 - **QR style options (0.11.0) — pending HIL (scan all 4 shapes + a colored
   combo, 2 phones).**
+
+## QR background corner + shadow (2026-07-23) — fw 0.12.0
+
+Branch `feat/qr-corner-shadow`. Cloud counterpart: same doc's addendum
+(`docs/superpowers/specs/2026-07-23-qr-style-options.md`, ditto-admin).
+
+Independent of module `qrShape` — governs the QR's own background PLATE
+(`config.qrCorner`/`qrShadow`, siblings of `qrShape`/`qrFg`/`qrBg`):
+
+- `qrCorner`: `"square"` | `"rounded"` (default for absent/unknown — matches
+  the pre-existing look). Rounded radius is ~6% of the canvas's pixel side
+  (`qr_bg_radius_px()` in `qr_style.c`, mirrors the cloud's
+  `lib/qr-svg.ts` `qrBackgroundRadius`).
+- `qrShadow`: `bool` (default `false` for absent/non-bool).
+- **Alpha approach chosen:** neither an ARGB8888 canvas nor a separate
+  backing `lv_obj` plate. The QR canvas is built on LVGL's `lv_image_class`
+  (`lv_canvas_class.base_class`), whose own draw path already reads the
+  object's `radius` style as `draw_dsc.clip_radius` and masks the widget's
+  own pixel content to a rounded rect at composite time (same mechanism
+  `render_image` already uses for `icon_circle`). So `render_qr` just calls
+  `lv_obj_set_style_radius(canvas, qr_bg_radius_px(canvas_px, qr_corner),
+  LV_PART_MAIN)` (+ `clip_corner` for parity with the icon_circle call site)
+  — the RGB565 pixel buffer and its full-square `qrBg` fill are unchanged;
+  clipped-away corners simply show the screen behind. This avoids doubling
+  the QR canvas's PSRAM footprint (ARGB8888 would be 2x RGB565) and avoids
+  an extra widget/alloc per render.
+- `qrShadow` uses `lv_obj_set_style_shadow_width/color/opa/offset_y` on the
+  same canvas object: width 24px, color `#0F1428`, opacity 30%, y-offset
+  4px — subtle, matches the cloud preview's `rgba(15,20,40,0.35)` drop
+  shadow in spirit (LVGL has no SVG-style blur `stdDeviation`, so this is an
+  approximation, not a pixel match). Shadow follows the same `radius` (so it
+  hugs the rounded plate when `qrCorner: "rounded"`).
+- Old cloud (fields absent) renders identically to 0.11.0 — square-cornered,
+  no shadow, is what `qr_bg_radius_px`'s degenerate-canvas/default-corner
+  cases guarantee.
+
+- Host: `qr_bg_radius_px` geometry (rounded ~6%, square 0, degenerate
+  canvas_px) + `qrCorner`/`qrShadow` parse matrix (absent, both values,
+  explicit `false` kept, unknown corner, non-bool shadow) —
+  `tools/cfg-harness`, all pass.
+- Build: clean `idf.py build`, no new warnings.
+- **QR background corner + shadow (0.12.0) — pending HIL (square vs rounded
+  corner visible against a non-white screen bg, shadow on/off, 2 phones for
+  scan regression).**

@@ -86,3 +86,10 @@ qr_module_style_t qr_module_style(qr_shape_t shape, int module_px) {
     if (s.offset < 0) s.offset = 0;
     return s;
 }
+
+int qr_bg_radius_px(int canvas_px, qr_corner_t corner) {
+    if (corner != QR_CORNER_ROUNDED) return 0;
+    if (canvas_px < 1) return 0;
+    int r = (int)((float)canvas_px * 0.06f + 0.5f);
+    return r < 0 ? 0 : r;
+}

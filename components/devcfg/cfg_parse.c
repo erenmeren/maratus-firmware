@@ -73,6 +73,11 @@ static qr_shape_t qr_shape_of(const char *s) {
     return QR_SHAPE_ROUNDED;   // default: absent, unknown, or explicit "rounded"
 }
 
+static qr_corner_t qr_corner_of(const char *s) {
+    if (s && !strcmp(s, "square")) return QR_CORNER_SQUARE;
+    return QR_CORNER_ROUNDED;   // default: absent, unknown, or explicit "rounded"
+}
+
 static cfg_tint_t tint_of(const char *s) {
     if (s && !strcmp(s, "accent")) return TINT_ACCENT;
     if (s && !strcmp(s, "muted"))  return TINT_MUTED;
@@ -188,6 +193,14 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
         cfg->qr_fg = 0x111111;
         cfg->qr_bg = 0xFFFFFF;
     }
+
+    // QR background plate: qrCorner/qrShadow, siblings of qrShape/qrFg/qrBg
+    // inside "config". Each sanitizes independently and permissively — no
+    // cross-field validation (unlike the fg/bg contrast guard above).
+    cJSON *qcorner = config ? cJSON_GetObjectItem(config, "qrCorner") : NULL;
+    cfg->qr_corner = qr_corner_of(cJSON_GetStringValue(qcorner));
+    cJSON *qshadow = config ? cJSON_GetObjectItem(config, "qrShadow") : NULL;
+    cfg->qr_shadow = cJSON_IsBool(qshadow) ? cJSON_IsTrue(qshadow) : false;
 
     cJSON *dev = cJSON_GetObjectItem(root, "device");
     cJSON *br = dev ? cJSON_GetObjectItem(dev, "brightness") : NULL;

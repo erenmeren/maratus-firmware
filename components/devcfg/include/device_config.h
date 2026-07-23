@@ -82,6 +82,12 @@ typedef struct {
     qr_shape_t qr_shape;
     uint32_t   qr_fg;          // 0xRRGGBB, default 0x111111
     uint32_t   qr_bg;          // 0xRRGGBB, default 0xFFFFFF
+    // QR background plate corner + shadow (config.qrCorner/qrShadow):
+    // siblings of qrShape/qrFg/qrBg, independent of module shape. Defaults
+    // (absent/malformed) match the cloud's DEFAULT_QR_STYLE: rounded, no
+    // shadow.
+    qr_corner_t qr_corner;
+    bool        qr_shadow;
     // M7 org-wide device policies (from the payload "device" block).
     struct {
         int  brightness;                  // 10..100
