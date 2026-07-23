@@ -163,14 +163,18 @@ static void render_text(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
 }
 
 // Styled QR (spec: docs/superpowers/specs/2026-07-22-pinned-screen-styled-qr-firmware.md
-// §2; shapes/colors: docs/superpowers/specs/2026-07-23-qr-style-options-firmware.md).
+// §2; shapes/colors: docs/superpowers/specs/2026-07-23-qr-style-options-firmware.md;
+// background corner+shadow: same doc's addendum, fw 0.12.0).
 // Replaces the plain lv_qrcode widget: qrcodegen encodes, then we hand-draw onto
 // an lv_canvas — dark modules per cfg->qr_shape (classic: squares; soft:
 // rounded-squares; rounded: ~0.85x circles; dots: ~0.7x circles), the 3 finder
 // patterns as rings+dots (outer ring, middle hole, inner dot; square corners for
 // classic, rounded otherwise). Canvas bg + module/finder colors come from
-// cfg->qr_bg/qr_fg. One code path for every QR render (trigger/pinned/setup all
-// route through this same object type).
+// cfg->qr_bg/qr_fg. The background PLATE's own corner treatment (independent of
+// module shape) and an optional drop shadow come from cfg->qr_corner/qr_shadow —
+// applied as lv_obj styles on the canvas itself (radius/clip + shadow_*), not
+// baked into the pixel buffer. One code path for every QR render (trigger/pinned/
+// setup all route through this same object type).
 #define QR_QUIET_MODULES 4   // modules of blank margin inside the object box
 
 static void on_qr_canvas_delete(lv_event_t *e) {
@@ -270,6 +274,25 @@ static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
 
     lv_canvas_finish_layer(canvas, &layer);
     heap_caps_free(qr);
+
+    // Background plate corner + shadow (config.qrCorner/qrShadow, siblings
+    // of qrShape/qrFg/qrBg — spec: docs/superpowers/specs/
+    // 2026-07-23-qr-style-options-firmware.md addendum). Setting the canvas
+    // lv_obj's own `radius` style clips its own pixel content to a rounded
+    // rect at composite time (canvas is built on lv_image_class, whose draw
+    // reads style radius as draw_dsc.clip_radius) — no ARGB8888/alpha canvas
+    // needed, the screen behind shows through the clipped-away corners.
+    // clip_corner is set for consistency with the existing icon_circle clip
+    // (render_image) even though the image draw path keys off radius alone.
+    int bg_radius = qr_bg_radius_px(canvas_px, s_cfg->qr_corner);
+    lv_obj_set_style_radius(canvas, bg_radius, LV_PART_MAIN);
+    lv_obj_set_style_clip_corner(canvas, true, LV_PART_MAIN);
+    if (s_cfg->qr_shadow) {
+        lv_obj_set_style_shadow_width(canvas, 24, LV_PART_MAIN);
+        lv_obj_set_style_shadow_color(canvas, lv_color_hex(0x0F1428), LV_PART_MAIN);
+        lv_obj_set_style_shadow_opa(canvas, LV_OPA_30, LV_PART_MAIN);
+        lv_obj_set_style_shadow_offset_y(canvas, 4, LV_PART_MAIN);
+    }
 
     int box_w = b.w > 0 ? b.w : side;
     int box_h = b.h > 0 ? b.h : side;
