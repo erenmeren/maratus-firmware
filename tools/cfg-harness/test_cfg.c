@@ -199,6 +199,14 @@ static void test_qr_style(void) {
     assert(dots.offset == (24 - dots.size) / 2);
     assert(dots.size < rounded.size);   // dots (0.7x) tighter than rounded (0.85x)
 
+    // bg-plate corner radius: ~6% of canvas_px when rounded (matches the
+    // cloud's lib/qr-svg.ts qrBackgroundRadius), 0 when square.
+    assert(qr_bg_radius_px(400, QR_CORNER_ROUNDED) == 24);   // round(24.0) -> 24
+    assert(qr_bg_radius_px(290, QR_CORNER_ROUNDED) == 17);   // round(17.4) -> 17
+    assert(qr_bg_radius_px(400, QR_CORNER_SQUARE)  == 0);
+    assert(qr_bg_radius_px(0,   QR_CORNER_ROUNDED) == 0);    // degenerate canvas -> 0, no crash
+    assert(qr_bg_radius_px(-5,  QR_CORNER_ROUNDED) == 0);
+
     printf("test_qr_style OK\n");
 }
 
