@@ -36,3 +36,53 @@ bool qr_in_finder_block(int modules, int mx, int my) {
            in_block(mx, my, modules - 7, 0) ||      // top-right
            in_block(mx, my, 0, modules - 7);        // bottom-left
 }
+
+int qr_dots_diameter_px(int module_px) {
+    if (module_px < 1) return 1;   // never vanishes even for a degenerate cell
+    int d = (int)((float)module_px * 0.7f + 0.5f);
+    if (d < 1) d = 1;
+    if (d > module_px) d = module_px;
+    return d;
+}
+
+int qr_soft_radius_px(int module_px) {
+    if (module_px < 1) return 1;
+    int r = (int)((float)module_px * 0.25f + 0.5f);
+    if (r < 1) r = 1;
+    int max_r = module_px / 2;
+    if (max_r < 1) max_r = 1;
+    if (r > max_r) r = max_r;
+    return r;
+}
+
+int qr_finder_radius_px_for(qr_shape_t shape, int shape_px) {
+    if (shape == QR_SHAPE_CLASSIC) return 0;   // square corners
+    return qr_finder_radius_px(shape_px);
+}
+
+qr_module_style_t qr_module_style(qr_shape_t shape, int module_px) {
+    qr_module_style_t s = { QR_DRAW_CIRCLE, 0, 0, 0 };
+    switch (shape) {
+    case QR_SHAPE_CLASSIC:
+        s.kind = QR_DRAW_SQUARE;
+        s.size = module_px;
+        break;
+    case QR_SHAPE_SOFT:
+        s.kind = QR_DRAW_ROUNDED_SQUARE;
+        s.size = module_px;
+        s.radius = qr_soft_radius_px(module_px);
+        break;
+    case QR_SHAPE_DOTS:
+        s.kind = QR_DRAW_CIRCLE;
+        s.size = qr_dots_diameter_px(module_px);
+        break;
+    case QR_SHAPE_ROUNDED:
+    default:
+        s.kind = QR_DRAW_CIRCLE;
+        s.size = qr_dot_diameter_px(module_px);
+        break;
+    }
+    s.offset = (module_px - s.size) / 2;
+    if (s.offset < 0) s.offset = 0;
+    return s;
+}

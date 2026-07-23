@@ -87,6 +87,12 @@ static void test_parse(void) {
     // screen (old cached configs), not a crash/garbage.
     assert(cfg.screens[SCREEN_PINNED].n == 0);
 
+    // (h) fixture predates qrShape/qrFg/qrBg -> old cloud (fields absent)
+    // renders identically to today: rounded, near-black on white.
+    assert(cfg.qr_shape == QR_SHAPE_ROUNDED);
+    assert(cfg.qr_fg == 0x111111);
+    assert(cfg.qr_bg == 0xFFFFFF);
+
     free(json);
     printf("test_parse OK\n");
 }
@@ -151,6 +157,47 @@ static void test_qr_style(void) {
     assert(!qr_in_finder_block(21, 20, 20));
     // Degenerate/too-small module count -> no finder blocks at all.
     assert(!qr_in_finder_block(6, 0, 0));
+
+    // dots diameter: ~0.7x module_px, clamped [1, module_px].
+    assert(qr_dots_diameter_px(24) == 17);   // round(16.8) -> 17
+    assert(qr_dots_diameter_px(10) == 7);    // round(7.0) -> 7
+    assert(qr_dots_diameter_px(1)  == 1);
+    assert(qr_dots_diameter_px(0)  == 1);
+
+    // soft corner radius: ~0.25x module_px, clamped [1, module_px/2].
+    assert(qr_soft_radius_px(24) == 6);      // round(6.0) -> 6
+    assert(qr_soft_radius_px(10) == 3);      // round(2.5) -> 3 (half-up)
+    assert(qr_soft_radius_px(2)  == 1);      // clamp to max_r=1
+    assert(qr_soft_radius_px(0)  == 1);      // never 0
+
+    // finder radius per shape: classic -> square (0), others -> existing radius.
+    assert(qr_finder_radius_px_for(QR_SHAPE_CLASSIC, 7 * 24) == 0);
+    assert(qr_finder_radius_px_for(QR_SHAPE_SOFT,    7 * 24) == qr_finder_radius_px(7 * 24));
+    assert(qr_finder_radius_px_for(QR_SHAPE_ROUNDED, 7 * 24) == qr_finder_radius_px(7 * 24));
+    assert(qr_finder_radius_px_for(QR_SHAPE_DOTS,    7 * 24) == qr_finder_radius_px(7 * 24));
+
+    // per-shape module draw params.
+    qr_module_style_t classic = qr_module_style(QR_SHAPE_CLASSIC, 24);
+    assert(classic.kind == QR_DRAW_SQUARE);
+    assert(classic.size == 24);
+    assert(classic.offset == 0);
+
+    qr_module_style_t soft = qr_module_style(QR_SHAPE_SOFT, 24);
+    assert(soft.kind == QR_DRAW_ROUNDED_SQUARE);
+    assert(soft.size == 24);
+    assert(soft.offset == 0);
+    assert(soft.radius == qr_soft_radius_px(24));
+
+    qr_module_style_t rounded = qr_module_style(QR_SHAPE_ROUNDED, 24);
+    assert(rounded.kind == QR_DRAW_CIRCLE);
+    assert(rounded.size == qr_dot_diameter_px(24));
+    assert(rounded.offset == (24 - rounded.size) / 2);
+
+    qr_module_style_t dots = qr_module_style(QR_SHAPE_DOTS, 24);
+    assert(dots.kind == QR_DRAW_CIRCLE);
+    assert(dots.size == qr_dots_diameter_px(24));
+    assert(dots.offset == (24 - dots.size) / 2);
+    assert(dots.size < rounded.size);   // dots (0.7x) tighter than rounded (0.85x)
 
     printf("test_qr_style OK\n");
 }
@@ -394,6 +441,61 @@ static void test_qr_timeout(void) {
     assert(cfg_parse_json(j4, &cfg) && cfg.qr_timeout_seconds == 180);
 
     printf("test_qr_timeout OK\n");
+}
+
+static void test_qr_shape_colors(void) {
+    device_config_t cfg;
+
+    // absent -> defaults (rounded, near-black on white).
+    const char *j1 = "{\"version\":\"v1\",\"config\":{}}";
+    assert(cfg_parse_json(j1, &cfg));
+    assert(cfg.qr_shape == QR_SHAPE_ROUNDED);
+    assert(cfg.qr_fg == 0x111111);
+    assert(cfg.qr_bg == 0xFFFFFF);
+
+    // each recognized shape string.
+    const char *j2 = "{\"version\":\"v1\",\"config\":{\"qrShape\":\"classic\"}}";
+    assert(cfg_parse_json(j2, &cfg) && cfg.qr_shape == QR_SHAPE_CLASSIC);
+    const char *j3 = "{\"version\":\"v1\",\"config\":{\"qrShape\":\"soft\"}}";
+    assert(cfg_parse_json(j3, &cfg) && cfg.qr_shape == QR_SHAPE_SOFT);
+    const char *j4 = "{\"version\":\"v1\",\"config\":{\"qrShape\":\"rounded\"}}";
+    assert(cfg_parse_json(j4, &cfg) && cfg.qr_shape == QR_SHAPE_ROUNDED);
+    const char *j5 = "{\"version\":\"v1\",\"config\":{\"qrShape\":\"dots\"}}";
+    assert(cfg_parse_json(j5, &cfg) && cfg.qr_shape == QR_SHAPE_DOTS);
+
+    // unknown shape string -> default rounded.
+    const char *j6 = "{\"version\":\"v1\",\"config\":{\"qrShape\":\"triangle\"}}";
+    assert(cfg_parse_json(j6, &cfg) && cfg.qr_shape == QR_SHAPE_ROUNDED);
+
+    // valid distinct colors -> parsed as given.
+    const char *j7 =
+        "{\"version\":\"v1\",\"config\":{\"qrFg\":\"#ff0000\",\"qrBg\":\"#00ff00\"}}";
+    assert(cfg_parse_json(j7, &cfg));
+    assert(cfg.qr_fg == 0xFF0000);
+    assert(cfg.qr_bg == 0x00FF00);
+
+    // malformed hex (either field) -> that field's default.
+    const char *j8 =
+        "{\"version\":\"v1\",\"config\":{\"qrFg\":\"nope\",\"qrBg\":\"#00ff00\"}}";
+    assert(cfg_parse_json(j8, &cfg));
+    assert(cfg.qr_fg == 0x111111);
+    assert(cfg.qr_bg == 0x00FF00);
+
+    const char *j9 =
+        "{\"version\":\"v1\",\"config\":{\"qrFg\":\"#ff0000\",\"qrBg\":\"nope\"}}";
+    assert(cfg_parse_json(j9, &cfg));
+    assert(cfg.qr_fg == 0xFF0000);
+    assert(cfg.qr_bg == 0xFFFFFF);
+
+    // defensive: fg==bg (even if the cloud's contrast guard should have caught
+    // it) -> both reset to defaults, never an invisible QR.
+    const char *j10 =
+        "{\"version\":\"v1\",\"config\":{\"qrFg\":\"#ff0000\",\"qrBg\":\"#ff0000\"}}";
+    assert(cfg_parse_json(j10, &cfg));
+    assert(cfg.qr_fg == 0x111111);
+    assert(cfg.qr_bg == 0xFFFFFF);
+
+    printf("test_qr_shape_colors OK\n");
 }
 
 static void test_screen_colors(void) {
@@ -826,6 +928,7 @@ int main(void) {
     test_clock();
     test_mmss();
     test_qr_timeout();
+    test_qr_shape_colors();
     test_screen_colors();
     test_device_defaults();
     test_pin_block();

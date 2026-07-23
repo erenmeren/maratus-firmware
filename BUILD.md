@@ -313,3 +313,35 @@ Branch `feat/pinned-screen-styled-qr`. Two independent features:
     (square-ish) and retest.
   - Setup screen reads "Add a screen to a store".
   - Version 0.10.0 reported on the heartbeat.
+
+## QR style options (2026-07-23) — fw 0.11.0
+
+Branch `feat/qr-style-options`. Cloud counterpart:
+`docs/superpowers/specs/2026-07-23-qr-style-options.md` (ditto-admin).
+
+Org-wide QR look (`config.qrShape`/`qrFg`/`qrBg` — siblings of
+`clockTimezone`/`qrTimeoutSeconds` inside `"config"`, parsed in
+`cfg_parse.c`, NOT document-root):
+
+- `qrShape`: `"classic"` (square modules, square finder rings) | `"soft"`
+  (rounded-square modules, r≈0.25× module) | `"rounded"` (today's ~0.85×
+  circles — default for absent/unknown) | `"dots"` (~0.7× circles, tighter
+  than rounded). Finder rings: square corners for classic, the existing
+  rounded rings otherwise. New `qr_module_style()` in `qr_style.c` centralizes
+  the per-shape module draw params (kind/size/offset/radius); `ui.c`'s
+  `render_qr`/`draw_qr_finder` just dispatch on it.
+- `qrFg`/`qrBg`: `"#rrggbb"`, default `#111111`/`#ffffff`. Canvas bg (incl.
+  quiet zone) painted with `qrBg`; modules + finder rings with `qrFg`. Trusts
+  the cloud's normalize-side contrast guard but keeps a defensive same-color
+  check (`fg == bg` → both reset to defaults) so a bad payload can never
+  render an invisible QR.
+- Old cloud (fields absent) renders identically to 0.10.0 — defaults are
+  exactly the pre-existing look.
+
+- Host: `qr_shape_t`/color parse matrix (all 4 shapes, unknown shape,
+  malformed hex, fg==bg) + per-shape geometry (dots diameter, soft radius,
+  finder radius per shape, `qr_module_style` per shape) — `tools/cfg-harness`,
+  all pass.
+- Build: clean `idf.py build`, no new warnings.
+- **QR style options (0.11.0) — pending HIL (scan all 4 shapes + a colored
+  combo, 2 phones).**

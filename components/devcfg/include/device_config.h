@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "dev_state.h"
+#include "qr_style.h"
 
 #define CFG_MAX_OBJECTS 24    // per screen; admin MAX_CUSTOM(20) + widget headroom
 #define CFG_TEXT_LEN    80    // matches MAX_TEXT_LEN in ditto-admin printer-layout
@@ -75,6 +76,12 @@ typedef struct {
     bool     clock_24h;
     int      wifi_level;       // 0..4
     int      qr_timeout_seconds;  // document/QR auto-return timeout, 15..180
+    // QR style (config.qrShape/qrFg/qrBg): org-wide look for every QR render.
+    // Defaults (absent/unknown shape, malformed hex, or fg==bg) match the
+    // pre-existing look — rounded circles, near-black on white.
+    qr_shape_t qr_shape;
+    uint32_t   qr_fg;          // 0xRRGGBB, default 0x111111
+    uint32_t   qr_bg;          // 0xRRGGBB, default 0xFFFFFF
     // M7 org-wide device policies (from the payload "device" block).
     struct {
         int  brightness;                  // 10..100

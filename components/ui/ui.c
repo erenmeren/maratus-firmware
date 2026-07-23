@@ -163,11 +163,14 @@ static void render_text(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
 }
 
 // Styled QR (spec: docs/superpowers/specs/2026-07-22-pinned-screen-styled-qr-firmware.md
-// §2). Replaces the plain lv_qrcode widget: qrcodegen encodes, then we hand-draw
-// onto an lv_canvas — dark modules as filled circles (~0.85x the module cell),
-// the 3 finder patterns as rounded-rect rings+dots (outer ring, middle hole,
-// inner dot; radius ~1/3 of each shape's size). One code path for every QR
-// render (trigger/pinned/setup all route through this same object type).
+// §2; shapes/colors: docs/superpowers/specs/2026-07-23-qr-style-options-firmware.md).
+// Replaces the plain lv_qrcode widget: qrcodegen encodes, then we hand-draw onto
+// an lv_canvas — dark modules per cfg->qr_shape (classic: squares; soft:
+// rounded-squares; rounded: ~0.85x circles; dots: ~0.7x circles), the 3 finder
+// patterns as rings+dots (outer ring, middle hole, inner dot; square corners for
+// classic, rounded otherwise). Canvas bg + module/finder colors come from
+// cfg->qr_bg/qr_fg. One code path for every QR render (trigger/pinned/setup all
+// route through this same object type).
 #define QR_QUIET_MODULES 4   // modules of blank margin inside the object box
 
 static void on_qr_canvas_delete(lv_event_t *e) {
@@ -175,24 +178,24 @@ static void on_qr_canvas_delete(lv_event_t *e) {
 }
 
 static void draw_qr_finder(lv_layer_t *layer, int ox, int oy, int module_px,
-                            lv_color_t dark, lv_color_t light) {
+                            qr_shape_t shape, lv_color_t dark, lv_color_t light) {
     lv_draw_rect_dsc_t d;
     lv_draw_rect_dsc_init(&d);
     d.bg_opa = LV_OPA_COVER;
 
     d.bg_color = dark;
-    d.radius = qr_finder_radius_px(7 * module_px);
+    d.radius = qr_finder_radius_px_for(shape, 7 * module_px);
     lv_area_t outer = { ox, oy, ox + 7 * module_px - 1, oy + 7 * module_px - 1 };
     lv_draw_rect(layer, &d, &outer);
 
     d.bg_color = light;
-    d.radius = qr_finder_radius_px(5 * module_px);
+    d.radius = qr_finder_radius_px_for(shape, 5 * module_px);
     lv_area_t mid = { ox + module_px, oy + module_px,
                        ox + module_px + 5 * module_px - 1, oy + module_px + 5 * module_px - 1 };
     lv_draw_rect(layer, &d, &mid);
 
     d.bg_color = dark;
-    d.radius = qr_finder_radius_px(3 * module_px);
+    d.radius = qr_finder_radius_px_for(shape, 3 * module_px);
     lv_area_t inner = { ox + 2 * module_px, oy + 2 * module_px,
                          ox + 2 * module_px + 3 * module_px - 1, oy + 2 * module_px + 3 * module_px - 1 };
     lv_draw_rect(layer, &d, &inner);
@@ -229,29 +232,31 @@ static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
     uint8_t *pixels = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
     if (!pixels) { heap_caps_free(qr); return; }
 
+    lv_color_t qr_fg = lv_color_hex(s_cfg->qr_fg);
+    lv_color_t qr_bg = lv_color_hex(s_cfg->qr_bg);
+
     lv_obj_t *canvas = lv_canvas_create(scr);
     lv_canvas_set_buffer(canvas, pixels, canvas_px, canvas_px, LV_COLOR_FORMAT_RGB565);
     lv_obj_add_event_cb(canvas, on_qr_canvas_delete, LV_EVENT_DELETE, pixels);
-    lv_canvas_fill_bg(canvas, lv_color_white(), LV_OPA_COVER);
+    lv_canvas_fill_bg(canvas, qr_bg, LV_OPA_COVER);   // incl. quiet zone
 
     lv_layer_t layer;
     lv_canvas_init_layer(canvas, &layer);
 
+    qr_module_style_t mstyle = qr_module_style(s_cfg->qr_shape, module_px);
     lv_draw_rect_dsc_t dot;
     lv_draw_rect_dsc_init(&dot);
     dot.bg_opa = LV_OPA_COVER;
-    dot.bg_color = lv_color_black();
-    dot.radius = LV_RADIUS_CIRCLE;
-    int dot_d   = qr_dot_diameter_px(module_px);
-    int dot_off = (module_px - dot_d) / 2;
+    dot.bg_color = qr_fg;
+    dot.radius = (mstyle.kind == QR_DRAW_CIRCLE) ? LV_RADIUS_CIRCLE : mstyle.radius;
 
     for (int my = 0; my < modules; my++) {
         for (int mx = 0; mx < modules; mx++) {
             if (qr_in_finder_block(modules, mx, my)) continue;   // drawn once below
             if (!qrcodegen_getModule(qr, mx, my)) continue;
-            int px = (QR_QUIET_MODULES + mx) * module_px + dot_off;
-            int py = (QR_QUIET_MODULES + my) * module_px + dot_off;
-            lv_area_t a = { px, py, px + dot_d - 1, py + dot_d - 1 };
+            int px = (QR_QUIET_MODULES + mx) * module_px + mstyle.offset;
+            int py = (QR_QUIET_MODULES + my) * module_px + mstyle.offset;
+            lv_area_t a = { px, py, px + mstyle.size - 1, py + mstyle.size - 1 };
             lv_draw_rect(&layer, &dot, &a);
         }
     }
@@ -260,7 +265,7 @@ static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
     for (int i = 0; i < 3; i++) {
         int ox = (QR_QUIET_MODULES + finder_origin[i][0]) * module_px;
         int oy = (QR_QUIET_MODULES + finder_origin[i][1]) * module_px;
-        draw_qr_finder(&layer, ox, oy, module_px, lv_color_black(), lv_color_white());
+        draw_qr_finder(&layer, ox, oy, module_px, s_cfg->qr_shape, qr_fg, qr_bg);
     }
 
     lv_canvas_finish_layer(canvas, &layer);

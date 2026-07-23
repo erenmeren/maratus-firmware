@@ -66,6 +66,13 @@ static cfg_obj_type_t type_of(const char *s) {
     return OBJ_UNKNOWN;
 }
 
+static qr_shape_t qr_shape_of(const char *s) {
+    if (s && !strcmp(s, "classic")) return QR_SHAPE_CLASSIC;
+    if (s && !strcmp(s, "soft"))    return QR_SHAPE_SOFT;
+    if (s && !strcmp(s, "dots"))    return QR_SHAPE_DOTS;
+    return QR_SHAPE_ROUNDED;   // default: absent, unknown, or explicit "rounded"
+}
+
 static cfg_tint_t tint_of(const char *s) {
     if (s && !strcmp(s, "accent")) return TINT_ACCENT;
     if (s && !strcmp(s, "muted"))  return TINT_MUTED;
@@ -167,6 +174,20 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
     cfg->qr_timeout_seconds = cJSON_IsNumber(qt) ? (int)qt->valuedouble : 60;
     if (cfg->qr_timeout_seconds < 15)  cfg->qr_timeout_seconds = 15;
     if (cfg->qr_timeout_seconds > 180) cfg->qr_timeout_seconds = 180;
+
+    // QR style: qrShape/qrFg/qrBg live inside "config", siblings of
+    // clockTimezone/qrTimeoutSeconds (NOT document-root). Colors trust the
+    // cloud's contrast guard but keep a defensive same-color check.
+    cJSON *qshp = config ? cJSON_GetObjectItem(config, "qrShape") : NULL;
+    cfg->qr_shape = qr_shape_of(cJSON_GetStringValue(qshp));
+    cJSON *qfg = config ? cJSON_GetObjectItem(config, "qrFg") : NULL;
+    cJSON *qbg = config ? cJSON_GetObjectItem(config, "qrBg") : NULL;
+    cfg->qr_fg = parse_hex_color(cJSON_GetStringValue(qfg), 0x111111);
+    cfg->qr_bg = parse_hex_color(cJSON_GetStringValue(qbg), 0xFFFFFF);
+    if (cfg->qr_fg == cfg->qr_bg) {   // never render an invisible QR
+        cfg->qr_fg = 0x111111;
+        cfg->qr_bg = 0xFFFFFF;
+    }
 
     cJSON *dev = cJSON_GetObjectItem(root, "device");
     cJSON *br = dev ? cJSON_GetObjectItem(dev, "brightness") : NULL;
