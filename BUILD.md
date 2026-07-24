@@ -389,3 +389,45 @@ Independent of module `qrShape` — governs the QR's own background PLATE
 - **QR background corner + shadow (0.12.0) — pending HIL (square vs rounded
   corner visible against a non-white screen bg, shadow on/off, 2 phones for
   scan regression).**
+
+## QR shadow mode/strength/color (2026-07-24) — fw 0.13.0
+
+Branch `feat/qr-shadow-neon`. Device side of the cloud's QR shadow modes;
+cloud counterpart pending. Replaces the plain boolean `qrShadow` from
+0.12.0 with a tunable shadow (`config.qrShadowMode`/`qrShadowStrength`/
+`qrShadowColor`, siblings of `qrCorner`):
+
+- `qrShadowMode`: `"none"` (no shadow, default for absent/unknown) |
+  `"drop"` (soft shadow behind-and-below the plate — today's look, now
+  tunable) | `"neon"` (fuller, brighter surrounding glow, no downward
+  offset). Older cloud payloads sent only the boolean `qrShadow`;
+  `cfg_parse.c` migrates `qrShadow: true` to `"drop"`, but only when
+  `qrShadowMode` itself is absent from the payload — a present-but-unknown
+  mode string is "unknown", not "absent", and stays `"none"` (no legacy
+  fallback in that case; a modern `qrShadowMode` always wins over a legacy
+  `qrShadow` when both are present).
+- `qrShadowStrength`: `0..100` int, default `50` for absent, clamped to
+  range for out-of-range/non-number values.
+- `qrShadowColor`: `"#rrggbb"`, default `#000000` for absent/malformed.
+- New pure curves in `qr_style.c` keep `ui.c` thin: `qr_shadow_width_px`
+  (linear `8..48`px, mode-independent) and `qr_shadow_opa_pct` (linear
+  `20..90` for DROP, `35..100` for NEON — NEON is brighter than DROP at
+  every strength). `render_qr` dispatches on `qr_shadow_mode`: DROP sets
+  `shadow_width`/`shadow_color`/`shadow_opa` from those curves plus a small
+  downward `shadow_offset_y` (`width/6`, "resting on the surface"); NEON
+  uses `offset_y = 0` (glow surrounds evenly), `width` widened `~1.5x`, and
+  the brighter NEON opacity curve — both read as "neon" rather than "drop
+  shadow". NONE draws no shadow (canvas keeps its default no-shadow style).
+- Old cloud (fields absent) renders identically to 0.12.0's no-shadow
+  default — `qrShadowMode` absent + no legacy `qrShadow` -> NONE.
+
+- Host: `qrShadowMode`/`qrShadowStrength`/`qrShadowColor` parse matrix
+  (absent, each mode, unknown mode, legacy-bool migration in both
+  directions incl. modern-wins-over-legacy, strength clamping, malformed
+  color) + `qr_shadow_width_px`/`qr_shadow_opa_pct` curves (endpoints,
+  midpoint, NEON>DROP invariant, out-of-range clamping) —
+  `tools/cfg-harness`, all pass.
+- Build: clean `idf.py build`, no new warnings.
+- **QR shadow mode/strength/color (0.13.0) — pending HIL (drop vs neon vs
+  none visibly distinct against a non-white screen bg, strength slider
+  low/mid/high, custom shadow color, scan regression, 2 phones).**

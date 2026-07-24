@@ -87,7 +87,16 @@ typedef struct {
     // (absent/malformed) match the cloud's DEFAULT_QR_STYLE: rounded, no
     // shadow.
     qr_corner_t qr_corner;
-    bool        qr_shadow;
+    // QR drop shadow (config.qrShadowMode/qrShadowStrength/qrShadowColor):
+    // siblings of qrCorner. Older cloud sent a plain boolean `qrShadow`;
+    // cfg_parse.c migrates qrShadow==true to QR_SHADOW_DROP when
+    // qrShadowMode itself is absent from the payload. Defaults
+    // (absent/unknown mode, absent/out-of-range strength, absent/malformed
+    // color): none / 50 / #000000 — mode "none" means no shadow is drawn
+    // regardless of strength/color.
+    qr_shadow_mode_t qr_shadow_mode;
+    int              qr_shadow_strength;  // 0..100
+    uint32_t         qr_shadow_color;     // 0xRRGGBB
     // M7 org-wide device policies (from the payload "device" block).
     struct {
         int  brightness;                  // 10..100

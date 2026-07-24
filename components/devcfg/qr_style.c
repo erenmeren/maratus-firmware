@@ -93,3 +93,24 @@ int qr_bg_radius_px(int canvas_px, qr_corner_t corner) {
     int r = (int)((float)canvas_px * 0.06f + 0.5f);
     return r < 0 ? 0 : r;
 }
+
+static int clamp_strength(int strength) {
+    if (strength < 0)   return 0;
+    if (strength > 100) return 100;
+    return strength;
+}
+
+int qr_shadow_width_px(int strength) {
+    strength = clamp_strength(strength);
+    // 8 .. 48 px, rounded to the nearest px (+50 before the /100 truncation
+    // is the integer round-half-up idiom used throughout this file).
+    return 8 + (strength * 40 + 50) / 100;
+}
+
+int qr_shadow_opa_pct(int strength, qr_shadow_mode_t mode) {
+    strength = clamp_strength(strength);
+    if (mode == QR_SHADOW_NEON) {
+        return 35 + (strength * 65 + 50) / 100;   // 35 .. 100
+    }
+    return 20 + (strength * 70 + 50) / 100;        // DROP (and defensively NONE): 20 .. 90
+}

@@ -95,7 +95,12 @@ static void test_parse(void) {
 
     // (i) fixture also predates qrCorner/qrShadow -> defaults (rounded, no shadow).
     assert(cfg.qr_corner == QR_CORNER_ROUNDED);
-    assert(cfg.qr_shadow == false);
+    assert(cfg.qr_shadow_mode == QR_SHADOW_NONE);
+
+    // (j) fixture predates qrShadowMode/qrShadowStrength/qrShadowColor ->
+    // defaults (none/50/#000000).
+    assert(cfg.qr_shadow_strength == 50);
+    assert(cfg.qr_shadow_color == 0x000000);
 
     free(json);
     printf("test_parse OK\n");
@@ -210,6 +215,28 @@ static void test_qr_style(void) {
     assert(qr_bg_radius_px(400, QR_CORNER_SQUARE)  == 0);
     assert(qr_bg_radius_px(0,   QR_CORNER_ROUNDED) == 0);    // degenerate canvas -> 0, no crash
     assert(qr_bg_radius_px(-5,  QR_CORNER_ROUNDED) == 0);
+
+    // shadow width: linear 0->8px .. 100->48px, mode-independent.
+    assert(qr_shadow_width_px(0)   == 8);
+    assert(qr_shadow_width_px(100) == 48);
+    assert(qr_shadow_width_px(50)  == 28);    // round(8 + 50*0.4) = round(28.0)
+    assert(qr_shadow_width_px(-10) == 8);     // clamp low, never crash
+    assert(qr_shadow_width_px(999) == 48);    // clamp high
+
+    // shadow opacity: linear 0->20 .. 100->90 for DROP, 0->35 .. 100->100 for NEON.
+    assert(qr_shadow_opa_pct(0,   QR_SHADOW_DROP) == 20);
+    assert(qr_shadow_opa_pct(100, QR_SHADOW_DROP) == 90);
+    assert(qr_shadow_opa_pct(50,  QR_SHADOW_DROP) == 55);
+    assert(qr_shadow_opa_pct(0,   QR_SHADOW_NEON) == 35);
+    assert(qr_shadow_opa_pct(100, QR_SHADOW_NEON) == 100);
+    assert(qr_shadow_opa_pct(50,  QR_SHADOW_NEON) == 68);
+    // NEON is strictly brighter than DROP at every strength.
+    for (int s = 0; s <= 100; s += 10) {
+        assert(qr_shadow_opa_pct(s, QR_SHADOW_NEON) > qr_shadow_opa_pct(s, QR_SHADOW_DROP));
+    }
+    // out-of-range strength clamps rather than crashing/underflowing.
+    assert(qr_shadow_opa_pct(-50, QR_SHADOW_DROP) == 20);
+    assert(qr_shadow_opa_pct(999, QR_SHADOW_NEON) == 100);
 
     printf("test_qr_style OK\n");
 }
@@ -513,43 +540,109 @@ static void test_qr_shape_colors(void) {
 static void test_qr_corner_shadow(void) {
     device_config_t cfg;
 
-    // absent -> defaults (rounded, no shadow) — matches the cloud's
-    // DEFAULT_QR_STYLE.qrCorner/qrShadow.
+    // absent -> default rounded — matches the cloud's DEFAULT_QR_STYLE.qrCorner.
     const char *j1 = "{\"version\":\"v1\",\"config\":{}}";
     assert(cfg_parse_json(j1, &cfg));
     assert(cfg.qr_corner == QR_CORNER_ROUNDED);
-    assert(cfg.qr_shadow == false);
 
     // explicit recognized values pass through.
-    const char *j2 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"square\",\"qrShadow\":true}}";
+    const char *j2 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"square\"}}";
     assert(cfg_parse_json(j2, &cfg));
     assert(cfg.qr_corner == QR_CORNER_SQUARE);
-    assert(cfg.qr_shadow == true);
 
-    const char *j3 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"rounded\",\"qrShadow\":false}}";
+    const char *j3 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"rounded\"}}";
     assert(cfg_parse_json(j3, &cfg));
     assert(cfg.qr_corner == QR_CORNER_ROUNDED);
-    assert(cfg.qr_shadow == false);   // explicit false stays false, not just "absent -> false"
 
     // unknown corner string -> default rounded.
     const char *j4 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"beveled\"}}";
     assert(cfg_parse_json(j4, &cfg));
     assert(cfg.qr_corner == QR_CORNER_ROUNDED);
 
-    // non-bool qrShadow -> default false (never crash on a wrong JSON type).
-    const char *j5 = "{\"version\":\"v1\",\"config\":{\"qrShadow\":\"yes\"}}";
-    assert(cfg_parse_json(j5, &cfg));
-    assert(cfg.qr_shadow == false);
-
-    const char *j6 = "{\"version\":\"v1\",\"config\":{\"qrShadow\":1}}";
-    assert(cfg_parse_json(j6, &cfg));
-    assert(cfg.qr_shadow == false);
-
-    const char *j7 = "{\"version\":\"v1\",\"config\":{\"qrShadow\":null}}";
-    assert(cfg_parse_json(j7, &cfg));
-    assert(cfg.qr_shadow == false);
-
     printf("test_qr_corner_shadow OK\n");
+}
+
+// config.qrShadowMode/qrShadowStrength/qrShadowColor: siblings of qrCorner.
+// Covers the new-cloud contract, the legacy-bool migration, and clamping.
+static void test_qr_shadow_fields(void) {
+    device_config_t cfg;
+
+    // (1) everything absent -> defaults: none/50/#000000.
+    const char *j1 = "{\"version\":\"v1\",\"config\":{}}";
+    assert(cfg_parse_json(j1, &cfg));
+    assert(cfg.qr_shadow_mode == QR_SHADOW_NONE);
+    assert(cfg.qr_shadow_strength == 50);
+    assert(cfg.qr_shadow_color == 0x000000);
+
+    // (2) explicit qrShadowMode values pass through.
+    const char *j2 = "{\"version\":\"v1\",\"config\":{\"qrShadowMode\":\"drop\"}}";
+    assert(cfg_parse_json(j2, &cfg) && cfg.qr_shadow_mode == QR_SHADOW_DROP);
+    const char *j3 = "{\"version\":\"v1\",\"config\":{\"qrShadowMode\":\"neon\"}}";
+    assert(cfg_parse_json(j3, &cfg) && cfg.qr_shadow_mode == QR_SHADOW_NEON);
+    const char *j4 = "{\"version\":\"v1\",\"config\":{\"qrShadowMode\":\"none\"}}";
+    assert(cfg_parse_json(j4, &cfg) && cfg.qr_shadow_mode == QR_SHADOW_NONE);
+
+    // (3) unknown qrShadowMode string -> NONE. Present-but-unknown is NOT
+    // "absent", so no legacy fallback even if a legacy qrShadow is present too.
+    const char *j5 =
+        "{\"version\":\"v1\",\"config\":{\"qrShadowMode\":\"sparkle\",\"qrShadow\":true}}";
+    assert(cfg_parse_json(j5, &cfg) && cfg.qr_shadow_mode == QR_SHADOW_NONE);
+
+    // (4) legacy migration: qrShadowMode absent + legacy qrShadow:true -> DROP.
+    const char *j6 = "{\"version\":\"v1\",\"config\":{\"qrShadow\":true}}";
+    assert(cfg_parse_json(j6, &cfg) && cfg.qr_shadow_mode == QR_SHADOW_DROP);
+
+    // (5) legacy migration: qrShadowMode absent + legacy qrShadow:false -> NONE.
+    const char *j7 = "{\"version\":\"v1\",\"config\":{\"qrShadow\":false}}";
+    assert(cfg_parse_json(j7, &cfg) && cfg.qr_shadow_mode == QR_SHADOW_NONE);
+
+    // (6) legacy migration: non-bool qrShadow -> NONE (never crash on a wrong
+    // JSON type).
+    const char *j8 = "{\"version\":\"v1\",\"config\":{\"qrShadow\":\"yes\"}}";
+    assert(cfg_parse_json(j8, &cfg) && cfg.qr_shadow_mode == QR_SHADOW_NONE);
+    const char *j9 = "{\"version\":\"v1\",\"config\":{\"qrShadow\":1}}";
+    assert(cfg_parse_json(j9, &cfg) && cfg.qr_shadow_mode == QR_SHADOW_NONE);
+
+    // (7) modern qrShadowMode present wins over a legacy qrShadow, in both
+    // directions (mode says NEON even though legacy bool says false/absent-ish).
+    const char *j10 =
+        "{\"version\":\"v1\",\"config\":{\"qrShadowMode\":\"neon\",\"qrShadow\":false}}";
+    assert(cfg_parse_json(j10, &cfg) && cfg.qr_shadow_mode == QR_SHADOW_NEON);
+
+    // (8) qrShadowStrength: valid int passes through.
+    const char *j11 = "{\"version\":\"v1\",\"config\":{\"qrShadowStrength\":30}}";
+    assert(cfg_parse_json(j11, &cfg) && cfg.qr_shadow_strength == 30);
+
+    // (9) qrShadowStrength: absent -> default 50.
+    assert(cfg_parse_json(j1, &cfg) && cfg.qr_shadow_strength == 50);
+
+    // (10) qrShadowStrength: below min clamps to 0.
+    const char *j12 = "{\"version\":\"v1\",\"config\":{\"qrShadowStrength\":-20}}";
+    assert(cfg_parse_json(j12, &cfg) && cfg.qr_shadow_strength == 0);
+
+    // (11) qrShadowStrength: above max clamps to 100.
+    const char *j13 = "{\"version\":\"v1\",\"config\":{\"qrShadowStrength\":250}}";
+    assert(cfg_parse_json(j13, &cfg) && cfg.qr_shadow_strength == 100);
+
+    // (12) qrShadowStrength: non-number -> default 50 (never crash on a
+    // wrong JSON type).
+    const char *j14 = "{\"version\":\"v1\",\"config\":{\"qrShadowStrength\":\"lots\"}}";
+    assert(cfg_parse_json(j14, &cfg) && cfg.qr_shadow_strength == 50);
+
+    // (13) qrShadowColor: valid hex (with and without '#') parses.
+    const char *j15 = "{\"version\":\"v1\",\"config\":{\"qrShadowColor\":\"#ff00ff\"}}";
+    assert(cfg_parse_json(j15, &cfg) && cfg.qr_shadow_color == 0xFF00FF);
+    const char *j16 = "{\"version\":\"v1\",\"config\":{\"qrShadowColor\":\"00aaff\"}}";
+    assert(cfg_parse_json(j16, &cfg) && cfg.qr_shadow_color == 0x00AAFF);
+
+    // (14) qrShadowColor: malformed -> default #000000.
+    const char *j17 = "{\"version\":\"v1\",\"config\":{\"qrShadowColor\":\"nope\"}}";
+    assert(cfg_parse_json(j17, &cfg) && cfg.qr_shadow_color == 0x000000);
+
+    // (15) qrShadowColor: absent -> default #000000.
+    assert(cfg_parse_json(j1, &cfg) && cfg.qr_shadow_color == 0x000000);
+
+    printf("test_qr_shadow_fields OK\n");
 }
 
 static void test_screen_colors(void) {
@@ -984,6 +1077,7 @@ int main(void) {
     test_qr_timeout();
     test_qr_shape_colors();
     test_qr_corner_shadow();
+    test_qr_shadow_fields();
     test_screen_colors();
     test_device_defaults();
     test_pin_block();
