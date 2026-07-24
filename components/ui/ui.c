@@ -310,10 +310,19 @@ static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
     // halo at LVGL's default opa falloff (the blur alone read weak at full
     // opa in review — this is the "still looks weak" fallback the spec
     // anticipated). NONE leaves the canvas's default (no shadow) untouched.
+    // HARD CAP on the width/spread handed to LVGL: its software shadow blur
+    // cost grows superlinearly with width, and an uncapped dim-relative value
+    // (~250px on a 260px plate) wedges the render for seconds per frame while
+    // holding the LVGL lock — which also starves poll_task (0.14.0 boot-hang
+    // incident). 64/16px stays within the frame budget on the P4 at 720x720;
+    // beyond that the visual difference is marginal on-panel anyway.
+    #define QR_SHADOW_WIDTH_MAX  64
+    #define QR_SHADOW_SPREAD_MAX 16
     switch (s_cfg->qr_shadow_mode) {
     case QR_SHADOW_DROP: {
         qr_shadow_params_t p = qr_shadow_params(QR_SHADOW_DROP, s_cfg->qr_shadow_strength, canvas_px);
-        lv_obj_set_style_shadow_width(canvas, p.blur_px * 2, LV_PART_MAIN);
+        int w = p.blur_px * 2; if (w > QR_SHADOW_WIDTH_MAX) w = QR_SHADOW_WIDTH_MAX;
+        lv_obj_set_style_shadow_width(canvas, w, LV_PART_MAIN);
         lv_obj_set_style_shadow_color(canvas, lv_color_hex(s_cfg->qr_shadow_color), LV_PART_MAIN);
         lv_obj_set_style_shadow_opa(canvas, (lv_opa_t)p.opa, LV_PART_MAIN);
         lv_obj_set_style_shadow_offset_y(canvas, p.offset_y_px, LV_PART_MAIN);
@@ -321,11 +330,15 @@ static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
     }
     case QR_SHADOW_NEON: {
         qr_shadow_params_t p = qr_shadow_params(QR_SHADOW_NEON, s_cfg->qr_shadow_strength, canvas_px);
-        lv_obj_set_style_shadow_width(canvas, p.spread_px * 2, LV_PART_MAIN);
+        int w = p.spread_px * 2; if (w > QR_SHADOW_WIDTH_MAX) w = QR_SHADOW_WIDTH_MAX;
+        lv_obj_set_style_shadow_width(canvas, w, LV_PART_MAIN);
         lv_obj_set_style_shadow_color(canvas, lv_color_hex(s_cfg->qr_shadow_color), LV_PART_MAIN);
         lv_obj_set_style_shadow_opa(canvas, (lv_opa_t)p.opa, LV_PART_MAIN);
         lv_obj_set_style_shadow_offset_y(canvas, 0, LV_PART_MAIN);
-        lv_obj_set_style_shadow_spread(canvas, p.blur_px / 2, LV_PART_MAIN);
+        {
+            int sp = p.blur_px / 2; if (sp > QR_SHADOW_SPREAD_MAX) sp = QR_SHADOW_SPREAD_MAX;
+            lv_obj_set_style_shadow_spread(canvas, sp, LV_PART_MAIN);
+        }
         break;
     }
     case QR_SHADOW_NONE:
