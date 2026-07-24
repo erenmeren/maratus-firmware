@@ -486,3 +486,98 @@ canonical *dim-relative* formulas (`ditto-admin lib/qr-svg.ts`
   studio preview: corner radius visually matches at several slider values,
   drop shadow now visibly present vs 0.13.0, neon glow reads as a fuller
   halo, scan regression, 2 phones).**
+
+Also fw 0.15.0 (`fix(ui): hard-cap LVGL qr shadow width/spread`): the
+`QR_SHADOW_WIDTH_MAX`/`QR_SHADOW_SPREAD_MAX` caps (64px/16px) in
+`render_qr` — an *uncapped* dim-relative `shadow_width`
+(`qr_shadow_params`'s NEON `spreadPx*2`, ~250px on a 260px plate) wedged
+LVGL's software shadow-blur render for seconds per frame while holding the
+LVGL lock, which starved `poll_task` and read as a boot hang. The caps kept
+NEON usable but capped its visual reach well below the cloud preview's — the
+problem the canvas-glow rewrite below replaces the whole mechanism to fix
+properly rather than raising the cap.
+
+## NEON pre-rendered canvas glow (2026-07-24) — fw 0.16.0
+
+Branch `fix/neon-canvas-glow`. Problem: even after the 0.15.0 hard-cap fix,
+NEON's device glow still didn't match the branding studio preview — (a) the
+64px `shadow_width` cap means a strong glow (dim-relative `spreadPx` can
+reach 100+px on a large plate) visibly undershoots the cloud's halo reach,
+and (b) LVGL's `shadow_width`/`shadow_spread` is a single Gaussian-ish blur
+pass, not the preview's richer two-layer glow (a bright, tight inner bloom
+stacked under a wider, dimmer outer bloom). Raising the cap was explicitly
+ruled out (0.15.0 boot-hang incident above) — LVGL's *live* software shadow
+blur cost grows superlinearly with width, so a wide NEON halo can never be
+cheap as a per-frame effect on this hardware.
+
+Fix: stop using a live LVGL shadow for NEON entirely. Pre-render the glow
+into the QR canvas's own (enlarged) pixel buffer ONCE, at canvas-build time
+— zero per-frame cost, so the halo can be as wide as the cloud preview's
+without touching the render-loop budget. DROP and NONE are untouched (same
+plate-sized RGB565 canvas + LVGL `shadow_*` style path as 0.12.0-0.15.0).
+
+- `components/devcfg/qr_style.c`/`.h` gain three pure, host-testable
+  functions (no LVGL/qrcodegen dependency):
+  - `qr_neon_halo_px(plate_px, spread_px, max_side_px)` — turns
+    `qr_shadow_params(NEON,...).spread_px` (the CLOUD PARITY halo reach)
+    into the enlarged canvas's outward margin, capped so the halo never
+    exceeds the plate's own size and the final canvas side
+    (`plate + 2*halo`) never exceeds `QR_NEON_CANVAS_SIDE_MAX_PX` (720 —
+    the panel's own side).
+  - `qr_glow_dist_px(px, py, rect_w, rect_h, r)` — the standard
+    rounded-box signed-distance-field (Inigo Quilez's `sdRoundBox`),
+    clamped to the OUTSIDE distance only (0 inside/on-boundary). Lets the
+    glow follow the plate's own `qr_corner_radius_px` rounding instead of
+    a plain rectangle.
+  - `qr_glow_alpha_at(d, blur_px, spread_px)` — the two-layer falloff:
+    `a1=(1-d/blur)^2` for `d<blur` (tight inner glow) stacked with
+    `a2=0.55*(1-d/spread)^2` for `d<spread` (wide outer glow, capped at
+    55% peak so it reads as a dimmer bloom, not a second bright ring);
+    `alpha = 255*max(a1,a2)`.
+- `components/ui/ui.c`'s `render_qr`, NEON path only: computes
+  `glow = qr_shadow_params(NEON, strength, canvas_px)` and
+  `halo = qr_neon_halo_px(canvas_px, glow.spread_px, 720)`, allocates an
+  `ARGB8888` canvas of side `canvas_px + 2*halo` (vs. the plain
+  `RGB565`/`canvas_px`-sized canvas for DROP/NONE), fills it fully
+  transparent, then a new `paint_qr_neon_glow` helper writes the glow into
+  the raw pixel buffer directly (bypassing `lv_canvas_set_px`'s
+  per-pixel `lv_obj_invalidate`, since this is a ~270k-pixel loop) using
+  `qr_glow_dist_px`/`qr_glow_alpha_at`. The plate (rounded `qrBg` rect) and
+  all modules/finders are then drawn as before but offset by `halo` on both
+  axes, so the QR itself still lands exactly centered in the object box —
+  only the canvas grew, not the box position math. For NEON, the lv_obj
+  `radius`/`clip_corner` style and the LVGL `shadow_*` styles are skipped
+  entirely (clipping would cut off the glow past the plate; the plate's own
+  rounding is already drawn in-canvas). DROP/NONE keep the exact 0.14.0/
+  0.15.0 code path (whole-canvas `qr_bg` fill, lv_obj radius+clip, DROP's
+  `shadow_*` styles capped at `QR_SHADOW_WIDTH_MAX`=64px).
+- Quiet zone / module layout / scan geometry are untouched — `module_px`,
+  `canvas_px`, and `QR_QUIET_MODULES` are computed exactly as before; only
+  where the plate is drawn *within* the (possibly enlarged) canvas moved.
+- PSRAM cost at plate≈260px, `strength=100` (`s=1.0`, the worst case —
+  `blur=62px`, `spread=125px`): `halo=125px` (well under the plate-size
+  cap), canvas side `260+2*125=510px`, buffer `510*510*4 ≈ 1.04MB`. At
+  `strength=50` (the `qr_shadow_params` spec's own dim=260 example,
+  `blur=36`, `spread=73`): `halo=73px`, side `406px`, buffer `≈0.66MB`. Both
+  comfortably within PSRAM budget; freed via the existing
+  `on_qr_canvas_delete`/`LV_EVENT_DELETE` path unchanged (it already frees
+  whatever pointer it's handed, regardless of size/format).
+
+- Host: `qr_neon_halo_px` (spec example unaffected by either cap,
+  spread>plate binds the plate cap, plate+2*halo>max_side_px binds the
+  side cap, degenerate plate/negative spread, plate alone already over
+  max_side_px) + `qr_glow_dist_px` (dead center inside, square-corner
+  point exactly on the boundary, the SAME point read as outside once
+  rounded — proves the falloff follows the rounded contour not the
+  bounding box, flat-edge distance unaffected by radius, diagonal-corner
+  Euclidean vs. naive-Manhattan distinction, degenerate rect) +
+  `qr_glow_alpha_at` (d<=0 short-circuit, d==blur lands in the a2-only
+  region, d==spread and beyond -> 0, monotonic decrease, degenerate
+  blur/spread -> no div-by-zero) — `tools/cfg-harness`, all pass.
+- Build: clean `idf.py build`, no new warnings. IDF 5.5 only.
+- **NEON pre-rendered canvas glow (0.16.0) — pending HIL (neon halo reach
+  now visibly matches the studio preview at high strength vs. 0.15.0's
+  capped look, two-layer glow reads as a bright core + soft wide bloom
+  rather than a single flat blur, DROP/NONE visually unchanged from
+  0.15.0, scan regression, corner-radius slider still visually matches
+  with NEON on, 2 phones). NOT flashed — build-verified only.**
