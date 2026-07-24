@@ -83,3 +83,12 @@ typedef enum { QR_CORNER_SQUARE, QR_CORNER_ROUNDED } qr_corner_t;
 // is needed to get "transparent" corners: whatever sits behind the canvas
 // (the screen background) simply shows through the clipped-away corners.
 int qr_bg_radius_px(int canvas_px, qr_corner_t corner);
+
+// QR drop-shadow mode (config.qrShadowMode, a sibling of qrCorner/qrShape/
+// qrFg/qrBg inside "config"). NONE draws no shadow at all (default for
+// absent/unknown). DROP is a soft shadow behind-and-below the plate
+// (today's fw 0.12.0 look, now strength/color tunable). NEON is a fuller,
+// brighter surrounding glow. Older cloud payloads sent a plain boolean
+// `qrShadow`; cfg_parse.c migrates qrShadow==true to DROP only when
+// qrShadowMode itself is absent from the payload.
+typedef enum { QR_SHADOW_NONE, QR_SHADOW_DROP, QR_SHADOW_NEON } qr_shadow_mode_t;

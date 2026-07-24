@@ -78,6 +78,12 @@ static qr_corner_t qr_corner_of(const char *s) {
     return QR_CORNER_ROUNDED;   // default: absent, unknown, or explicit "rounded"
 }
 
+static qr_shadow_mode_t qr_shadow_mode_of(const char *s) {
+    if (s && !strcmp(s, "drop")) return QR_SHADOW_DROP;
+    if (s && !strcmp(s, "neon")) return QR_SHADOW_NEON;
+    return QR_SHADOW_NONE;   // default: absent, unknown, or explicit "none"
+}
+
 static cfg_tint_t tint_of(const char *s) {
     if (s && !strcmp(s, "accent")) return TINT_ACCENT;
     if (s && !strcmp(s, "muted"))  return TINT_MUTED;
@@ -194,13 +200,35 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
         cfg->qr_bg = 0xFFFFFF;
     }
 
-    // QR background plate: qrCorner/qrShadow, siblings of qrShape/qrFg/qrBg
-    // inside "config". Each sanitizes independently and permissively — no
+    // QR background plate: qrCorner, sibling of qrShape/qrFg/qrBg inside
+    // "config". Sanitizes independently and permissively — no
     // cross-field validation (unlike the fg/bg contrast guard above).
     cJSON *qcorner = config ? cJSON_GetObjectItem(config, "qrCorner") : NULL;
     cfg->qr_corner = qr_corner_of(cJSON_GetStringValue(qcorner));
-    cJSON *qshadow = config ? cJSON_GetObjectItem(config, "qrShadow") : NULL;
-    cfg->qr_shadow = cJSON_IsBool(qshadow) ? cJSON_IsTrue(qshadow) : false;
+
+    // QR drop shadow: qrShadowMode/qrShadowStrength/qrShadowColor, siblings
+    // of qrCorner. Older cloud sent a plain boolean `qrShadow` (no mode/
+    // strength/color) — migrate qrShadow==true to DROP, but ONLY when
+    // qrShadowMode itself is absent from the payload: a present-but-unknown
+    // mode string is "unknown", not "absent", and stays NONE per spec (no
+    // legacy fallback in that case).
+    cJSON *qsmode = config ? cJSON_GetObjectItem(config, "qrShadowMode") : NULL;
+    const char *qsmode_str = cJSON_GetStringValue(qsmode);
+    if (qsmode_str) {
+        cfg->qr_shadow_mode = qr_shadow_mode_of(qsmode_str);
+    } else {
+        cJSON *qshadow_legacy = config ? cJSON_GetObjectItem(config, "qrShadow") : NULL;
+        cfg->qr_shadow_mode = (cJSON_IsBool(qshadow_legacy) && cJSON_IsTrue(qshadow_legacy))
+                              ? QR_SHADOW_DROP : QR_SHADOW_NONE;
+    }
+
+    cJSON *qsstrength = config ? cJSON_GetObjectItem(config, "qrShadowStrength") : NULL;
+    cfg->qr_shadow_strength = cJSON_IsNumber(qsstrength) ? (int)qsstrength->valuedouble : 50;
+    if (cfg->qr_shadow_strength < 0)   cfg->qr_shadow_strength = 0;
+    if (cfg->qr_shadow_strength > 100) cfg->qr_shadow_strength = 100;
+
+    cJSON *qscolor = config ? cJSON_GetObjectItem(config, "qrShadowColor") : NULL;
+    cfg->qr_shadow_color = parse_hex_color(cJSON_GetStringValue(qscolor), 0x000000);
 
     cJSON *dev = cJSON_GetObjectItem(root, "device");
     cJSON *br = dev ? cJSON_GetObjectItem(dev, "brightness") : NULL;
