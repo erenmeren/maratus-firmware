@@ -216,6 +216,28 @@ static void test_qr_style(void) {
     assert(qr_bg_radius_px(0,   QR_CORNER_ROUNDED) == 0);    // degenerate canvas -> 0, no crash
     assert(qr_bg_radius_px(-5,  QR_CORNER_ROUNDED) == 0);
 
+    // shadow width: linear 0->8px .. 100->48px, mode-independent.
+    assert(qr_shadow_width_px(0)   == 8);
+    assert(qr_shadow_width_px(100) == 48);
+    assert(qr_shadow_width_px(50)  == 28);    // round(8 + 50*0.4) = round(28.0)
+    assert(qr_shadow_width_px(-10) == 8);     // clamp low, never crash
+    assert(qr_shadow_width_px(999) == 48);    // clamp high
+
+    // shadow opacity: linear 0->20 .. 100->90 for DROP, 0->35 .. 100->100 for NEON.
+    assert(qr_shadow_opa_pct(0,   QR_SHADOW_DROP) == 20);
+    assert(qr_shadow_opa_pct(100, QR_SHADOW_DROP) == 90);
+    assert(qr_shadow_opa_pct(50,  QR_SHADOW_DROP) == 55);
+    assert(qr_shadow_opa_pct(0,   QR_SHADOW_NEON) == 35);
+    assert(qr_shadow_opa_pct(100, QR_SHADOW_NEON) == 100);
+    assert(qr_shadow_opa_pct(50,  QR_SHADOW_NEON) == 68);
+    // NEON is strictly brighter than DROP at every strength.
+    for (int s = 0; s <= 100; s += 10) {
+        assert(qr_shadow_opa_pct(s, QR_SHADOW_NEON) > qr_shadow_opa_pct(s, QR_SHADOW_DROP));
+    }
+    // out-of-range strength clamps rather than crashing/underflowing.
+    assert(qr_shadow_opa_pct(-50, QR_SHADOW_DROP) == 20);
+    assert(qr_shadow_opa_pct(999, QR_SHADOW_NEON) == 100);
+
     printf("test_qr_style OK\n");
 }
 

@@ -92,3 +92,19 @@ int qr_bg_radius_px(int canvas_px, qr_corner_t corner);
 // `qrShadow`; cfg_parse.c migrates qrShadow==true to DROP only when
 // qrShadowMode itself is absent from the payload.
 typedef enum { QR_SHADOW_NONE, QR_SHADOW_DROP, QR_SHADOW_NEON } qr_shadow_mode_t;
+
+// Shadow width in canvas px for a given strength (0..100; re-clamped here
+// defensively even though cfg_parse.c already clamps it): linear
+// 0 -> 8px .. 100 -> 48px, rounded to the nearest px. Mode-independent —
+// NEON's extra width (a fuller glow) is applied by the caller (ui.c
+// render_qr multiplies this by ~1.5x), so this helper only encodes the
+// strength->width curve.
+int qr_shadow_width_px(int strength);
+
+// Shadow opacity, 0..100 (an LVGL opa percent), for a given strength and
+// mode: linear 0 -> 20 .. 100 -> 90 for DROP (today's subtle look, now
+// tunable); NEON is brighter at every strength, 0 -> 35 .. 100 -> 100 (a
+// fuller glow, not just a soft shadow). mode==NONE is never queried by
+// callers (no shadow is drawn) but returns the DROP curve defensively
+// rather than crashing/garbage on a stray call.
+int qr_shadow_opa_pct(int strength, qr_shadow_mode_t mode);
