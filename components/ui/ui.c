@@ -165,14 +165,16 @@ static void render_text(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
 // Styled QR (spec: docs/superpowers/specs/2026-07-22-pinned-screen-styled-qr-firmware.md
 // §2; shapes/colors: docs/superpowers/specs/2026-07-23-qr-style-options-firmware.md;
 // background corner+shadow: same doc's addendum, fw 0.12.0; shadow mode/
-// strength/color: fw 0.13.0).
+// strength/color: fw 0.13.0; canonical dim-relative corner+shadow formulas,
+// cloud parity: fw 0.14.0).
 // Replaces the plain lv_qrcode widget: qrcodegen encodes, then we hand-draw onto
 // an lv_canvas — dark modules per cfg->qr_shape (classic: squares; soft:
 // rounded-squares; rounded: ~0.85x circles; dots: ~0.7x circles), the 3 finder
 // patterns as rings+dots (outer ring, middle hole, inner dot; square corners for
 // classic, rounded otherwise). Canvas bg + module/finder colors come from
 // cfg->qr_bg/qr_fg. The background PLATE's own corner treatment (independent of
-// module shape) comes from cfg->qr_corner, and its optional shadow from
+// module shape) comes from cfg->qr_corner_radius (a 0..100 slider, replacing
+// the old square/rounded enum), and its optional shadow from
 // cfg->qr_shadow_mode/qr_shadow_strength/qr_shadow_color — applied as lv_obj
 // styles on the canvas itself (radius/clip + shadow_*), not baked into the
 // pixel buffer. One code path for every QR render (trigger/pinned/setup all
@@ -286,37 +288,44 @@ static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
     // clipped-away corners. clip_corner is set for consistency with the
     // existing icon_circle clip (render_image) even though the image draw
     // path keys off radius alone.
-    int bg_radius = qr_bg_radius_px(canvas_px, s_cfg->qr_corner);
+    int bg_radius = qr_corner_radius_px(canvas_px, s_cfg->qr_corner_radius);
     lv_obj_set_style_radius(canvas, bg_radius, LV_PART_MAIN);
     lv_obj_set_style_clip_corner(canvas, true, LV_PART_MAIN);
 
     // Background plate shadow (config.qrShadowMode/qrShadowStrength/
-    // qrShadowColor, siblings of qrCorner — fw 0.13.0). DROP is a soft
-    // shadow behind-and-below the plate: width/opacity from the pure
-    // qr_shadow_width_px/qr_shadow_opa_pct curves (qr_style.c), a small
-    // downward y-offset (~width/6) for the "resting on the surface" look.
-    // NEON is a fuller, brighter surrounding glow: no downward offset (the
-    // glow surrounds the plate evenly), ~1.5x DROP's width, and a higher
-    // opacity curve — both the offset-0 and the width/opa deltas are what
-    // read as "neon" rather than "drop shadow". NONE leaves the canvas's
-    // default (no shadow) styles untouched.
+    // qrShadowColor, sibling of qrCornerRadius). Numbers come from the
+    // canonical dim-relative qr_shadow_params (qr_style.c — CLOUD PARITY
+    // with lib/qr-svg.ts qrShadowParams), `dim` = canvas_px (the plate's own
+    // rendered pixel size), so the effect reads the same proportional size
+    // as the branding studio preview regardless of how large the QR renders.
+    // LVGL's shadow_width is a blur radius that extends on BOTH sides of the
+    // shadow's base rect (unlike CSS box-shadow's one-sided blur-radius), so
+    // it's doubled here to calibrate LVGL's blur to read like the CSS blur
+    // it's mirroring. DROP: width = blurPx*2, offset = offsetYPx, opa =
+    // alpha*255 (already computed by qr_shadow_params). NEON: width =
+    // spreadPx*2 (spreadPx is itself 2x blur, so NEON's LVGL width ends up
+    // 4x the tight blur — a fuller halo than DROP), no downward offset (glow
+    // surrounds evenly), full opa. shadow_spread additionally widens NEON's
+    // base rect by half the tight blur so the glow still reads as a full
+    // halo at LVGL's default opa falloff (the blur alone read weak at full
+    // opa in review — this is the "still looks weak" fallback the spec
+    // anticipated). NONE leaves the canvas's default (no shadow) untouched.
     switch (s_cfg->qr_shadow_mode) {
     case QR_SHADOW_DROP: {
-        int width = qr_shadow_width_px(s_cfg->qr_shadow_strength);
-        int opa_pct = qr_shadow_opa_pct(s_cfg->qr_shadow_strength, QR_SHADOW_DROP);
-        lv_obj_set_style_shadow_width(canvas, width, LV_PART_MAIN);
+        qr_shadow_params_t p = qr_shadow_params(QR_SHADOW_DROP, s_cfg->qr_shadow_strength, canvas_px);
+        lv_obj_set_style_shadow_width(canvas, p.blur_px * 2, LV_PART_MAIN);
         lv_obj_set_style_shadow_color(canvas, lv_color_hex(s_cfg->qr_shadow_color), LV_PART_MAIN);
-        lv_obj_set_style_shadow_opa(canvas, (lv_opa_t)(opa_pct * 255 / 100), LV_PART_MAIN);
-        lv_obj_set_style_shadow_offset_y(canvas, width / 6, LV_PART_MAIN);
+        lv_obj_set_style_shadow_opa(canvas, (lv_opa_t)p.opa, LV_PART_MAIN);
+        lv_obj_set_style_shadow_offset_y(canvas, p.offset_y_px, LV_PART_MAIN);
         break;
     }
     case QR_SHADOW_NEON: {
-        int width = (int)((float)qr_shadow_width_px(s_cfg->qr_shadow_strength) * 1.5f);
-        int opa_pct = qr_shadow_opa_pct(s_cfg->qr_shadow_strength, QR_SHADOW_NEON);
-        lv_obj_set_style_shadow_width(canvas, width, LV_PART_MAIN);
+        qr_shadow_params_t p = qr_shadow_params(QR_SHADOW_NEON, s_cfg->qr_shadow_strength, canvas_px);
+        lv_obj_set_style_shadow_width(canvas, p.spread_px * 2, LV_PART_MAIN);
         lv_obj_set_style_shadow_color(canvas, lv_color_hex(s_cfg->qr_shadow_color), LV_PART_MAIN);
-        lv_obj_set_style_shadow_opa(canvas, (lv_opa_t)(opa_pct * 255 / 100), LV_PART_MAIN);
+        lv_obj_set_style_shadow_opa(canvas, (lv_opa_t)p.opa, LV_PART_MAIN);
         lv_obj_set_style_shadow_offset_y(canvas, 0, LV_PART_MAIN);
+        lv_obj_set_style_shadow_spread(canvas, p.blur_px / 2, LV_PART_MAIN);
         break;
     }
     case QR_SHADOW_NONE:

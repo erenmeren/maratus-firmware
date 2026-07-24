@@ -87,11 +87,15 @@ qr_module_style_t qr_module_style(qr_shape_t shape, int module_px) {
     return s;
 }
 
-int qr_bg_radius_px(int canvas_px, qr_corner_t corner) {
-    if (corner != QR_CORNER_ROUNDED) return 0;
-    if (canvas_px < 1) return 0;
-    int r = (int)((float)canvas_px * 0.06f + 0.5f);
-    return r < 0 ? 0 : r;
+// CLOUD PARITY: mirrors ditto-admin lib/qr-svg.ts qrCornerRadiusPx — keep in sync.
+int qr_corner_radius_px(int dim, int v) {
+    if (dim < 1) return 0;
+    if (v < 0)   v = 0;
+    if (v > 100) v = 100;
+    // dim * 0.30 * v/100 == dim*3*v/1000; +500 before the /1000 truncation
+    // is the integer round-half-up idiom used throughout this file.
+    long num = (long)dim * 3L * (long)v;
+    return (int)((num + 500) / 1000);
 }
 
 static int clamp_strength(int strength) {
@@ -100,17 +104,35 @@ static int clamp_strength(int strength) {
     return strength;
 }
 
-int qr_shadow_width_px(int strength) {
+// CLOUD PARITY: mirrors ditto-admin lib/qr-svg.ts qrShadowParams — keep in sync.
+qr_shadow_params_t qr_shadow_params(qr_shadow_mode_t mode, int strength, int dim) {
+    qr_shadow_params_t p = { 0, 0, 0, 0 };
+    if (mode == QR_SHADOW_NONE) return p;
+    if (dim < 1) return p;   // degenerate canvas -> no shadow, never crash
     strength = clamp_strength(strength);
-    // 8 .. 48 px, rounded to the nearest px (+50 before the /100 truncation
-    // is the integer round-half-up idiom used throughout this file).
-    return 8 + (strength * 40 + 50) / 100;
-}
 
-int qr_shadow_opa_pct(int strength, qr_shadow_mode_t mode) {
-    strength = clamp_strength(strength);
-    if (mode == QR_SHADOW_NEON) {
-        return 35 + (strength * 65 + 50) / 100;   // 35 .. 100
+    // blurPx = dim * (0.04 + 0.20 * strength/100) == dim*(40 + 2*strength)/1000.
+    long blur_num = (long)dim * (40L + 2L * strength);
+    p.blur_px = (int)((blur_num + 500) / 1000);
+
+    if (mode == QR_SHADOW_DROP) {
+        // offsetYPx = dim * 0.02 == dim*2/100.
+        p.offset_y_px = (int)(((long)dim * 2L + 50) / 100);
+        // alpha = 0.25 + 0.50*s (s = strength/100); opa (0..255) =
+        // round(alpha*255) == round((250 + 5*strength) * 255 / 1000).
+        long opa_num = (250L + 5L * strength) * 255L;
+        p.opa = (int)((opa_num + 500) / 1000);
+        p.spread_px = 0;
+        return p;
     }
-    return 20 + (strength * 70 + 50) / 100;        // DROP (and defensively NONE): 20 .. 90
+
+    // NEON: full-color halo (alpha 1.0 -> opa 255 exactly), no downward
+    // offset. spread = 2x the UNROUNDED blur (computed directly from dim/
+    // strength, not from the already-rounded blur_px) so it matches the
+    // cloud's float math exactly rather than drifting from double rounding.
+    p.offset_y_px = 0;
+    p.opa = 255;
+    long spread_num = 2L * (long)dim * (40L + 2L * strength);
+    p.spread_px = (int)((spread_num + 500) / 1000);
+    return p;
 }

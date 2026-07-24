@@ -431,3 +431,58 @@ cloud counterpart pending. Replaces the plain boolean `qrShadow` from
 - **QR shadow mode/strength/color (0.13.0) — pending HIL (drop vs neon vs
   none visibly distinct against a non-white screen bg, strength slider
   low/mid/high, custom shadow color, scan regression, 2 phones).**
+
+## QR corner + shadow parity formulas (2026-07-24) — fw 0.14.0
+
+Branch `feat/qr-parity-formulas`. User report: the device QR plate's shadow
+was "barely visible" and its corner radius didn't match the branding studio
+preview. Root cause: the 0.12.0/0.13.0 curves (`qr_bg_radius_px`'s fixed 6%,
+`qr_shadow_width_px`'s fixed `8..48px`, `qr_shadow_opa_pct`'s fixed
+`20..90%`/`35..100%`) were sized for one reference canvas and didn't scale
+with how large the QR plate actually renders — a small device canvas got a
+proportionally tiny shadow/radius next to the studio's larger preview
+canvas, even at identical corner/strength settings. Fix: port the cloud's
+canonical *dim-relative* formulas (`ditto-admin lib/qr-svg.ts`
+`qrCornerRadiusPx`/`qrShadowParams`, added there the same day) exactly,
+`dim` = the plate's own rendered pixel size (`canvas_px`) on both sides:
+
+- `config.qrCorner` (`"square"` | `"rounded"` enum) is replaced by
+  `config.qrCornerRadius`, a continuous `0..100` int slider (`0` = square).
+  `cfg_parse.c`'s `qr_corner_radius_of` mirrors the cloud's
+  `sanitizeQrCornerRadius`: a valid `qrCornerRadius` number always wins
+  (clamped+rounded); otherwise a legacy `qrCorner` string maps 1:1
+  (`"rounded"` -> `24`, `"square"` -> `0`); anything else (absent, garbage,
+  unrecognized legacy value) -> the default (`24`, today's live look —
+  unchanged visually for existing tenants).
+- `qr_style.c`'s `qr_corner_radius_px(dim, v) = round(dim * 0.30 * v/100)`
+  replaces `qr_bg_radius_px`.
+- `qr_style.c`'s `qr_shadow_params(mode, strength, dim)` replaces
+  `qr_shadow_width_px`/`qr_shadow_opa_pct`: `blurPx = dim * (0.04 +
+  0.20*s)` (`s = strength/100`); DROP `offsetY = dim*0.02`, `opa =
+  round((0.25 + 0.50*s) * 255)`; NEON `offsetY = 0`, `opa = 255` (full-color
+  halo), `spreadPx = 2x the UNROUNDED blur` (not `2 * blur_px`, so it
+  doesn't drift from an intermediate rounding step — matches the cloud's
+  float math exactly). `render_qr` maps these onto LVGL styles: DROP
+  `shadow_width = blurPx*2` (LVGL's shadow blur extends on both sides of the
+  base rect, unlike CSS's one-sided blur-radius, hence the `*2`
+  calibration), `ofs_y = offsetYPx`, `opa` direct; NEON `shadow_width =
+  spreadPx*2`, `ofs 0`, `opa 255`, plus `shadow_spread = blurPx/2` — the
+  blur alone still read weak at full opacity in review, so NEON's base rect
+  is additionally widened for a fuller halo.
+- `qr_corner_radius_px`/`qr_shadow_params` are the pure geometry — `ui.c`
+  only maps their outputs onto LVGL style setters, no math of its own.
+- Old cloud (`qrCornerRadius`/`qrShadowMode`/etc. absent) still renders
+  identically to 0.13.0's defaults — `qr_corner_radius_of`'s absent/garbage
+  fallback and `qr_shadow_params`'s `QR_SHADOW_NONE` short-circuit guarantee
+  it.
+
+- Host: `qrCornerRadius` parse matrix (value/clamp/absent/legacy both
+  directions, modern-wins-over-legacy) + `qr_corner_radius_px`/
+  `qr_shadow_params` concrete-value matrix (the spec's `dim=260` examples,
+  dim-scaling, strength endpoints/clamping, degenerate/negative `dim`) —
+  `tools/cfg-harness`, all pass.
+- Build: clean `idf.py build`, no new warnings.
+- **QR corner + shadow parity formulas (0.14.0) — pending HIL (parity vs
+  studio preview: corner radius visually matches at several slider values,
+  drop shadow now visibly present vs 0.13.0, neon glow reads as a fuller
+  halo, scan regression, 2 phones).**

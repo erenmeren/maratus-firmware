@@ -93,8 +93,9 @@ static void test_parse(void) {
     assert(cfg.qr_fg == 0x111111);
     assert(cfg.qr_bg == 0xFFFFFF);
 
-    // (i) fixture also predates qrCorner/qrShadow -> defaults (rounded, no shadow).
-    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+    // (i) fixture also predates qrCornerRadius/qrShadow -> defaults (24 =
+    // today's live look, no shadow).
+    assert(cfg.qr_corner_radius == 24);
     assert(cfg.qr_shadow_mode == QR_SHADOW_NONE);
 
     // (j) fixture predates qrShadowMode/qrShadowStrength/qrShadowColor ->
@@ -208,35 +209,54 @@ static void test_qr_style(void) {
     assert(dots.offset == (24 - dots.size) / 2);
     assert(dots.size < rounded.size);   // dots (0.7x) tighter than rounded (0.85x)
 
-    // bg-plate corner radius: ~6% of canvas_px when rounded (matches the
-    // cloud's lib/qr-svg.ts qrBackgroundRadius), 0 when square.
-    assert(qr_bg_radius_px(400, QR_CORNER_ROUNDED) == 24);   // round(24.0) -> 24
-    assert(qr_bg_radius_px(290, QR_CORNER_ROUNDED) == 17);   // round(17.4) -> 17
-    assert(qr_bg_radius_px(400, QR_CORNER_SQUARE)  == 0);
-    assert(qr_bg_radius_px(0,   QR_CORNER_ROUNDED) == 0);    // degenerate canvas -> 0, no crash
-    assert(qr_bg_radius_px(-5,  QR_CORNER_ROUNDED) == 0);
+    // bg-plate corner radius: round(dim * 0.30 * v/100) — CLOUD PARITY with
+    // lib/qr-svg.ts qrCornerRadiusPx.
+    assert(qr_corner_radius_px(260, 24)  == 19);   // round(18.72) -> 19 (spec example)
+    assert(qr_corner_radius_px(400, 100) == 120);  // round(120.0) -> 120
+    assert(qr_corner_radius_px(400, 0)   == 0);    // v=0 -> always square
+    assert(qr_corner_radius_px(0,   24)  == 0);    // degenerate canvas -> 0, no crash
+    assert(qr_corner_radius_px(-5,  24)  == 0);
+    assert(qr_corner_radius_px(400, -10) == 0);    // v clamps low
+    assert(qr_corner_radius_px(400, 250) == qr_corner_radius_px(400, 100));   // v clamps high
 
-    // shadow width: linear 0->8px .. 100->48px, mode-independent.
-    assert(qr_shadow_width_px(0)   == 8);
-    assert(qr_shadow_width_px(100) == 48);
-    assert(qr_shadow_width_px(50)  == 28);    // round(8 + 50*0.4) = round(28.0)
-    assert(qr_shadow_width_px(-10) == 8);     // clamp low, never crash
-    assert(qr_shadow_width_px(999) == 48);    // clamp high
+    // shadow params: CLOUD PARITY with lib/qr-svg.ts qrShadowParams. Spec
+    // example: dim=260, s=0.5 (strength=50) -> blur~=36px, drop opa~=128
+    // (alpha 0.5 * 255), neon spread~=73px.
+    qr_shadow_params_t none = qr_shadow_params(QR_SHADOW_NONE, 50, 260);
+    assert(none.blur_px == 0 && none.offset_y_px == 0 && none.opa == 0 && none.spread_px == 0);
 
-    // shadow opacity: linear 0->20 .. 100->90 for DROP, 0->35 .. 100->100 for NEON.
-    assert(qr_shadow_opa_pct(0,   QR_SHADOW_DROP) == 20);
-    assert(qr_shadow_opa_pct(100, QR_SHADOW_DROP) == 90);
-    assert(qr_shadow_opa_pct(50,  QR_SHADOW_DROP) == 55);
-    assert(qr_shadow_opa_pct(0,   QR_SHADOW_NEON) == 35);
-    assert(qr_shadow_opa_pct(100, QR_SHADOW_NEON) == 100);
-    assert(qr_shadow_opa_pct(50,  QR_SHADOW_NEON) == 68);
-    // NEON is strictly brighter than DROP at every strength.
-    for (int s = 0; s <= 100; s += 10) {
-        assert(qr_shadow_opa_pct(s, QR_SHADOW_NEON) > qr_shadow_opa_pct(s, QR_SHADOW_DROP));
-    }
+    qr_shadow_params_t drop50 = qr_shadow_params(QR_SHADOW_DROP, 50, 260);
+    assert(drop50.blur_px == 36);          // round(260*0.14) = round(36.4) -> 36
+    assert(drop50.offset_y_px == 5);       // round(260*0.02) = round(5.2) -> 5
+    assert(drop50.opa == 128);             // round(0.5*255) = round(127.5) -> 128
+    assert(drop50.spread_px == 0);         // drop is a single pass
+
+    qr_shadow_params_t neon50 = qr_shadow_params(QR_SHADOW_NEON, 50, 260);
+    assert(neon50.blur_px == 36);          // same blur curve as drop
+    assert(neon50.offset_y_px == 0);       // glow surrounds evenly, no "down"
+    assert(neon50.opa == 255);             // full-color halo, mode-independent of strength
+    assert(neon50.spread_px == 73);        // round(2 * 36.4) = round(72.8) -> 73 (from the
+                                            // UNROUNDED blur, not 2*blur_px==72)
+
+    // strength endpoints (drop): alpha 0.25 .. 0.75 -> opa 64 .. 191.
+    assert(qr_shadow_params(QR_SHADOW_DROP, 0,   260).opa == 64);    // round(0.25*255)=round(63.75)->64
+    assert(qr_shadow_params(QR_SHADOW_DROP, 100, 260).opa == 191);   // round(0.75*255)=round(191.25)->191
+    // strength endpoints (neon): opa always 255 regardless of strength.
+    assert(qr_shadow_params(QR_SHADOW_NEON, 0,   260).opa == 255);
+    assert(qr_shadow_params(QR_SHADOW_NEON, 100, 260).opa == 255);
+    // blur scales with dim (dim-relative, not a fixed px constant) — the
+    // whole point of the parity fix.
+    assert(qr_shadow_params(QR_SHADOW_DROP, 50, 130).blur_px == 18);   // half of dim=260's 36
+    assert(qr_shadow_params(QR_SHADOW_DROP, 50, 520).blur_px == 73);   // double of dim=260's 36(.4)
+
     // out-of-range strength clamps rather than crashing/underflowing.
-    assert(qr_shadow_opa_pct(-50, QR_SHADOW_DROP) == 20);
-    assert(qr_shadow_opa_pct(999, QR_SHADOW_NEON) == 100);
+    assert(qr_shadow_params(QR_SHADOW_DROP, -50, 260).opa == 64);
+    assert(qr_shadow_params(QR_SHADOW_NEON, 999, 260).opa == 255);
+    // degenerate/negative dim -> zeroed struct, no crash.
+    qr_shadow_params_t degenerate = qr_shadow_params(QR_SHADOW_DROP, 50, 0);
+    assert(degenerate.blur_px == 0 && degenerate.opa == 0);
+    qr_shadow_params_t neg_dim = qr_shadow_params(QR_SHADOW_DROP, 50, -10);
+    assert(neg_dim.blur_px == 0 && neg_dim.opa == 0);
 
     printf("test_qr_style OK\n");
 }
@@ -537,27 +557,69 @@ static void test_qr_shape_colors(void) {
     printf("test_qr_shape_colors OK\n");
 }
 
+// config.qrCornerRadius: 0..100 int slider, replacing the earlier 2-value
+// `qrCorner: "square" | "rounded"` enum (2026-07-24). Mirrors the cloud's
+// sanitizeQrCornerRadius (ditto-admin lib/printer-layout.ts): a valid stored
+// number always wins (clamped+rounded); otherwise a legacy `qrCorner` string
+// maps 1:1 (rounded -> 24, square -> 0); anything else -> the default (24).
 static void test_qr_corner_shadow(void) {
     device_config_t cfg;
 
-    // absent -> default rounded — matches the cloud's DEFAULT_QR_STYLE.qrCorner.
+    // absent -> default 24 (today's live look) — matches the cloud's
+    // DEFAULT_QR_STYLE.qrCornerRadius.
     const char *j1 = "{\"version\":\"v1\",\"config\":{}}";
     assert(cfg_parse_json(j1, &cfg));
-    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+    assert(cfg.qr_corner_radius == 24);
 
-    // explicit recognized values pass through.
-    const char *j2 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"square\"}}";
+    // explicit qrCornerRadius value passes through as-is.
+    const char *j2 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":60}}";
     assert(cfg_parse_json(j2, &cfg));
-    assert(cfg.qr_corner == QR_CORNER_SQUARE);
+    assert(cfg.qr_corner_radius == 60);
 
-    const char *j3 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"rounded\"}}";
+    // 0 (square) is a valid, distinct value from "absent".
+    const char *j2b = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":0}}";
+    assert(cfg_parse_json(j2b, &cfg));
+    assert(cfg.qr_corner_radius == 0);
+
+    // below-range clamps to 0.
+    const char *j3 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":-40}}";
     assert(cfg_parse_json(j3, &cfg));
-    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+    assert(cfg.qr_corner_radius == 0);
 
-    // unknown corner string -> default rounded.
-    const char *j4 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"beveled\"}}";
+    // above-range clamps to 100.
+    const char *j4 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":250}}";
     assert(cfg_parse_json(j4, &cfg));
-    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+    assert(cfg.qr_corner_radius == 100);
+
+    // fractional value rounds half-up.
+    const char *j5 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":24.5}}";
+    assert(cfg_parse_json(j5, &cfg));
+    assert(cfg.qr_corner_radius == 25);
+
+    // non-number qrCornerRadius -> not "present", falls through to legacy/default.
+    const char *j6 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":\"lots\"}}";
+    assert(cfg_parse_json(j6, &cfg));
+    assert(cfg.qr_corner_radius == 24);
+
+    // legacy fallback: qrCornerRadius absent, legacy qrCorner "square" -> 0.
+    const char *j7 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"square\"}}";
+    assert(cfg_parse_json(j7, &cfg));
+    assert(cfg.qr_corner_radius == 0);
+
+    // legacy fallback: qrCornerRadius absent, legacy qrCorner "rounded" -> 24.
+    const char *j8 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"rounded\"}}";
+    assert(cfg_parse_json(j8, &cfg));
+    assert(cfg.qr_corner_radius == 24);
+
+    // legacy fallback: unknown qrCorner string -> default 24.
+    const char *j9 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"beveled\"}}";
+    assert(cfg_parse_json(j9, &cfg));
+    assert(cfg.qr_corner_radius == 24);
+
+    // modern qrCornerRadius wins over a legacy qrCorner when both are present.
+    const char *j10 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":10,\"qrCorner\":\"square\"}}";
+    assert(cfg_parse_json(j10, &cfg));
+    assert(cfg.qr_corner_radius == 10);
 
     printf("test_qr_corner_shadow OK\n");
 }

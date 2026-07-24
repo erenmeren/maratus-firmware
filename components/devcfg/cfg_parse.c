@@ -73,9 +73,25 @@ static qr_shape_t qr_shape_of(const char *s) {
     return QR_SHAPE_ROUNDED;   // default: absent, unknown, or explicit "rounded"
 }
 
-static qr_corner_t qr_corner_of(const char *s) {
-    if (s && !strcmp(s, "square")) return QR_CORNER_SQUARE;
-    return QR_CORNER_ROUNDED;   // default: absent, unknown, or explicit "rounded"
+// config.qrCornerRadius: 0..100 int slider (0 = square), replacing the
+// earlier 2-value `qrCorner: "square" | "rounded"` enum (2026-07-24 slider
+// addendum). Mirrors ditto-admin lib/printer-layout.ts sanitizeQrCornerRadius:
+// a valid stored qrCornerRadius number always wins (clamped+rounded to
+// 0..100); otherwise a legacy qrCorner "rounded" -> 24, "square" -> 0;
+// anything else (absent, garbage, unrecognized legacy value) -> the default
+// (24, today's live look).
+static int qr_corner_radius_of(cJSON *config) {
+    cJSON *v = config ? cJSON_GetObjectItem(config, "qrCornerRadius") : NULL;
+    if (cJSON_IsNumber(v)) {
+        int r = (int)(v->valuedouble + 0.5);
+        if (r < 0)   r = 0;
+        if (r > 100) r = 100;
+        return r;
+    }
+    const char *legacy = config ? cJSON_GetStringValue(cJSON_GetObjectItem(config, "qrCorner")) : NULL;
+    if (legacy && !strcmp(legacy, "rounded")) return 24;
+    if (legacy && !strcmp(legacy, "square"))  return 0;
+    return 24;   // default: absent, garbage, or an unrecognized legacy value
 }
 
 static qr_shadow_mode_t qr_shadow_mode_of(const char *s) {
@@ -200,11 +216,10 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
         cfg->qr_bg = 0xFFFFFF;
     }
 
-    // QR background plate: qrCorner, sibling of qrShape/qrFg/qrBg inside
-    // "config". Sanitizes independently and permissively — no
+    // QR background plate: qrCornerRadius, sibling of qrShape/qrFg/qrBg
+    // inside "config". Sanitizes independently and permissively — no
     // cross-field validation (unlike the fg/bg contrast guard above).
-    cJSON *qcorner = config ? cJSON_GetObjectItem(config, "qrCorner") : NULL;
-    cfg->qr_corner = qr_corner_of(cJSON_GetStringValue(qcorner));
+    cfg->qr_corner_radius = qr_corner_radius_of(config);
 
     // QR drop shadow: qrShadowMode/qrShadowStrength/qrShadowColor, siblings
     // of qrCorner. Older cloud sent a plain boolean `qrShadow` (no mode/

@@ -82,11 +82,14 @@ typedef struct {
     qr_shape_t qr_shape;
     uint32_t   qr_fg;          // 0xRRGGBB, default 0x111111
     uint32_t   qr_bg;          // 0xRRGGBB, default 0xFFFFFF
-    // QR background plate corner + shadow (config.qrCorner/qrShadow):
-    // siblings of qrShape/qrFg/qrBg, independent of module shape. Defaults
-    // (absent/malformed) match the cloud's DEFAULT_QR_STYLE: rounded, no
-    // shadow.
-    qr_corner_t qr_corner;
+    // QR background plate corner radius (config.qrCornerRadius): sibling of
+    // qrShape/qrFg/qrBg, independent of module shape. 0..100 int, 0 = square;
+    // see qr_corner_radius_px in qr_style.c for the px formula (2026-07-24
+    // slider addendum — replaces the earlier 2-value `qrCorner: "square" |
+    // "rounded"` enum; cfg_parse.c migrates a legacy `qrCorner` when
+    // `qrCornerRadius` itself is absent from the payload). Default 24
+    // (today's live look) matches the cloud's DEFAULT_QR_STYLE.qrCornerRadius.
+    int qr_corner_radius;
     // QR drop shadow (config.qrShadowMode/qrShadowStrength/qrShadowColor):
     // siblings of qrCorner. Older cloud sent a plain boolean `qrShadow`;
     // cfg_parse.c migrates qrShadow==true to QR_SHADOW_DROP when

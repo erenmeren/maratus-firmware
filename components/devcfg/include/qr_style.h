@@ -68,21 +68,23 @@ typedef struct {
 
 qr_module_style_t qr_module_style(qr_shape_t shape, int module_px);
 
-// QR background-plate corner treatment (config.qrCorner, a sibling of
-// qrShape/qrFg/qrBg/qrShadow inside "config"). ROUNDED is the default for
-// absent/unknown values (mirrors the cloud's DEFAULT_QR_STYLE.qrCorner in
-// ditto-admin lib/printer-layout.ts).
-typedef enum { QR_CORNER_SQUARE, QR_CORNER_ROUNDED } qr_corner_t;
-
-// Corner radius, in canvas px, for the QR background plate: ~6% of
-// canvas_px when ROUNDED (matches the cloud's lib/qr-svg.ts
-// qrBackgroundRadius(dim, "rounded") = dim * 0.06), 0 (square) otherwise.
-// Applied as the QR canvas lv_obj's own `radius` style — LVGL clips an
-// image/canvas widget's own pixel content to that rounded rect at composite
-// time (lv_image.c's draw_dsc.clip_radius), so no pixel-format/alpha change
-// is needed to get "transparent" corners: whatever sits behind the canvas
-// (the screen background) simply shows through the clipped-away corners.
-int qr_bg_radius_px(int canvas_px, qr_corner_t corner);
+// QR background-plate corner radius (config.qrCornerRadius, a sibling of
+// qrShape/qrFg/qrBg/qrShadow inside "config"): a continuous 0..100 slider
+// (0 = square), replacing the earlier 2-value `qrCorner: "square" |
+// "rounded"` enum (2026-07-24 slider addendum).
+//
+// CLOUD PARITY: mirrors ditto-admin lib/qr-svg.ts qrCornerRadiusPx — keep in sync.
+//
+// Corner radius, in px, for a background plate of pixel dimension `dim`:
+// round(dim * 0.30 * v/100) — 0 at v=0 (square), scaling linearly to 30% of
+// `dim` at v=100 (a soft, pill-ish rounding). Applied as the QR canvas
+// lv_obj's own `radius` style — LVGL clips an image/canvas widget's own
+// pixel content to that rounded rect at composite time (lv_image.c's
+// draw_dsc.clip_radius), so no pixel-format/alpha change is needed to get
+// "transparent" corners: whatever sits behind the canvas (the screen
+// background) simply shows through the clipped-away corners. Int math,
+// round-half-up; dim < 1 -> 0 (degenerate canvas, never crashes).
+int qr_corner_radius_px(int dim, int v);
 
 // QR drop-shadow mode (config.qrShadowMode, a sibling of qrCorner/qrShape/
 // qrFg/qrBg inside "config"). NONE draws no shadow at all (default for
@@ -93,18 +95,29 @@ int qr_bg_radius_px(int canvas_px, qr_corner_t corner);
 // qrShadowMode itself is absent from the payload.
 typedef enum { QR_SHADOW_NONE, QR_SHADOW_DROP, QR_SHADOW_NEON } qr_shadow_mode_t;
 
-// Shadow width in canvas px for a given strength (0..100; re-clamped here
-// defensively even though cfg_parse.c already clamps it): linear
-// 0 -> 8px .. 100 -> 48px, rounded to the nearest px. Mode-independent —
-// NEON's extra width (a fuller glow) is applied by the caller (ui.c
-// render_qr multiplies this by ~1.5x), so this helper only encodes the
-// strength->width curve.
-int qr_shadow_width_px(int strength);
+// CLOUD PARITY: mirrors ditto-admin lib/qr-svg.ts qrShadowParams — keep in sync.
+//
+// Canonical dim-relative shadow/glow numbers for the QR background plate, as
+// a function of the plate's OWN pixel dimension `dim` (the canvas side) —
+// every number is `dim`-relative (not a fixed px constant) so the effect
+// reads the same *proportional* size regardless of how large the QR is
+// rendered (this dim-relative math is the fix for "the shadow looks
+// different on-device than in the studio preview" — before this addendum,
+// blur/offset were fixed px constants independent of the plate's actual
+// rendered size).
+//
+// All px/opa fields are rounded from the underlying float math independently
+// (not chained through an already-rounded intermediate) so e.g. spread_px is
+// exactly 2x the UNROUNDED blur, matching the cloud's qrShadowParams.
+typedef struct {
+    int blur_px;      // 0 for NONE; else dim * (0.04 + 0.20 * strength/100)
+    int offset_y_px;  // DROP: dim * 0.02; NEON/NONE: 0
+    int opa;           // 0..255 shadow-color opacity. DROP: (0.25 + 0.50*s)*255;
+                        // NEON: 255 (full-color halo, not just a soft shadow); NONE: 0
+    int spread_px;      // NEON only: 2x the unrounded blur (a wider second pass,
+                         // the outer halo); 0 for DROP/NONE
+} qr_shadow_params_t;
 
-// Shadow opacity, 0..100 (an LVGL opa percent), for a given strength and
-// mode: linear 0 -> 20 .. 100 -> 90 for DROP (today's subtle look, now
-// tunable); NEON is brighter at every strength, 0 -> 35 .. 100 -> 100 (a
-// fuller glow, not just a soft shadow). mode==NONE is never queried by
-// callers (no shadow is drawn) but returns the DROP curve defensively
-// rather than crashing/garbage on a stray call.
-int qr_shadow_opa_pct(int strength, qr_shadow_mode_t mode);
+// strength (0..100) is re-clamped here defensively even though cfg_parse.c
+// already clamps it. Int math, round-half-up throughout.
+qr_shadow_params_t qr_shadow_params(qr_shadow_mode_t mode, int strength, int dim);
