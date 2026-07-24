@@ -93,8 +93,9 @@ static void test_parse(void) {
     assert(cfg.qr_fg == 0x111111);
     assert(cfg.qr_bg == 0xFFFFFF);
 
-    // (i) fixture also predates qrCorner/qrShadow -> defaults (rounded, no shadow).
-    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+    // (i) fixture also predates qrCornerRadius/qrShadow -> defaults (24 =
+    // today's live look, no shadow).
+    assert(cfg.qr_corner_radius == 24);
     assert(cfg.qr_shadow_mode == QR_SHADOW_NONE);
 
     // (j) fixture predates qrShadowMode/qrShadowStrength/qrShadowColor ->
@@ -537,27 +538,69 @@ static void test_qr_shape_colors(void) {
     printf("test_qr_shape_colors OK\n");
 }
 
+// config.qrCornerRadius: 0..100 int slider, replacing the earlier 2-value
+// `qrCorner: "square" | "rounded"` enum (2026-07-24). Mirrors the cloud's
+// sanitizeQrCornerRadius (ditto-admin lib/printer-layout.ts): a valid stored
+// number always wins (clamped+rounded); otherwise a legacy `qrCorner` string
+// maps 1:1 (rounded -> 24, square -> 0); anything else -> the default (24).
 static void test_qr_corner_shadow(void) {
     device_config_t cfg;
 
-    // absent -> default rounded — matches the cloud's DEFAULT_QR_STYLE.qrCorner.
+    // absent -> default 24 (today's live look) — matches the cloud's
+    // DEFAULT_QR_STYLE.qrCornerRadius.
     const char *j1 = "{\"version\":\"v1\",\"config\":{}}";
     assert(cfg_parse_json(j1, &cfg));
-    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+    assert(cfg.qr_corner_radius == 24);
 
-    // explicit recognized values pass through.
-    const char *j2 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"square\"}}";
+    // explicit qrCornerRadius value passes through as-is.
+    const char *j2 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":60}}";
     assert(cfg_parse_json(j2, &cfg));
-    assert(cfg.qr_corner == QR_CORNER_SQUARE);
+    assert(cfg.qr_corner_radius == 60);
 
-    const char *j3 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"rounded\"}}";
+    // 0 (square) is a valid, distinct value from "absent".
+    const char *j2b = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":0}}";
+    assert(cfg_parse_json(j2b, &cfg));
+    assert(cfg.qr_corner_radius == 0);
+
+    // below-range clamps to 0.
+    const char *j3 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":-40}}";
     assert(cfg_parse_json(j3, &cfg));
-    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+    assert(cfg.qr_corner_radius == 0);
 
-    // unknown corner string -> default rounded.
-    const char *j4 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"beveled\"}}";
+    // above-range clamps to 100.
+    const char *j4 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":250}}";
     assert(cfg_parse_json(j4, &cfg));
-    assert(cfg.qr_corner == QR_CORNER_ROUNDED);
+    assert(cfg.qr_corner_radius == 100);
+
+    // fractional value rounds half-up.
+    const char *j5 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":24.5}}";
+    assert(cfg_parse_json(j5, &cfg));
+    assert(cfg.qr_corner_radius == 25);
+
+    // non-number qrCornerRadius -> not "present", falls through to legacy/default.
+    const char *j6 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":\"lots\"}}";
+    assert(cfg_parse_json(j6, &cfg));
+    assert(cfg.qr_corner_radius == 24);
+
+    // legacy fallback: qrCornerRadius absent, legacy qrCorner "square" -> 0.
+    const char *j7 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"square\"}}";
+    assert(cfg_parse_json(j7, &cfg));
+    assert(cfg.qr_corner_radius == 0);
+
+    // legacy fallback: qrCornerRadius absent, legacy qrCorner "rounded" -> 24.
+    const char *j8 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"rounded\"}}";
+    assert(cfg_parse_json(j8, &cfg));
+    assert(cfg.qr_corner_radius == 24);
+
+    // legacy fallback: unknown qrCorner string -> default 24.
+    const char *j9 = "{\"version\":\"v1\",\"config\":{\"qrCorner\":\"beveled\"}}";
+    assert(cfg_parse_json(j9, &cfg));
+    assert(cfg.qr_corner_radius == 24);
+
+    // modern qrCornerRadius wins over a legacy qrCorner when both are present.
+    const char *j10 = "{\"version\":\"v1\",\"config\":{\"qrCornerRadius\":10,\"qrCorner\":\"square\"}}";
+    assert(cfg_parse_json(j10, &cfg));
+    assert(cfg.qr_corner_radius == 10);
 
     printf("test_qr_corner_shadow OK\n");
 }
