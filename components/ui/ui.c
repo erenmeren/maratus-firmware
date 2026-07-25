@@ -209,6 +209,38 @@ static void draw_qr_finder(lv_layer_t *layer, int ox, int oy, int module_px,
     lv_draw_rect(layer, &d, &inner);
 }
 
+// NEON pre-rendered canvas glow (fw 0.16.0) — see qr_style.h for the pure
+// distance/falloff math (qr_glow_dist_px/qr_glow_alpha_at, host-tested in
+// tools/cfg-harness) and its "why pre-render instead of a live LVGL shadow"
+// rationale. Paints the glow directly into the canvas's own ARGB8888 pixel
+// buffer, once, BEFORE any opaque content (plate/modules/finders) is drawn
+// on top of it by the caller. `pixels` is `side*side` ARGB8888 (4B/px,
+// row-major, no stride padding — CONFIG_LV_DRAW_BUF_STRIDE_ALIGN=1),
+// already filled fully transparent by the caller (lv_canvas_fill_bg).
+// `halo` is the glow's outward reach already baked into `side` (side ==
+// plate_px + 2*halo); the opaque plate is drawn next at offset
+// (halo,halo), size plate_px x plate_px. Writes the raw buffer directly
+// (not lv_canvas_set_px, which would invalidate+redraw per pixel) since
+// this is a ~270k-pixel loop at plate=260/halo=130 — boot-time only, not a
+// render-loop cost, but still not something to run through the per-pixel
+// widget API.
+static void paint_qr_neon_glow(uint8_t *pixels, int side, int halo, int plate_px,
+                                int bg_radius, int blur_px, int spread_px,
+                                lv_color_t glow_color) {
+    lv_color32_t *buf = (lv_color32_t *)pixels;
+    for (int y = 0; y < side; y++) {
+        for (int x = 0; x < side; x++) {
+            int d = qr_glow_dist_px(x - halo, y - halo, plate_px, plate_px, bg_radius);
+            int a = qr_glow_alpha_at(d, blur_px, spread_px);
+            lv_color32_t *p = &buf[y * side + x];
+            p->red   = glow_color.red;
+            p->green = glow_color.green;
+            p->blue  = glow_color.blue;
+            p->alpha = (uint8_t)a;
+        }
+    }
+}
+
 static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
     px_box_t b = geom_box(o);
     int side = b.w < b.h ? b.w : b.h;
@@ -234,22 +266,67 @@ static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
 
     int modules   = qrcodegen_getSize(qr);
     int module_px = qr_module_px(side, modules, QR_QUIET_MODULES);
-    int canvas_px = qr_canvas_px(module_px, modules, QR_QUIET_MODULES);
-
-    size_t buf_sz = (size_t)canvas_px * (size_t)canvas_px * 2;   // RGB565, 2B/px
-    uint8_t *pixels = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
-    if (!pixels) { heap_caps_free(qr); return; }
+    int canvas_px = qr_canvas_px(module_px, modules, QR_QUIET_MODULES);   // plate size — unchanged
+                                                                            // geometry (quiet zone /
+                                                                            // module layout untouched)
 
     lv_color_t qr_fg = lv_color_hex(s_cfg->qr_fg);
     lv_color_t qr_bg = lv_color_hex(s_cfg->qr_bg);
+    int bg_radius = qr_corner_radius_px(canvas_px, s_cfg->qr_corner_radius);
+
+    // NEON: enlarge the canvas by `halo` px on every side and pre-render
+    // the glow into the canvas's own ARGB8888 pixels ONCE at build time —
+    // see qr_style.h's "NEON pre-rendered canvas glow" for why (replaces
+    // NEON's old live-LVGL-shadow path entirely: that path was hard-capped
+    // at 64px — QR_SHADOW_WIDTH_MAX below — and was a single flat blur, not
+    // the cloud preview's richer two-layer halo). DROP/NONE are completely
+    // unchanged: same plate-sized RGB565 canvas, same LVGL shadow-style
+    // path as 0.14.0/0.15.0.
+    bool neon = (s_cfg->qr_shadow_mode == QR_SHADOW_NEON);
+    qr_shadow_params_t glow = { 0, 0, 0, 0 };
+    int halo = 0;
+    if (neon) {
+        glow = qr_shadow_params(QR_SHADOW_NEON, s_cfg->qr_shadow_strength, canvas_px);
+        halo = qr_neon_halo_px(canvas_px, glow.spread_px, QR_NEON_CANVAS_SIDE_MAX_PX);
+    }
+    int side_px = canvas_px + 2 * halo;   // == canvas_px for DROP/NONE (halo == 0)
+
+    lv_color_format_t cf  = neon ? LV_COLOR_FORMAT_ARGB8888 : LV_COLOR_FORMAT_RGB565;
+    size_t bpp     = neon ? 4 : 2;   // ARGB8888 carries alpha for the glow; RGB565 unchanged
+    size_t buf_sz  = (size_t)side_px * (size_t)side_px * bpp;
+    uint8_t *pixels = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
+    if (!pixels) { heap_caps_free(qr); return; }
 
     lv_obj_t *canvas = lv_canvas_create(scr);
-    lv_canvas_set_buffer(canvas, pixels, canvas_px, canvas_px, LV_COLOR_FORMAT_RGB565);
-    lv_obj_add_event_cb(canvas, on_qr_canvas_delete, LV_EVENT_DELETE, pixels);
-    lv_canvas_fill_bg(canvas, qr_bg, LV_OPA_COVER);   // incl. quiet zone
+    lv_canvas_set_buffer(canvas, pixels, side_px, side_px, cf);
+    lv_obj_add_event_cb(canvas, on_qr_canvas_delete, LV_EVENT_DELETE, pixels);   // same free path,
+                                                                                    // any size/format
 
     lv_layer_t layer;
-    lv_canvas_init_layer(canvas, &layer);
+    if (neon) {
+        // Fully transparent first (incl. the halo margin the glow lives
+        // in), then the glow pixels, then start the draw layer used below
+        // for the opaque plate/modules/finders on top.
+        lv_canvas_fill_bg(canvas, lv_color_black(), LV_OPA_TRANSP);
+        paint_qr_neon_glow(pixels, side_px, halo, canvas_px, bg_radius,
+                            glow.blur_px, glow.spread_px, lv_color_hex(s_cfg->qr_shadow_color));
+        lv_canvas_init_layer(canvas, &layer);
+
+        // The plate itself (opaque, rounded qrBg rect) — for DROP/NONE this
+        // is instead the whole-canvas fill_bg below (no halo to offset
+        // around). Drawn here, before modules/finders, at offset
+        // (halo,halo) so it sits centered over the pre-rendered glow.
+        lv_draw_rect_dsc_t plate;
+        lv_draw_rect_dsc_init(&plate);
+        plate.bg_opa = LV_OPA_COVER;
+        plate.bg_color = qr_bg;
+        plate.radius = bg_radius;
+        lv_area_t prect = { halo, halo, halo + canvas_px - 1, halo + canvas_px - 1 };
+        lv_draw_rect(&layer, &plate, &prect);
+    } else {
+        lv_canvas_fill_bg(canvas, qr_bg, LV_OPA_COVER);   // incl. quiet zone
+        lv_canvas_init_layer(canvas, &layer);
+    }
 
     qr_module_style_t mstyle = qr_module_style(s_cfg->qr_shape, module_px);
     lv_draw_rect_dsc_t dot;
@@ -262,8 +339,8 @@ static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
         for (int mx = 0; mx < modules; mx++) {
             if (qr_in_finder_block(modules, mx, my)) continue;   // drawn once below
             if (!qrcodegen_getModule(qr, mx, my)) continue;
-            int px = (QR_QUIET_MODULES + mx) * module_px + mstyle.offset;
-            int py = (QR_QUIET_MODULES + my) * module_px + mstyle.offset;
+            int px = halo + (QR_QUIET_MODULES + mx) * module_px + mstyle.offset;
+            int py = halo + (QR_QUIET_MODULES + my) * module_px + mstyle.offset;
             lv_area_t a = { px, py, px + mstyle.size - 1, py + mstyle.size - 1 };
             lv_draw_rect(&layer, &dot, &a);
         }
@@ -271,84 +348,67 @@ static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
 
     const int finder_origin[3][2] = { {0, 0}, {modules - 7, 0}, {0, modules - 7} };
     for (int i = 0; i < 3; i++) {
-        int ox = (QR_QUIET_MODULES + finder_origin[i][0]) * module_px;
-        int oy = (QR_QUIET_MODULES + finder_origin[i][1]) * module_px;
+        int ox = halo + (QR_QUIET_MODULES + finder_origin[i][0]) * module_px;
+        int oy = halo + (QR_QUIET_MODULES + finder_origin[i][1]) * module_px;
         draw_qr_finder(&layer, ox, oy, module_px, s_cfg->qr_shape, qr_fg, qr_bg);
     }
 
     lv_canvas_finish_layer(canvas, &layer);
     heap_caps_free(qr);
 
-    // Background plate corner (config.qrCorner, sibling of qrShape/qrFg/qrBg
-    // — spec: docs/superpowers/specs/2026-07-23-qr-style-options-firmware.md
-    // addendum). Setting the canvas lv_obj's own `radius` style clips its own
-    // pixel content to a rounded rect at composite time (canvas is built on
-    // lv_image_class, whose draw reads style radius as draw_dsc.clip_radius)
-    // — no ARGB8888/alpha canvas needed, the screen behind shows through the
-    // clipped-away corners. clip_corner is set for consistency with the
-    // existing icon_circle clip (render_image) even though the image draw
-    // path keys off radius alone.
-    int bg_radius = qr_corner_radius_px(canvas_px, s_cfg->qr_corner_radius);
-    lv_obj_set_style_radius(canvas, bg_radius, LV_PART_MAIN);
-    lv_obj_set_style_clip_corner(canvas, true, LV_PART_MAIN);
+    if (neon) {
+        // The glow (and the plate's own rounding) is already baked into
+        // the pixel buffer above — no lv_obj radius/clip_corner (would
+        // clip away the halo that extends past the plate) and no LVGL
+        // shadow_* styles (would layer a second, capped shadow on top).
+    } else {
+        // Background plate corner (config.qrCorner, sibling of
+        // qrShape/qrFg/qrBg — spec: docs/superpowers/specs/
+        // 2026-07-23-qr-style-options-firmware.md addendum). Setting the
+        // canvas lv_obj's own `radius` style clips its own pixel content to
+        // a rounded rect at composite time (canvas is built on
+        // lv_image_class, whose draw reads style radius as
+        // draw_dsc.clip_radius) — no ARGB8888/alpha canvas needed, the
+        // screen behind shows through the clipped-away corners. clip_corner
+        // is set for consistency with the existing icon_circle clip
+        // (render_image) even though the image draw path keys off radius
+        // alone.
+        lv_obj_set_style_radius(canvas, bg_radius, LV_PART_MAIN);
+        lv_obj_set_style_clip_corner(canvas, true, LV_PART_MAIN);
 
-    // Background plate shadow (config.qrShadowMode/qrShadowStrength/
-    // qrShadowColor, sibling of qrCornerRadius). Numbers come from the
-    // canonical dim-relative qr_shadow_params (qr_style.c — CLOUD PARITY
-    // with lib/qr-svg.ts qrShadowParams), `dim` = canvas_px (the plate's own
-    // rendered pixel size), so the effect reads the same proportional size
-    // as the branding studio preview regardless of how large the QR renders.
-    // LVGL's shadow_width is a blur radius that extends on BOTH sides of the
-    // shadow's base rect (unlike CSS box-shadow's one-sided blur-radius), so
-    // it's doubled here to calibrate LVGL's blur to read like the CSS blur
-    // it's mirroring. DROP: width = blurPx*2, offset = offsetYPx, opa =
-    // alpha*255 (already computed by qr_shadow_params). NEON: width =
-    // spreadPx*2 (spreadPx is itself 2x blur, so NEON's LVGL width ends up
-    // 4x the tight blur — a fuller halo than DROP), no downward offset (glow
-    // surrounds evenly), full opa. shadow_spread additionally widens NEON's
-    // base rect by half the tight blur so the glow still reads as a full
-    // halo at LVGL's default opa falloff (the blur alone read weak at full
-    // opa in review — this is the "still looks weak" fallback the spec
-    // anticipated). NONE leaves the canvas's default (no shadow) untouched.
-    // HARD CAP on the width/spread handed to LVGL: its software shadow blur
-    // cost grows superlinearly with width, and an uncapped dim-relative value
-    // (~250px on a 260px plate) wedges the render for seconds per frame while
-    // holding the LVGL lock — which also starves poll_task (0.14.0 boot-hang
-    // incident). 64/16px stays within the frame budget on the P4 at 720x720;
-    // beyond that the visual difference is marginal on-panel anyway.
-    #define QR_SHADOW_WIDTH_MAX  64
-    #define QR_SHADOW_SPREAD_MAX 16
-    switch (s_cfg->qr_shadow_mode) {
-    case QR_SHADOW_DROP: {
-        qr_shadow_params_t p = qr_shadow_params(QR_SHADOW_DROP, s_cfg->qr_shadow_strength, canvas_px);
-        int w = p.blur_px * 2; if (w > QR_SHADOW_WIDTH_MAX) w = QR_SHADOW_WIDTH_MAX;
-        lv_obj_set_style_shadow_width(canvas, w, LV_PART_MAIN);
-        lv_obj_set_style_shadow_color(canvas, lv_color_hex(s_cfg->qr_shadow_color), LV_PART_MAIN);
-        lv_obj_set_style_shadow_opa(canvas, (lv_opa_t)p.opa, LV_PART_MAIN);
-        lv_obj_set_style_shadow_offset_y(canvas, p.offset_y_px, LV_PART_MAIN);
-        break;
-    }
-    case QR_SHADOW_NEON: {
-        qr_shadow_params_t p = qr_shadow_params(QR_SHADOW_NEON, s_cfg->qr_shadow_strength, canvas_px);
-        int w = p.spread_px * 2; if (w > QR_SHADOW_WIDTH_MAX) w = QR_SHADOW_WIDTH_MAX;
-        lv_obj_set_style_shadow_width(canvas, w, LV_PART_MAIN);
-        lv_obj_set_style_shadow_color(canvas, lv_color_hex(s_cfg->qr_shadow_color), LV_PART_MAIN);
-        lv_obj_set_style_shadow_opa(canvas, (lv_opa_t)p.opa, LV_PART_MAIN);
-        lv_obj_set_style_shadow_offset_y(canvas, 0, LV_PART_MAIN);
-        {
-            int sp = p.blur_px / 2; if (sp > QR_SHADOW_SPREAD_MAX) sp = QR_SHADOW_SPREAD_MAX;
-            lv_obj_set_style_shadow_spread(canvas, sp, LV_PART_MAIN);
+        // Background plate shadow (config.qrShadowMode/qrShadowStrength/
+        // qrShadowColor, sibling of qrCornerRadius) — DROP only here; NEON
+        // no longer uses a live LVGL shadow at all (pre-rendered above).
+        // Numbers come from the canonical dim-relative qr_shadow_params
+        // (qr_style.c — CLOUD PARITY with lib/qr-svg.ts qrShadowParams),
+        // `dim` = canvas_px (the plate's own rendered pixel size), so the
+        // effect reads the same proportional size as the branding studio
+        // preview regardless of how large the QR renders. LVGL's
+        // shadow_width is a blur radius that extends on BOTH sides of the
+        // shadow's base rect (unlike CSS box-shadow's one-sided
+        // blur-radius), so it's doubled here to calibrate LVGL's blur to
+        // read like the CSS blur it's mirroring: shadow_width = blurPx*2,
+        // ofs_y = offsetYPx, opa direct. HARD CAP on the width handed to
+        // LVGL: its software shadow blur cost grows superlinearly with
+        // width, and an uncapped dim-relative value wedges the render for
+        // seconds per frame while holding the LVGL lock — which also
+        // starves poll_task (0.14.0 boot-hang incident, fixed in 0.15.0).
+        // 64px stays within the frame budget on the P4 at 720x720.
+        #define QR_SHADOW_WIDTH_MAX 64
+        if (s_cfg->qr_shadow_mode == QR_SHADOW_DROP) {
+            qr_shadow_params_t p = qr_shadow_params(QR_SHADOW_DROP, s_cfg->qr_shadow_strength, canvas_px);
+            int w = p.blur_px * 2; if (w > QR_SHADOW_WIDTH_MAX) w = QR_SHADOW_WIDTH_MAX;
+            lv_obj_set_style_shadow_width(canvas, w, LV_PART_MAIN);
+            lv_obj_set_style_shadow_color(canvas, lv_color_hex(s_cfg->qr_shadow_color), LV_PART_MAIN);
+            lv_obj_set_style_shadow_opa(canvas, (lv_opa_t)p.opa, LV_PART_MAIN);
+            lv_obj_set_style_shadow_offset_y(canvas, p.offset_y_px, LV_PART_MAIN);
         }
-        break;
-    }
-    case QR_SHADOW_NONE:
-    default:
-        break;
+        // QR_SHADOW_NONE: canvas keeps its default no-shadow style.
     }
 
     int box_w = b.w > 0 ? b.w : side;
     int box_h = b.h > 0 ? b.h : side;
-    lv_obj_set_pos(canvas, b.x + (box_w - canvas_px) / 2, b.y + (box_h - canvas_px) / 2);
+    lv_obj_set_pos(canvas, b.x + (box_w - side_px) / 2, b.y + (box_h - side_px) / 2);
 }
 
 // Placeholder box for object types implemented in M5b/M5c (logo/icon/clock/wifi/

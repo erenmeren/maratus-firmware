@@ -1,4 +1,5 @@
 #include "qr_style.h"
+#include <math.h>
 
 int qr_module_px(int box_side, int modules, int quiet) {
     if (modules <= 0) return 0;
@@ -135,4 +136,59 @@ qr_shadow_params_t qr_shadow_params(qr_shadow_mode_t mode, int strength, int dim
     long spread_num = 2L * (long)dim * (40L + 2L * strength);
     p.spread_px = (int)((spread_num + 500) / 1000);
     return p;
+}
+
+// --- NEON pre-rendered canvas glow (fw 0.16.0) — see qr_style.h for the
+// full "why pre-render instead of a live LVGL shadow" rationale. ---
+
+int qr_neon_halo_px(int plate_px, int spread_px, int max_side_px) {
+    if (plate_px < 1 || spread_px < 0) return 0;
+    int halo = spread_px > plate_px ? plate_px : spread_px;
+    int max_halo = (max_side_px - plate_px) / 2;
+    if (max_halo < 0) max_halo = 0;
+    if (halo > max_halo) halo = max_halo;
+    return halo;
+}
+
+int qr_glow_dist_px(int px, int py, int rect_w, int rect_h, int r) {
+    if (rect_w < 1 || rect_h < 1) return 0;
+    if (r < 0) r = 0;
+    int max_r = (rect_w < rect_h ? rect_w : rect_h) / 2;
+    if (r > max_r) r = max_r;
+
+    float half_w = (float)rect_w / 2.0f;
+    float half_h = (float)rect_h / 2.0f;
+    // Inigo Quilez's sdRoundBox, evaluated directly in the plate's own
+    // pixel coordinates (no recenter-then-shift needed since we work in
+    // "distance from center, minus the rounded half-extent" terms below).
+    float qx = fabsf((float)px - half_w) - (half_w - (float)r);
+    float qy = fabsf((float)py - half_h) - (half_h - (float)r);
+    float mx = qx > 0.0f ? qx : 0.0f;
+    float my = qy > 0.0f ? qy : 0.0f;
+    float outside = sqrtf(mx * mx + my * my);
+    float inside = qx > qy ? qx : qy;
+    if (inside > 0.0f) inside = 0.0f;
+    float d = outside + inside - (float)r;
+    if (d < 0.0f) d = 0.0f;
+    return (int)(d + 0.5f);
+}
+
+int qr_glow_alpha_at(int d, int blur_px, int spread_px) {
+    if (d <= 0) return 255;
+    float a1 = 0.0f, a2 = 0.0f;
+    if (blur_px > 0 && d < blur_px) {
+        float t = 1.0f - (float)d / (float)blur_px;
+        a1 = t * t;
+    }
+    if (spread_px > 0 && d < spread_px) {
+        float t = 1.0f - (float)d / (float)spread_px;
+        a2 = 0.55f * t * t;
+    }
+    float a = a1 > a2 ? a1 : a2;
+    if (a <= 0.0f) return 0;
+    if (a > 1.0f) a = 1.0f;
+    int alpha = (int)(a * 255.0f + 0.5f);
+    if (alpha > 255) alpha = 255;
+    if (alpha < 0)   alpha = 0;
+    return alpha;
 }

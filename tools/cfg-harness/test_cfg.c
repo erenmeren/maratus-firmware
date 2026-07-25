@@ -707,6 +707,82 @@ static void test_qr_shadow_fields(void) {
     printf("test_qr_shadow_fields OK\n");
 }
 
+// NEON pre-rendered canvas glow (fw 0.16.0): qr_neon_halo_px (canvas sizing
+// caps) + qr_glow_dist_px (rounded-box SDF) + qr_glow_alpha_at (two-layer
+// falloff) — the pure math baked into the QR canvas pixels once at build
+// time, replacing NEON's old live-LVGL-shadow path. CLOUD PARITY inputs
+// (blur_px/spread_px) reuse the same qr_shadow_params concrete values
+// already verified in test_qr_style (dim=260, s=0.5 -> blur=36, spread=73).
+static void test_qr_neon_glow(void) {
+    // --- qr_neon_halo_px: spread_px capped to <= plate_px, then the whole
+    // canvas (plate + 2*halo) capped to <= max_side_px. ---
+    assert(qr_neon_halo_px(260, 73, 720) == 73);    // spec example: unaffected by either cap
+    assert(qr_neon_halo_px(260, 400, 720) == 230);  // spread > plate, but plate+2*halo<=720 binds
+                                                     // first: max_halo=(720-260)/2=230 < plate(260)
+    assert(qr_neon_halo_px(100, 40, 300) == 40);    // both caps slack -> halo passes through
+    assert(qr_neon_halo_px(0,   73, 720) == 0);     // degenerate plate -> 0, no crash
+    assert(qr_neon_halo_px(260, -5,  720) == 0);    // negative spread -> 0, no crash
+    assert(qr_neon_halo_px(800, 200, 720) == 0);    // plate alone already exceeds max_side_px ->
+                                                     // max_halo goes negative, clamped to 0 (no glow,
+                                                     // never a negative/undersized canvas)
+
+    // --- qr_glow_dist_px: rounded-box SDF, in the plate's own coord space
+    // (0,0)=top-left. rect 100x100 throughout. ---
+    assert(qr_glow_dist_px(50, 50, 100, 100, 20) == 0);    // dead center, well inside -> 0
+    assert(qr_glow_dist_px(0,  0,  100, 100, 0)  == 0);    // square corner (r=0): the rect's own
+                                                            // sharp corner sits exactly on the
+                                                            // boundary -> 0 (inside/on-boundary)
+    assert(qr_glow_dist_px(0,  0,  100, 100, 20) == 8);    // SAME point, r=20: the sharp geometric
+                                                            // corner is now cut away by the rounding,
+                                                            // so it reads as just outside the rounded
+                                                            // shape (proves the falloff follows the
+                                                            // rounded contour, not the bounding box)
+
+    // Flat edge (away from any corner), square corners (r=0): a point 10px
+    // past the right edge on the mid-height centerline is exactly 10px away
+    // — plain 1D distance, radius doesn't matter on a flat edge.
+    assert(qr_glow_dist_px(110, 50, 100, 100, 0)  == 10);
+    assert(qr_glow_dist_px(110, 50, 100, 100, 20) == 10);  // same flat-edge point, r=20 -> unchanged
+                                                            // (rounding only bites near corners)
+
+    // Diagonal corner point, 10px past each edge: square corners -> plain
+    // Euclidean distance sqrt(10^2+10^2)=14.14 -> 14 (NOT the naive
+    // Manhattan/max(dx,dy)=10, which would indicate a broken SDF).
+    assert(qr_glow_dist_px(110, 110, 100, 100, 0) == 14);
+    // Same corner point with r=20: the rounding pulls the boundary inward
+    // near the corner, so the point reads FARTHER away than the r=0 case
+    // (22 > 14) — proof the falloff actually follows the rounded contour.
+    assert(qr_glow_dist_px(110, 110, 100, 100, 20) == 22);
+
+    // Degenerate rect -> 0, no crash/div-by-zero.
+    assert(qr_glow_dist_px(5, 5, 0, 100, 20) == 0);
+    assert(qr_glow_dist_px(5, 5, 100, 0, 20) == 0);
+
+    // --- qr_glow_alpha_at: two-layer falloff, blur=36/spread=73 (the
+    // dim=260,s=0.5 spec example's own qr_shadow_params NEON output). ---
+    assert(qr_glow_alpha_at(0, 36, 73) == 255);     // d<=0 (inside the plate) -> full alpha
+    assert(qr_glow_alpha_at(-5, 36, 73) == 255);    // negative d (defensive) -> same short-circuit
+    // d==blur_px: the tight inner term (a1) has just fully decayed to 0;
+    // only the wide outer term (a2) contributes ->
+    // 0.55*(1-36/73)^2*255 ~= 36 (comfortably inside the a2-only region,
+    // well below the ~128 midpoint of the a1 curve).
+    assert(qr_glow_alpha_at(36, 36, 73) == 36);
+    int a_near = qr_glow_alpha_at(1, 36, 73);
+    assert(a_near > 200 && a_near <= 255);          // just outside the plate -> still near-opaque
+    // d==spread_px: both terms have fully decayed -> 0.
+    assert(qr_glow_alpha_at(73, 36, 73) == 0);
+    assert(qr_glow_alpha_at(200, 36, 73) == 0);     // well past spread -> still 0, no underflow
+    // monotonic: alpha never increases as d grows.
+    assert(qr_glow_alpha_at(10, 36, 73) >= qr_glow_alpha_at(20, 36, 73));
+    assert(qr_glow_alpha_at(20, 36, 73) >= qr_glow_alpha_at(36, 36, 73));
+    // degenerate blur/spread (0) -> the respective term never contributes;
+    // both 0 with d>0 -> fully transparent, no div-by-zero.
+    assert(qr_glow_alpha_at(5, 0, 0) == 0);
+    assert(qr_glow_alpha_at(0, 0, 0) == 255);       // d<=0 short-circuit still wins
+
+    printf("test_qr_neon_glow OK\n");
+}
+
 static void test_screen_colors(void) {
     device_config_t cfg;
 
@@ -1140,6 +1216,7 @@ int main(void) {
     test_qr_shape_colors();
     test_qr_corner_shadow();
     test_qr_shadow_fields();
+    test_qr_neon_glow();
     test_screen_colors();
     test_device_defaults();
     test_pin_block();

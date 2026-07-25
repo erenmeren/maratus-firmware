@@ -25,7 +25,7 @@ SRCS    := test_cfg.c vendor/cJSON.c \
            vendor/sha1.c
 
 run: $(SRCS)
-	$(CC) $(CFLAGS) $(SRCS) -o run
+	$(CC) $(CFLAGS) $(SRCS) -o run -lm
 
 test: run
 	./run
