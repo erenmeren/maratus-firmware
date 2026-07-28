@@ -857,6 +857,18 @@ void ui_init(void) {
     lv_draw_buf_handlers_t *ih = lv_draw_buf_get_image_handlers();
     ih->buf_malloc_cb = img_psram_malloc;
     ih->buf_free_cb   = img_psram_free;
+    // The DEFAULT handlers must go to PSRAM too. Routing only the image handlers
+    // covers the decoded bitmap but NOT the intermediate layer LVGL allocates when
+    // it has to transform an image: a branding image is drawn scaled (508x511
+    // source into a 338x290 box via LV_IMAGE_ALIGN_CONTAIN), and that layer is
+    // w*h*4 ~ 392KB. The default path is lv_malloc -> C malloc -> internal DRAM,
+    // which has only ~245KB free once Wi-Fi/SDIO/TLS have taken their share, so the
+    // allocation fails and LVGL draws NOTHING — silently, since CONFIG_LV_USE_LOG
+    // is off. Symptom: the image decodes fine (verified) and the object is visible
+    // with correct geometry, but no pixels ever appear.
+    lv_draw_buf_handlers_t *dh = lv_draw_buf_get_handlers();
+    dh->buf_malloc_cb = img_psram_malloc;
+    dh->buf_free_cb   = img_psram_free;
     s_active = build_splash(true);
     lv_screen_load(s_active);
     lvgl_port_unlock();
