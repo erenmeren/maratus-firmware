@@ -199,7 +199,7 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
 
     cJSON *qt = config ? cJSON_GetObjectItem(config, "qrTimeoutSeconds") : NULL;
     cfg->qr_timeout_seconds = cJSON_IsNumber(qt) ? (int)qt->valuedouble : 60;
-    if (cfg->qr_timeout_seconds < 15)  cfg->qr_timeout_seconds = 15;
+    if (cfg->qr_timeout_seconds < 5)   cfg->qr_timeout_seconds = 5;
     if (cfg->qr_timeout_seconds > 180) cfg->qr_timeout_seconds = 180;
 
     // QR style: qrShape/qrFg/qrBg live inside "config", siblings of

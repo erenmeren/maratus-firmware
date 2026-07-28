@@ -162,7 +162,7 @@ IDF 5.5, prod `ditto-admin-brown.vercel.app`):
 - The receipt/QR screen shows a live "Code expires M:SS" countdown + a depleting `lv_bar`
   (1 Hz LVGL timer); at 0:00 the device **auto-returns to idle**. Confirmed ticking +
   auto-return on device.
-- Duration is tenant-configurable: admin `qrTimeoutSeconds` (15–180, default 60) →
+- Duration is tenant-configurable: admin `qrTimeoutSeconds` (5–180, default 60) →
   `device_config.qr_timeout_seconds`; the countdown widget + auto-return use it.
 - Auto-return is driven by a UI expired-flag (`ui_consume_countdown_expired`), polled on a
   500 ms slice in `idle_wait_or_qr_expiry` (POLL_IDLE_MS is 12 s), NOT by `s_state` — so it

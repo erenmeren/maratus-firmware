@@ -75,7 +75,7 @@ typedef struct {
     char     clock_timezone[CFG_TZ_LEN];
     bool     clock_24h;
     int      wifi_level;       // 0..4
-    int      qr_timeout_seconds;  // document/QR auto-return timeout, 15..180
+    int      qr_timeout_seconds;  // document/QR auto-return timeout, 5..180
     // QR style (config.qrShape/qrFg/qrBg): org-wide look for every QR render.
     // Defaults (absent/unknown shape, malformed hex, or fg==bg) match the
     // pre-existing look — rounded circles, near-black on white.

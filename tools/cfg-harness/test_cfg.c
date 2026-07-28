@@ -491,9 +491,13 @@ static void test_qr_timeout(void) {
     const char *j2 = "{\"version\":\"v1\",\"config\":{}}";
     assert(cfg_parse_json(j2, &cfg) && cfg.qr_timeout_seconds == 60);
 
-    // below min (5) -> clamped to 15
+    // at min (5) -> kept
     const char *j3 = "{\"version\":\"v1\",\"config\":{\"qrTimeoutSeconds\":5}}";
-    assert(cfg_parse_json(j3, &cfg) && cfg.qr_timeout_seconds == 15);
+    assert(cfg_parse_json(j3, &cfg) && cfg.qr_timeout_seconds == 5);
+
+    // below min (1) -> clamped to 5
+    const char *j3b = "{\"version\":\"v1\",\"config\":{\"qrTimeoutSeconds\":1}}";
+    assert(cfg_parse_json(j3b, &cfg) && cfg.qr_timeout_seconds == 5);
 
     // above max (999) -> clamped to 180
     const char *j4 = "{\"version\":\"v1\",\"config\":{\"qrTimeoutSeconds\":999}}";
