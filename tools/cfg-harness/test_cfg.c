@@ -19,6 +19,7 @@
 #include "brightness.h"
 #include "command_parse.h"
 #include "mqtt_topics.h"
+#include "cmd_envelope.h"
 
 static char *slurp(const char *path) {
     FILE *f = fopen(path, "rb");
@@ -1203,6 +1204,55 @@ static void test_command_parse_into(void) {
     printf("test_command_parse_into OK\n");
 }
 
+static void test_cmd_envelope(void) {
+    char *p = NULL;
+
+    // Carried config: payload comes back as JSON text and feeds cfg_parse_json.
+    const char *env = "{\"commandId\":\"cmd_1\",\"type\":\"config-changed\",\"action\":null,"
+                      "\"payload\":{\"version\":\"v9\",\"brandColor\":\"#10A765\"}}";
+    assert(cmd_payload_json(env, &p));
+    assert(p && strstr(p, "\"version\"") && strstr(p, "v9"));
+    cJSON_free(p); p = NULL;
+
+    // The legacy nudge. MUST be false so the caller re-requests over cfg/get
+    // instead of reporting a parse failure.
+    assert(!cmd_payload_json("{\"commandId\":\"c\",\"type\":\"config-changed\",\"payload\":null}", &p));
+    assert(p == NULL);
+
+    // Missing payload, non-object payload, not an object, malformed.
+    assert(!cmd_payload_json("{\"commandId\":\"c\",\"type\":\"config-changed\"}", &p));
+    assert(!cmd_payload_json("{\"payload\":42}", &p));
+    assert(!cmd_payload_json("[1,2,3]", &p));
+    assert(!cmd_payload_json("not json", &p));
+    assert(!cmd_payload_json("", &p));
+
+    // Round trip into the REAL config parser — proves the extracted text is
+    // exactly what cfg_parse_json expects, not merely well-formed JSON.
+    const char *full = "{\"commandId\":\"cmd_2\",\"type\":\"config-changed\",\"payload\":"
+        "{\"version\":\"v3\",\"brandColor\":\"#10A765\",\"wordmark\":\"Acme\","
+        "\"config\":{\"clockTimezone\":\"UTC\",\"qrTimeoutSeconds\":15,\"screens\":{}},"
+        "\"device\":{\"brightness\":70,\"sleep\":{\"enabled\":false,\"timeoutSeconds\":300}},"
+        "\"pin\":null}}";
+    assert(cmd_payload_json(full, &p));
+    static device_config_t cfg;
+    assert(cfg_parse_json(p, &cfg));
+    assert(strcmp(cfg.etag, "v3") == 0);
+    assert(cfg.device.brightness == 70);
+    cJSON_free(p); p = NULL;
+
+    // Same helper, OTA manifest payload — one extractor, both consumers.
+    const char *ota = "{\"commandId\":\"cmd_3\",\"type\":\"firmware-update\",\"payload\":"
+        "{\"version\":\"0.18.0\",\"url\":\"https://r2/x?sig=1\",\"sha256\":\"abc\",\"size\":1599264}}";
+    assert(cmd_payload_json(ota, &p));
+    fw_manifest_t m;
+    assert(ota_parse_manifest(p, &m));
+    assert(strcmp(m.version, "0.18.0") == 0);
+    assert(m.size == 1599264);
+    cJSON_free(p); p = NULL;
+
+    printf("test_cmd_envelope OK\n");
+}
+
 int main(void) {
     test_parse();
     test_geom();
@@ -1237,6 +1287,7 @@ int main(void) {
     test_brightness();
     test_trigger_show_qr();
     test_command_parse_into();
+    test_cmd_envelope();
     printf("ALL TESTS PASSED\n");
     return 0;
 }
