@@ -8,6 +8,13 @@ void app_state_run(void);
 // Ask the poll loop to re-fetch the device config on its next iteration.
 void app_state_request_config(void);
 
+// Registered as the firmware-update cloud hook (main wires it via
+// cloud_set_firmware_update_cb). Parses the MQTT-staged manifest and starts
+// the OTA if one is present; logs and no-ops otherwise. The command was
+// already ack'd before this runs (dispatch_command acks before the OTA hook,
+// since a successful OTA reboots).
+void app_state_on_firmware_update(void);
+
 // Publish the current logical screen state. Called by the live trigger handler
 // so that a config-changed re-render — which paints
 // ui_render_state(s_state) — preserves a live document/QR screen instead of

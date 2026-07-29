@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include "device_config.h"
 #include "command_parse.h"   // dev_command_t
+#include "ota_manifest.h"    // fw_manifest_t
 
 // Start the MQTT client from a config that has an enabled mqtt block. Safe to
 // call when already running (no-op if the same host/username). Returns false if
@@ -28,6 +29,13 @@ bool mqtt_config_pending(void);
 // object payload (e.g. the legacy `payload: null` nudge — re-request over
 // cfg/get), or the payload failed to parse.
 bool mqtt_parse_pending_config(device_config_t *out);
+
+// Parse the staged firmware manifest JSON into `out` under the staging mutex
+// and clear the pending flag. Mirrors mqtt_parse_pending_config, but for a
+// "firmware-update" command's payload: cmd_payload_json extracts it, then the
+// existing ota_parse_manifest (components/devcfg/ota_manifest.c) reads it.
+// False if nothing is staged or the payload has no parseable manifest.
+bool mqtt_parse_pending_ota(fw_manifest_t *out);
 
 // Publish helpers. mqtt_ack matches ack_fn_t. No-ops when not connected.
 int  mqtt_ack(const char *command_id, bool ok);

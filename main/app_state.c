@@ -27,6 +27,7 @@
 #include "brightness.h"
 #include "nvs.h"
 #include "mqtt_client_ditto.h"
+#include "ota_manifest.h"    // fw_manifest_t
 #include "appcfg.h"          // appcfg_fw_version
 #include "esp_random.h"
 
@@ -116,6 +117,17 @@ static void display_wake(int level) {
 
 void app_state_request_config(void) { s_config_dirty = true; }
 
+// Firmware-update cloud hook (registered by main via cloud_set_firmware_update_cb).
+// The manifest arrives staged in PSRAM the same way a config-changed payload
+// does; dispatch_command already ack'd the command before invoking this, since
+// a successful OTA reboots.
+void app_state_on_firmware_update(void)
+{
+    fw_manifest_t m;
+    if (mqtt_parse_pending_ota(&m)) ota_start_with_manifest(&m);
+    else ESP_LOGW(TAG, "firmware-update with no staged manifest");
+}
+
 void app_state_set_state(dev_state_t st) {
     // A print job arriving while asleep must light the screen so the QR is visible.
     if (s_display_asleep && (st == DEV_PROCESSING || st == DEV_QR))
@@ -132,8 +144,6 @@ void app_state_set_state(dev_state_t st) {
 #define POLL_IDLE_MS     12000
 #define POLL_BACKOFF_MIN 2000
 #define POLL_BACKOFF_MAX 60000
-#define OTA_CHECK_EVERY  50
-static int s_ota_poll_ctr = 0;
 
 static TaskHandle_t s_poll_handle;
 #define MQTT_IDLE_MS 30000
@@ -542,9 +552,12 @@ static void poll_task(void *arg)
             if (s_config_dirty) {
                 s_config_dirty = false;
                 int next = s_cfg_live ^ 1;
-                *s_cfg_buf[next] = *s_cfg_buf[s_cfg_live];   // seed ETag + 304 fallback from the live config
-                int cs = cloud_get_config(s_cfg_buf[next]);  // parses into the idle buffer; renderer never sees it half-written
-                if (cs == 200 && s_cfg_buf[next]->valid) {
+                *s_cfg_buf[next] = *s_cfg_buf[s_cfg_live];   // seed from the live config
+                // Parse straight out of the PSRAM stage mqtt_ditto reassembled the
+                // config-changed payload into, into the IDLE buffer — the renderer
+                // (s_cfg_buf[s_cfg_live]) never sees a half-written config.
+                bool ok = mqtt_parse_pending_config(s_cfg_buf[next]);
+                if (ok && s_cfg_buf[next]->valid) {
                     prefetch_and_evict_assets(s_cfg_buf[next]);  // fill/prune flash cache before render
                     ui_set_config(s_cfg_buf[next]);     // publish under the LVGL lock (pointer swap)
                     // Apply the EFFECTIVE brightness (device value if "use device
@@ -553,6 +566,7 @@ static void poll_task(void *arg)
                     time_sync_set_tz(s_cfg_buf[next]->clock_timezone);  // POSIX TZ from payload
                     ui_set_countdown(s_cfg_buf[next]->qr_timeout_seconds);  // keep duration current for any document path
                     s_cfg_live = next;
+                    // A config that turns MQTT off must still be honoured.
                     if (s_cfg_buf[s_cfg_live]->mqtt.enabled) mqtt_start(s_cfg_buf[s_cfg_live]);
                     else mqtt_stop();
                     // Idle/pinned re-derive home_state from the fresh config so a
@@ -560,13 +574,12 @@ static void poll_task(void *arg)
                     // any other screen just re-renders as-is (cache hits).
                     if (s_state == DEV_IDLE || s_state == DEV_PINNED) show_home();
                     else ui_render_state(s_state);
-                } else if (cs != 304) {
-                    // Neither a fresh config applied nor "not modified" — a transport
-                    // error or a 200 that failed to parse. Re-arm so the next poll
-                    // retries; otherwise an acked pin/config-changed command that lost
-                    // this one fetch to a blip would never repaint until some other
-                    // external nudge sets s_config_dirty again.
-                    s_config_dirty = true;
+                } else {
+                    // Nothing staged, or it failed to parse (includes the legacy
+                    // `payload: null` nudge below fw 0.18.0). Ask again — the cloud
+                    // answers cfg/get with a freshly presigned config — rather than
+                    // sit on stale config.
+                    mqtt_publish_cfg_get();
                 }
             }
             if (mqtt_up) {
@@ -589,10 +602,6 @@ static void poll_task(void *arg)
             s_was_mqtt_up = mqtt_up;
             backoff = POLL_BACKOFF_MIN;
             ota_mark_valid_if_pending();   // healthy check-in → confirm any freshly-OTA'd image
-            if (++s_ota_poll_ctr >= OTA_CHECK_EVERY) {
-                s_ota_poll_ctr = 0;
-                ota_check_and_update(false);   // may reboot
-            }
             {
                 int idle_ms = mqtt_up ? MQTT_IDLE_MS : POLL_IDLE_MS;
                 if (s_cfg_get_pending) {

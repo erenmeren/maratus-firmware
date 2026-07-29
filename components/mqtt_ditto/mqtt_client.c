@@ -30,7 +30,8 @@ static char s_host[128];                      // remember to detect config chang
 #define STAGE_CAP (32 * 1024)
 static char *s_stage;                  // PSRAM, lazily allocated
 static int s_stage_len;
-static volatile bool s_stage_ready;
+static volatile bool s_stage_ready;    // a config-changed payload is staged
+static volatile bool s_ota_ready;      // a firmware-update manifest is staged
 static SemaphoreHandle_t s_stage_mux;
 
 static bool stage_ensure(void)
@@ -40,26 +41,31 @@ static bool stage_ensure(void)
     return s_stage && s_stage_mux;
 }
 
+// Which of the two staged-payload kinds (if any) a just-parsed command carries.
+typedef enum { STAGE_NONE, STAGE_CONFIG, STAGE_OTA } stage_kind_t;
+
 // Parses a complete command envelope (always the staging slot's bytes — see
-// on_data) and enqueues a dev_command_t. Returns true if this command is a
-// config-changed push, so the caller can mark the already-staged payload
-// pending for poll_task. Does not touch s_stage_ready itself: every touch of
-// that flag happens under s_stage_mux, in on_data, so a single writer task
-// (esp-mqtt) can't race a config push it hasn't finished flagging yet against
-// one it's already started overwriting.
-static bool on_cmd_message(const char *data, int len)
+// on_data) and enqueues a dev_command_t. Returns which staged-payload kind
+// this command is (config-changed or firmware-update), so the caller can mark
+// the already-staged payload pending for poll_task. Does not touch
+// s_stage_ready/s_ota_ready itself: every touch of those flags happens under
+// s_stage_mux, in on_data, so a single writer task (esp-mqtt) can't race a
+// push it hasn't finished flagging yet against one it's already started
+// overwriting.
+static stage_kind_t on_cmd_message(const char *data, int len)
 {
     cJSON *cmd = cJSON_ParseWithLength(data, len);
-    if (!cmd) { ESP_LOGW(TAG, "bad cmd json"); return false; }
+    if (!cmd) { ESP_LOGW(TAG, "bad cmd json"); return STAGE_NONE; }
     dev_command_t dc;
-    bool is_config = false;
+    stage_kind_t kind = STAGE_NONE;
     if (command_parse_into(cmd, &dc)) {
         if (xQueueSend(s_cmd_q, &dc, 0) == pdTRUE) { ESP_LOGI(TAG, "rx+enqueue %s", dc.command_id); if (s_wake_cb) s_wake_cb(); }
         else ESP_LOGW(TAG, "cmd queue full, dropping %s", dc.command_id);
-        is_config = (strcmp(dc.type, "config-changed") == 0);
+        if (strcmp(dc.type, "config-changed") == 0) kind = STAGE_CONFIG;
+        else if (strcmp(dc.type, "firmware-update") == 0) kind = STAGE_OTA;
     }
     cJSON_Delete(cmd);
-    return is_config;
+    return kind;
 }
 
 static void on_data(esp_mqtt_event_handle_t e)
@@ -78,11 +84,13 @@ static void on_data(esp_mqtt_event_handle_t e)
     // fast path would silently never stage (and thus never flag) that config.
     xSemaphoreTake(s_stage_mux, portMAX_DELAY);
     if (e->current_data_offset == 0) {
-        // A new message starting invalidates any unconsumed prior one: without
-        // this, a reader could later splice this message's leading bytes onto a
-        // previous message's stale tail (checked s_stage_ready before this lock,
-        // then read a buffer this write is now overwriting).
+        // A new message starting invalidates any unconsumed prior one, for
+        // BOTH staged kinds: without this, a reader could later splice this
+        // message's leading bytes onto a previous message's stale tail
+        // (checked s_stage_ready/s_ota_ready before this lock, then read a
+        // buffer this write is now overwriting).
         s_stage_ready = false;
+        s_ota_ready = false;
     }
     memcpy(s_stage + e->current_data_offset, e->data, e->data_len);
     bool complete = (e->current_data_offset + e->data_len >= e->total_data_len);
@@ -93,13 +101,15 @@ static void on_data(esp_mqtt_event_handle_t e)
     xSemaphoreGive(s_stage_mux);
     if (!complete) return;
 
-    bool is_config = on_cmd_message(s_stage, s_stage_len);
-    if (is_config) {
-        // Flag under the mutex too: s_stage_ready is only ever touched while
-        // holding s_stage_mux, so a reader's authoritative (post-lock) check of
-        // it is never stale relative to the buffer it guards.
+    stage_kind_t kind = on_cmd_message(s_stage, s_stage_len);
+    if (kind != STAGE_NONE) {
+        // Flag under the mutex too: s_stage_ready/s_ota_ready are only ever
+        // touched while holding s_stage_mux, so a reader's authoritative
+        // (post-lock) check of either is never stale relative to the buffer
+        // it guards.
         xSemaphoreTake(s_stage_mux, portMAX_DELAY);
-        s_stage_ready = true;
+        if (kind == STAGE_CONFIG) s_stage_ready = true;
+        else if (kind == STAGE_OTA) s_ota_ready = true;
         xSemaphoreGive(s_stage_mux);
     }
 }
@@ -206,6 +216,28 @@ bool mqtt_parse_pending_config(device_config_t *out)
             cJSON_free(payload);
         }
         s_stage_ready = false;
+    }
+    xSemaphoreGive(s_stage_mux);
+    return ok;
+}
+
+bool mqtt_parse_pending_ota(fw_manifest_t *out)
+{
+    // Cheap early-out; not authoritative — see mqtt_parse_pending_config.
+    if (!s_ota_ready || !s_stage || !s_stage_mux) return false;
+    xSemaphoreTake(s_stage_mux, portMAX_DELAY);
+    bool ok = false;
+    // Authoritative recheck under the lock, same reasoning as
+    // mqtt_parse_pending_config: a message that began arriving between the
+    // early-out above and this xSemaphoreTake would have already cleared
+    // s_ota_ready (see on_data) and possibly be mid-overwrite of s_stage.
+    if (s_ota_ready) {
+        char *payload = NULL;
+        if (cmd_payload_json(s_stage, &payload)) {
+            ok = ota_parse_manifest(payload, out);
+            cJSON_free(payload);
+        }
+        s_ota_ready = false;
     }
     xSemaphoreGive(s_stage_mux);
     return ok;

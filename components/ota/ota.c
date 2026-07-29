@@ -13,15 +13,13 @@
 
 static const char *TAG = "ota";
 
-void ota_check_and_update(bool forced)
+void ota_start_with_manifest(const fw_manifest_t *m)
 {
-    fw_manifest_t m;
-    if (!cloud_get_firmware(&m)) return;
-    if (!forced && !ota_should_update(appcfg_fw_version(), m.version)) return;
-    ESP_LOGI(TAG, "OTA %s -> %s (%d bytes)", appcfg_fw_version(), m.version, m.size);
+    if (!m || !m->version[0] || !m->url[0]) return;
+    ESP_LOGI(TAG, "OTA %s -> %s (%d bytes)", appcfg_fw_version(), m->version, m->size);
 
     esp_http_client_config_t http = {
-        .url = m.url,
+        .url = m->url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 60000,
         .keep_alive_enable = true,
@@ -29,12 +27,20 @@ void ota_check_and_update(bool forced)
     esp_https_ota_config_t ota_cfg = { .http_config = &http };
     esp_err_t err = esp_https_ota(&ota_cfg);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "OTA ok, rebooting into %s", m.version);
+        ESP_LOGI(TAG, "OTA ok, rebooting into %s", m->version);
         vTaskDelay(pdMS_TO_TICKS(300));
         esp_restart();
     } else {
         ESP_LOGE(TAG, "OTA failed: %s (staying on %s)", esp_err_to_name(err), appcfg_fw_version());
     }
+}
+
+void ota_check_and_update(bool forced)
+{
+    fw_manifest_t m;
+    if (!cloud_get_firmware(&m)) return;
+    if (!forced && !ota_should_update(appcfg_fw_version(), m.version)) return;
+    ota_start_with_manifest(&m);
 }
 
 void ota_mark_valid_if_pending(void)
