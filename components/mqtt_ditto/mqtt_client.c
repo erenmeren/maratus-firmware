@@ -40,37 +40,50 @@ static bool stage_ensure(void)
     return s_stage && s_stage_mux;
 }
 
-static void on_cmd_message(const char *data, int len)
+// Parses a complete command envelope (always the staging slot's bytes — see
+// on_data) and enqueues a dev_command_t. Returns true if this command is a
+// config-changed push, so the caller can mark the already-staged payload
+// pending for poll_task. Does not touch s_stage_ready itself: every touch of
+// that flag happens under s_stage_mux, in on_data, so a single writer task
+// (esp-mqtt) can't race a config push it hasn't finished flagging yet against
+// one it's already started overwriting.
+static bool on_cmd_message(const char *data, int len)
 {
     cJSON *cmd = cJSON_ParseWithLength(data, len);
-    if (!cmd) { ESP_LOGW(TAG, "bad cmd json"); return; }
+    if (!cmd) { ESP_LOGW(TAG, "bad cmd json"); return false; }
     dev_command_t dc;
+    bool is_config = false;
     if (command_parse_into(cmd, &dc)) {
         if (xQueueSend(s_cmd_q, &dc, 0) == pdTRUE) { ESP_LOGI(TAG, "rx+enqueue %s", dc.command_id); if (s_wake_cb) s_wake_cb(); }
         else ESP_LOGW(TAG, "cmd queue full, dropping %s", dc.command_id);
-        // A config push carries its (possibly multi-fragment) payload in the
-        // staging slot, not in dev_command_t (too small to hold ~5-20KB). Flag
-        // it for poll_task instead of copying it through the queue.
-        if (strcmp(dc.type, "config-changed") == 0 && data == s_stage) {
-            s_stage_ready = true;   // poll_task parses out of the staging slot
-        }
+        is_config = (strcmp(dc.type, "config-changed") == 0);
     }
     cJSON_Delete(cmd);
+    return is_config;
 }
 
 static void on_data(esp_mqtt_event_handle_t e)
 {
-    // Single-fragment message: parse in place, no staging needed.
-    if (e->current_data_offset == 0 && e->data_len == e->total_data_len) {
-        on_cmd_message(e->data, e->data_len);
-        return;
-    }
     if (!stage_ensure()) { ESP_LOGE(TAG, "stage alloc failed; dropping %d B", e->total_data_len); return; }
     if (e->total_data_len >= STAGE_CAP) {
-        ESP_LOGE(TAG, "payload %d B exceeds stage cap %d", e->total_data_len, STAGE_CAP);
+        // Every fragment of an oversized message re-enters this branch and bails
+        // before touching the slot; log only once, on the message's first fragment.
+        if (e->current_data_offset == 0) ESP_LOGE(TAG, "payload %d B exceeds stage cap %d", e->total_data_len, STAGE_CAP);
         return;
     }
+
+    // Always assemble through the staging slot, even a message that arrives in
+    // a single fragment — a sparse config with no uploaded images/presigned
+    // URLs can plausibly land under the esp-mqtt buffer size, and a separate
+    // fast path would silently never stage (and thus never flag) that config.
     xSemaphoreTake(s_stage_mux, portMAX_DELAY);
+    if (e->current_data_offset == 0) {
+        // A new message starting invalidates any unconsumed prior one: without
+        // this, a reader could later splice this message's leading bytes onto a
+        // previous message's stale tail (checked s_stage_ready before this lock,
+        // then read a buffer this write is now overwriting).
+        s_stage_ready = false;
+    }
     memcpy(s_stage + e->current_data_offset, e->data, e->data_len);
     bool complete = (e->current_data_offset + e->data_len >= e->total_data_len);
     if (complete) {
@@ -78,7 +91,17 @@ static void on_data(esp_mqtt_event_handle_t e)
         s_stage[s_stage_len] = '\0';
     }
     xSemaphoreGive(s_stage_mux);
-    if (complete) on_cmd_message(s_stage, s_stage_len);
+    if (!complete) return;
+
+    bool is_config = on_cmd_message(s_stage, s_stage_len);
+    if (is_config) {
+        // Flag under the mutex too: s_stage_ready is only ever touched while
+        // holding s_stage_mux, so a reader's authoritative (post-lock) check of
+        // it is never stale relative to the buffer it guards.
+        xSemaphoreTake(s_stage_mux, portMAX_DELAY);
+        s_stage_ready = true;
+        xSemaphoreGive(s_stage_mux);
+    }
 }
 
 static void mqtt_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
@@ -161,20 +184,29 @@ bool mqtt_config_pending(void) { return s_stage_ready; }
 
 bool mqtt_parse_pending_config(device_config_t *out)
 {
+    // Cheap early-out; not authoritative. A new message can flip this false
+    // (or start overwriting the buffer) at any time from the esp-mqtt task, so
+    // it proves nothing about the state of s_stage once the lock is held.
     if (!s_stage_ready || !s_stage || !s_stage_mux) return false;
     xSemaphoreTake(s_stage_mux, portMAX_DELAY);
-    // The staged bytes are the command envelope; Task B1's extractor pulls the
-    // config out of it and cfg_parse_json (unchanged) does the real parse. A
-    // false return here includes the legacy `payload: null` nudge, which the
-    // caller answers by re-requesting over cfg/get.
-    char *payload = NULL;
     bool ok = false;
-    if (cmd_payload_json(s_stage, &payload)) {
-        ok = cfg_parse_json(payload, out);
-        if (ok) cloud_config_cache_write(payload);   // cache the payload, not the envelope
-        cJSON_free(payload);
+    // Authoritative recheck under the lock: a message that began arriving
+    // between the early-out above and this xSemaphoreTake would have already
+    // cleared s_stage_ready (see on_data) and possibly be mid-overwrite of
+    // s_stage. Bail rather than parse a buffer spliced from two messages.
+    if (s_stage_ready) {
+        // The staged bytes are the command envelope; Task B1's extractor pulls the
+        // config out of it and cfg_parse_json (unchanged) does the real parse. A
+        // false return here includes the legacy `payload: null` nudge, which the
+        // caller answers by re-requesting over cfg/get.
+        char *payload = NULL;
+        if (cmd_payload_json(s_stage, &payload)) {
+            ok = cfg_parse_json(payload, out);
+            if (ok) cloud_config_cache_write(payload);   // cache the payload, not the envelope
+            cJSON_free(payload);
+        }
+        s_stage_ready = false;
     }
-    s_stage_ready = false;
     xSemaphoreGive(s_stage_mux);
     return ok;
 }
