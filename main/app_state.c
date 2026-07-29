@@ -138,6 +138,10 @@ static int s_ota_poll_ctr = 0;
 static TaskHandle_t s_poll_handle;
 #define MQTT_IDLE_MS 30000
 #define HB_EVERY_MS  300000          // 5 min
+// Floor for the idle-wait clamp below when a cfg/get's due-time has already
+// passed (e.g. this loop iteration took a while to reach the wait call) —
+// keeps the wait positive without materially delaying the fire.
+#define CFG_GET_MIN_WAIT_MS 200
 static int64_t s_last_hb_ms;
 static bool s_was_mqtt_up;
 // Non-blocking once-per-connect config request: set on a fresh MQTT connect,
@@ -589,7 +593,22 @@ static void poll_task(void *arg)
                 s_ota_poll_ctr = 0;
                 ota_check_and_update(false);   // may reboot
             }
-            idle_wait_or_qr_expiry(mqtt_up ? MQTT_IDLE_MS : POLL_IDLE_MS);
+            {
+                int idle_ms = mqtt_up ? MQTT_IDLE_MS : POLL_IDLE_MS;
+                if (s_cfg_get_pending) {
+                    // Don't let this wait sleep past the armed cfg/get's due-time.
+                    // The top-of-loop fire check only re-runs once this wait
+                    // returns, so left at the full idle interval (up to 30s on
+                    // MQTT) a pending request could sit long past its 0-3s jitter
+                    // window before actually going out. Clamp to whatever's left
+                    // until due instead; idle_wait_or_qr_expiry already slices
+                    // internally, so a shorter total needs no change there.
+                    int32_t remaining = (int32_t)(s_cfg_get_due_ms - now_ms());
+                    if (remaining < CFG_GET_MIN_WAIT_MS) remaining = CFG_GET_MIN_WAIT_MS;
+                    if (remaining < idle_ms) idle_ms = remaining;
+                }
+                idle_wait_or_qr_expiry(idle_ms);
+            }
         } else {
             ESP_LOGW(TAG, "poll failed (status=%d), backoff=%dms", status, backoff);
             ui_set_online(false);
