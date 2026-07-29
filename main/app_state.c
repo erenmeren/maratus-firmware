@@ -141,7 +141,6 @@ void app_state_set_state(dev_state_t st) {
     s_state = st;
 }
 
-#define POLL_IDLE_MS     12000
 #define POLL_BACKOFF_MIN 2000
 #define POLL_BACKOFF_MAX 60000
 
@@ -471,7 +470,6 @@ static void boot_gate_fallback_offline(void)
 
 static void poll_task(void *arg)
 {
-    static char body[1024];
     int backoff = POLL_BACKOFF_MIN;
     s_state = s_boot_gate ? DEV_BOOT : DEV_IDLE;
     s_last_activity_ms = now_ms();
@@ -502,8 +500,8 @@ static void poll_task(void *arg)
         if (!net_is_connected()) {
             ui_set_online(false);
             ui_set_wifi_level(0);   // network lost: empty the wifi bars immediately
-            // This branch `continue`s before the `s_was_mqtt_up = mqtt_up` assignment
-            // further down, so without this line a dropped Wi-Fi link would leave
+            // This branch `continue`s before the `s_was_mqtt_up` assignment further
+            // down, so without this line a dropped Wi-Fi link would leave
             // s_was_mqtt_up frozen at its pre-outage value. If MQTT then reconnects
             // in the same iteration Wi-Fi recovers, `!s_was_mqtt_up` would read false
             // and that fresh session would be missed for both the immediate
@@ -513,31 +511,20 @@ static void poll_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
+
+        bool mqtt_up = mqtt_is_connected();
+
         // Drain any MQTT-delivered commands first (instant path). Harmless when empty.
         {
             dev_command_t mc;
             while (mqtt_poll_command(&mc)) {
-                if (mqtt_is_connected()) dispatch_command(&mc, mqtt_ack);
-                else ESP_LOGW(TAG, "mqtt cmd %s dropped (disconnected); HTTP will redeliver", mc.command_id);
+                if (mqtt_up) dispatch_command(&mc, mqtt_ack);
+                else ESP_LOGW(TAG, "mqtt cmd %s dropped (disconnected)", mc.command_id);
             }
         }
 
-        bool mqtt_up = mqtt_is_connected();
-        int status;
+        // Online-ness follows the broker connection — no HTTP fallback by design.
         if (mqtt_up) {
-            status = 200;
-        } else if (s_boot_gate) {
-            int64_t left = BOOT_GATE_TIMEOUT_MS - (now_ms() - s_boot_start_ms);
-            int to = left < 1000 ? 1000 : (int)left;   // floor so a live poll can still finish
-            status = cloud_get_commands_to(body, sizeof(body), to);
-            if (status != 200 && now_ms() - s_boot_start_ms >= BOOT_GATE_TIMEOUT_MS) {
-                boot_gate_fallback_offline();
-                continue;
-            }
-        } else {
-            status = cloud_get_commands(body, sizeof(body));
-        }
-        if (status == 200) {
             ui_set_online(true);
             time_sync_start();                 // idempotent; SNTP runs once Wi-Fi is up
             int rssi = 0;
@@ -546,9 +533,8 @@ static void poll_task(void *arg)
                 s_boot_gate = false;
                 ui_boot_progress(BOOT_READY);
                 vTaskDelay(pdMS_TO_TICKS(BOOT_READY_HOLD_MS));
-                show_home();   // cached config; the config fetch below re-renders fresh
+                show_home();   // cached config; the config-apply block below re-renders fresh
             }
-            if (!mqtt_up) commands_handle_body(body);   // may esp_restart() on reboot
             if (s_config_dirty) {
                 s_config_dirty = false;
                 int next = s_cfg_live ^ 1;
@@ -582,35 +568,33 @@ static void poll_task(void *arg)
                     mqtt_publish_cfg_get();
                 }
             }
-            if (mqtt_up) {
-                if (!s_was_mqtt_up) {
-                    mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok());
-                    s_last_hb_ms = now_ms();  // immediate hb on connect → cloud republishes pending
-                    // Ask for config once per connect, but never block this loop for
-                    // it (it also drains MQTT commands and touch/swipe input, and a
-                    // reconnect is exactly when the cloud is most likely to have
-                    // something queued). Arm a due-time instead; the top of the loop
-                    // fires it non-blockingly once elapsed. The 0-3s jitter keeps a
-                    // store whose devices all power up together (or all reconnect
-                    // after a router blip) from hitting the cloud with simultaneous
-                    // presign work.
-                    s_cfg_get_pending = true;
-                    s_cfg_get_due_ms = now_ms() + (esp_random() % 3000);
-                }
-                else if (now_ms() - s_last_hb_ms >= HB_EVERY_MS) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok()); s_last_hb_ms = now_ms(); }
+            if (!s_was_mqtt_up) {
+                mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok());
+                s_last_hb_ms = now_ms();  // immediate hb on connect → cloud republishes pending
+                // Ask for config once per connect, but never block this loop for
+                // it (it also drains MQTT commands and touch/swipe input, and a
+                // reconnect is exactly when the cloud is most likely to have
+                // something queued). Arm a due-time instead; the top of the loop
+                // fires it non-blockingly once elapsed. The 0-3s jitter keeps a
+                // store whose devices all power up together (or all reconnect
+                // after a router blip) from hitting the cloud with simultaneous
+                // presign work.
+                s_cfg_get_pending = true;
+                s_cfg_get_due_ms = now_ms() + (esp_random() % 3000);
             }
-            s_was_mqtt_up = mqtt_up;
+            else if (now_ms() - s_last_hb_ms >= HB_EVERY_MS) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok()); s_last_hb_ms = now_ms(); }
+            s_was_mqtt_up = true;
             backoff = POLL_BACKOFF_MIN;
             ota_mark_valid_if_pending();   // healthy check-in → confirm any freshly-OTA'd image
             {
-                int idle_ms = mqtt_up ? MQTT_IDLE_MS : POLL_IDLE_MS;
+                int idle_ms = MQTT_IDLE_MS;
                 if (s_cfg_get_pending) {
                     // Don't let this wait sleep past the armed cfg/get's due-time.
                     // The top-of-loop fire check only re-runs once this wait
-                    // returns, so left at the full idle interval (up to 30s on
-                    // MQTT) a pending request could sit long past its 0-3s jitter
-                    // window before actually going out. Clamp to whatever's left
-                    // until due instead; idle_wait_or_qr_expiry already slices
+                    // returns, so left at the full idle interval (up to 30s) a
+                    // pending request could sit long past its 0-3s jitter window
+                    // before actually going out. Clamp to whatever's left until
+                    // due instead; idle_wait_or_qr_expiry already slices
                     // internally, so a shorter total needs no change there.
                     int32_t remaining = (int32_t)(s_cfg_get_due_ms - now_ms());
                     if (remaining < CFG_GET_MIN_WAIT_MS) remaining = CFG_GET_MIN_WAIT_MS;
@@ -619,8 +603,9 @@ static void poll_task(void *arg)
                 idle_wait_or_qr_expiry(idle_ms);
             }
         } else {
-            ESP_LOGW(TAG, "poll failed (status=%d), backoff=%dms", status, backoff);
+            ESP_LOGW(TAG, "mqtt down; waiting for reconnect (backoff=%dms)", backoff);
             ui_set_online(false);
+            s_was_mqtt_up = false;
             vTaskDelay(pdMS_TO_TICKS(backoff));
             backoff = backoff * 2 > POLL_BACKOFF_MAX ? POLL_BACKOFF_MAX : backoff * 2;
         }
@@ -638,7 +623,7 @@ void app_state_run(void)
         return;
     }
     overrides_load();   // restore device settings (use_device=0 == follow cloud)
-    cloud_config_load_cached(s_cfg_buf[s_cfg_live]);   // seed ETag so the first fetch can 304
+    cloud_config_load_cached(s_cfg_buf[s_cfg_live]);   // seed from the NVS cache for a fast boot render
     ui_set_config(s_cfg_buf[s_cfg_live]);
     if (s_cfg_buf[s_cfg_live]->valid)
         display_apply_brightness(devset_eff_brightness(&g_dev, s_cfg_buf[s_cfg_live]->device.brightness));

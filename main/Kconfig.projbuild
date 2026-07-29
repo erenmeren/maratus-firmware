@@ -27,9 +27,12 @@ menu "Ditto firmware (dev)"
 
     config DITTO_FW_VERSION
         string "Reported firmware version"
-        default "0.17.1"
+        default "0.18.0"
         help
-            Sent as the x-device-version header and shown in the admin device list.
+            Reported in the MQTT heartbeat and shown in the admin device list.
+            The cloud's supportsConfigPush gate only carries a config in the MQTT
+            message for firmware >= 0.18.0 (lib/mqtt-push.ts); below that it sends
+            a legacy nudge whose HTTP answer this device no longer has.
 
     config DITTO_ROLL_WIDTH
         int "Receipt roll width in dots"

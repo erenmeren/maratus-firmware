@@ -7,7 +7,6 @@
 #include "esp_https_ota.h"
 #include "esp_crt_bundle.h"
 #include "esp_ota_ops.h"
-#include "cloud.h"
 #include "appcfg.h"
 #include "ota_manifest.h"
 
@@ -33,14 +32,6 @@ void ota_start_with_manifest(const fw_manifest_t *m)
     } else {
         ESP_LOGE(TAG, "OTA failed: %s (staying on %s)", esp_err_to_name(err), appcfg_fw_version());
     }
-}
-
-void ota_check_and_update(bool forced)
-{
-    fw_manifest_t m;
-    if (!cloud_get_firmware(&m)) return;
-    if (!forced && !ota_should_update(appcfg_fw_version(), m.version)) return;
-    ota_start_with_manifest(&m);
 }
 
 void ota_mark_valid_if_pending(void)

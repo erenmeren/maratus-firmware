@@ -4,7 +4,6 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_system.h"
-#include "cJSON.h"
 #include "cloud.h"
 #include "ui.h"
 #include "command_parse.h"
@@ -60,20 +59,4 @@ void dispatch_command(const dev_command_t *cmd, ack_fn_t ack)
     } else {
         ack(id, true);   // unknown: ack + ignore
     }
-}
-
-void commands_handle_body(const char *json_body)
-{
-    if (!json_body || !json_body[0]) return;
-    cJSON *root = cJSON_Parse(json_body);
-    if (!root) { ESP_LOGW(TAG, "bad JSON"); return; }
-
-    cJSON *cmds = cJSON_GetObjectItem(root, "commands");
-    int n = cJSON_IsArray(cmds) ? cJSON_GetArraySize(cmds) : 0;
-    for (int i = 0; i < n; i++) {
-        dev_command_t c;
-        if (command_parse_into(cJSON_GetArrayItem(cmds, i), &c))
-            dispatch_command(&c, cloud_ack_command);
-    }
-    cJSON_Delete(root);
 }
