@@ -36,3 +36,8 @@ int  mqtt_ack(const char *command_id, bool ok);
 // cloud_last_config_status(), `cfgparse` = cloud_last_parse_ok(). Pass <-999 to omit.
 void mqtt_publish_hb(const char *version, int fonts, int afetch, int aimg,
                      int cfgimg, int cfgstat, int cfgparse);
+
+// Ask the cloud to republish the full config (on the existing cmd topic) by
+// publishing an empty object to d/{id}/cfg/get. No-op when not connected.
+// Call once per fresh MQTT connection — never on a timer/poll.
+void mqtt_publish_cfg_get(void);

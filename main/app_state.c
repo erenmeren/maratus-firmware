@@ -28,6 +28,7 @@
 #include "nvs.h"
 #include "mqtt_client_ditto.h"
 #include "appcfg.h"          // appcfg_fw_version
+#include "esp_random.h"
 
 static const char *TAG = "state";
 // Written by poll_task via app_state_set_state;
@@ -543,7 +544,15 @@ static void poll_task(void *arg)
                 }
             }
             if (mqtt_up) {
-                if (!s_was_mqtt_up) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok()); s_last_hb_ms = now_ms(); }  // immediate hb on connect → cloud republishes pending
+                if (!s_was_mqtt_up) {
+                    mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok());
+                    s_last_hb_ms = now_ms();  // immediate hb on connect → cloud republishes pending
+                    // Ask for config once per connect. Jitter so a store whose
+                    // devices all power up together doesn't hit the cloud with
+                    // simultaneous presign work.
+                    vTaskDelay(pdMS_TO_TICKS(esp_random() % 3000));
+                    mqtt_publish_cfg_get();
+                }
                 else if (now_ms() - s_last_hb_ms >= HB_EVERY_MS) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok()); s_last_hb_ms = now_ms(); }
             }
             s_was_mqtt_up = mqtt_up;

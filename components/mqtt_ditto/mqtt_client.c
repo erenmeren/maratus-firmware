@@ -235,6 +235,15 @@ int mqtt_ack(const char *command_id, bool ok)
     return r < 0 ? -1 : 0;
 }
 
+void mqtt_publish_cfg_get(void)
+{
+    if (!s_client || !s_connected) return;
+    char topic[80];
+    mqtt_topic_cfg_get(topic, sizeof(topic), s_device_id);
+    esp_mqtt_client_publish(s_client, topic, "{}", 2, 1, 0);
+    ESP_LOGI(TAG, "cfg/get published");
+}
+
 void mqtt_publish_hb(const char *version, int fonts, int afetch, int aimg,
                      int cfgimg, int cfgstat, int cfgparse)
 {
