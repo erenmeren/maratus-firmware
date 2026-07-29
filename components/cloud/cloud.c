@@ -168,16 +168,26 @@ void cloud_config_load_cached(device_config_t *cfg)
     nvs_close(h);
 }
 
-// Diagnostics for the most recent HTTP config fetch, reported on the heartbeat.
-// Config now arrives via MQTT push (parsed directly in app_state.c) so nothing
-// writes these anymore; they stay pinned at -1000 ("none yet"). Kept as a
-// stable heartbeat wire field rather than reshaping the payload.
-// -1000 = none yet. status: HTTP code (200/304) or -1 transport error.
-// parse_ok: 1 last 200 parsed valid, 0 last 200 failed to parse, -1000 no 200 yet.
+// Diagnostics for the most recent MQTT config-apply attempt, reported on the
+// heartbeat. Config now arrives via MQTT push (parsed in app_state.c's
+// config-apply block, out of a PSRAM slot reassembled from fragments), so
+// these no longer carry HTTP status codes — that meaning is retired along
+// with cloud_get_config. New meanings, set by cloud_note_config_apply():
+// status: 200 = a staged config was parsed and applied this cycle;
+//         0   = nothing usable was staged (a `payload: null` nudge, or the
+//               slot failed to parse) and the device re-requested via
+//               cfg/get; -1000 = no config-apply attempt yet this boot.
+// parse_ok: 1 = applied, 0 = not applied, -1000 = not attempted yet.
 static volatile int s_last_config_status = -1000;
 static volatile int s_last_parse_ok = -1000;
 int cloud_last_config_status(void) { return s_last_config_status; }
 int cloud_last_parse_ok(void) { return s_last_parse_ok; }
+
+void cloud_note_config_apply(int status, int parse_ok)
+{
+    s_last_config_status = status;
+    s_last_parse_ok = parse_ok;
+}
 
 static void (*s_cfg_changed_cb)(void);
 void cloud_set_config_changed_cb(void (*cb)(void)) { s_cfg_changed_cb = cb; }

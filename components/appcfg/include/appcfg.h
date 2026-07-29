@@ -6,7 +6,7 @@
 // key from NVS (after on-screen claim) instead.
 const char *appcfg_base_url(void);    // e.g. "https://...vercel.app" (no trailing slash)
 const char *appcfg_device_key(void);  // raw bearer key (NVS-first, Kconfig fallback)
-const char *appcfg_fw_version(void);  // x-device-version value
+const char *appcfg_fw_version(void);  // reported in the MQTT heartbeat + admin device list
 int appcfg_roll_width(void);          // dots (e.g. 576 = 80mm, 384 = 58mm)
 
 // True if a device key has been persisted to NVS (i.e. the device was claimed).

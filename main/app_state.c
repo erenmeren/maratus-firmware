@@ -544,6 +544,7 @@ static void poll_task(void *arg)
                 // (s_cfg_buf[s_cfg_live]) never sees a half-written config.
                 bool ok = mqtt_parse_pending_config(s_cfg_buf[next]);
                 if (ok && s_cfg_buf[next]->valid) {
+                    cloud_note_config_apply(200, 1);   // staged config parsed + applied
                     prefetch_and_evict_assets(s_cfg_buf[next]);  // fill/prune flash cache before render
                     ui_set_config(s_cfg_buf[next]);     // publish under the LVGL lock (pointer swap)
                     // Apply the EFFECTIVE brightness (device value if "use device
@@ -565,6 +566,7 @@ static void poll_task(void *arg)
                     // `payload: null` nudge below fw 0.18.0). Ask again — the cloud
                     // answers cfg/get with a freshly presigned config — rather than
                     // sit on stale config.
+                    cloud_note_config_apply(0, 0);   // nothing usable staged; re-requesting
                     mqtt_publish_cfg_get();
                 }
             }

@@ -31,13 +31,19 @@ esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len);
 // -1000 never attempted · -1 transport/TLS error · -2 too large · else HTTP status.
 int cloud_last_asset_status(void);
 
-// Diagnostics for the most recent HTTP config fetch (heartbeat). Config now
-// arrives via MQTT push (parsed directly in app_state.c), so these stay at
-// their "none yet" sentinel — kept for heartbeat wire-format compatibility.
-// status: HTTP code (200/304) · -1 transport error · -1000 none yet.
-// parse_ok: 1 last 200 parsed valid · 0 last 200 parse failed · -1000 no 200 yet.
+// Diagnostics for the most recent MQTT config-apply attempt (heartbeat).
+// These no longer carry HTTP status codes — see cloud_note_config_apply.
+// status: 200 applied this cycle · 0 nothing to apply, re-requested · -1000 none yet.
+// parse_ok: 1 applied · 0 not applied · -1000 none yet.
 int cloud_last_config_status(void);
 int cloud_last_parse_ok(void);
+
+// Record the outcome of the most recent MQTT config-apply attempt (called
+// from app_state.c's config-apply block, right where mqtt_parse_pending_config
+// returns). Pass (200, 1) when a staged config parsed and was applied; pass
+// (0, 0) when there was nothing to apply (a `payload: null` nudge or a slot
+// that failed to parse) and the device re-requested over cfg/get instead.
+void cloud_note_config_apply(int status, int parse_ok);
 
 // GET /api/device/claim?code=<code> (unauthenticated). On HTTP 200 parses the
 // returned deviceKey into key_out (NUL-terminated, up to key_len-1) and returns
