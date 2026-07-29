@@ -37,6 +37,13 @@ int cloud_get_config(device_config_t *cfg);
 // Load the last config persisted in NVS into *cfg (cfg->valid = false if none).
 void cloud_config_load_cached(device_config_t *cfg);
 
+// Persist a config PAYLOAD (not an envelope) to the NVS cache used by
+// cloud_config_load_cached, so the next boot can seed from it and the next
+// cloud_get_config can 304. Used by both the HTTP path (cloud_get_config,
+// internally) and the MQTT path (an out-of-band config-changed push whose
+// payload was reassembled in PSRAM and parsed by cfg_parse_json already).
+void cloud_config_cache_write(const char *json);
+
 // HTTPS GET an already-presigned, absolute asset URL into a freshly allocated
 // PSRAM buffer (MALLOC_CAP_SPIRAM). On ESP_OK, *out points to *out_len bytes the
 // CALLER must heap_caps_free. Response is capped at 256 KB; cap-exceed, non-200,

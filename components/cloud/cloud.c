@@ -288,7 +288,7 @@ esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len)
 
 #define CFG_NVS_NS "ditto"
 
-static void cfg_save_nvs(const char *json)
+void cloud_config_cache_write(const char *json)
 {
     nvs_handle_t h;
     if (nvs_open(CFG_NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
@@ -347,7 +347,7 @@ int cloud_get_config(device_config_t *cfg)
         status = esp_http_client_get_status_code(c);
         body[resp.len] = '\0';
         if (status == 200) {
-            if (cfg_parse_json(body, cfg)) { s_last_parse_ok = 1; cfg_save_nvs(body); ESP_LOGI(TAG, "config updated"); }
+            if (cfg_parse_json(body, cfg)) { s_last_parse_ok = 1; cloud_config_cache_write(body); ESP_LOGI(TAG, "config updated"); }
             else { s_last_parse_ok = 0; ESP_LOGW(TAG, "config parse failed (%u bytes)", (unsigned)resp.len); }
         } else if (status == 304) {
             ESP_LOGI(TAG, "config not modified");

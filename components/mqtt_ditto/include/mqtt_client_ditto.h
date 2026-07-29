@@ -18,6 +18,17 @@ bool mqtt_poll_command(dev_command_t *out);
 // so poll_task can be woken to drain it. Keep the cb tiny (a task notify).
 void mqtt_set_wake_cb(void (*cb)(void));
 
+// True if a full config payload has been reassembled and is waiting to be
+// parsed (set when a "config-changed" command's payload arrived staged across
+// multiple MQTT fragments). Poll from poll_task; cheap (a bool read).
+bool mqtt_config_pending(void);
+
+// Parse the staged config JSON into `out` under the staging mutex and clear
+// the pending flag. False if nothing is staged, or the staged envelope has no
+// object payload (e.g. the legacy `payload: null` nudge — re-request over
+// cfg/get), or the payload failed to parse.
+bool mqtt_parse_pending_config(device_config_t *out);
+
 // Publish helpers. mqtt_ack matches ack_fn_t. No-ops when not connected.
 int  mqtt_ack(const char *command_id, bool ok);
 // `fonts` = font_cache_used(). Image diagnostics: `afetch` = cloud_last_asset_status(),

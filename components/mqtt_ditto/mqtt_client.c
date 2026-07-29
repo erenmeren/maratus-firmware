@@ -6,8 +6,12 @@
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "cJSON.h"
 #include "appcfg.h"
+#include "cfg_parse.h"
+#include "cmd_envelope.h"
+#include "cloud.h"
 #include <string.h>
 
 static const char *TAG = "mqtt";
@@ -19,6 +23,23 @@ static void (*s_wake_cb)(void);
 static char s_device_id[64];                  // = username/client_id from config
 static char s_host[128];                      // remember to detect config changes
 
+// Inbound config payloads are ~5-20KB while esp-mqtt's receive buffer is 1KB,
+// so MQTT_EVENT_DATA arrives fragmented. Reassemble into PSRAM (internal DRAM
+// is the scarce resource) and let poll_task parse straight out of this slot
+// under the mutex — the parse is milliseconds and inbound configs are rare.
+#define STAGE_CAP (32 * 1024)
+static char *s_stage;                  // PSRAM, lazily allocated
+static int s_stage_len;
+static volatile bool s_stage_ready;
+static SemaphoreHandle_t s_stage_mux;
+
+static bool stage_ensure(void)
+{
+    if (!s_stage_mux) s_stage_mux = xSemaphoreCreateMutex();
+    if (!s_stage) s_stage = heap_caps_malloc(STAGE_CAP, MALLOC_CAP_SPIRAM);
+    return s_stage && s_stage_mux;
+}
+
 static void on_cmd_message(const char *data, int len)
 {
     cJSON *cmd = cJSON_ParseWithLength(data, len);
@@ -27,8 +48,37 @@ static void on_cmd_message(const char *data, int len)
     if (command_parse_into(cmd, &dc)) {
         if (xQueueSend(s_cmd_q, &dc, 0) == pdTRUE) { ESP_LOGI(TAG, "rx+enqueue %s", dc.command_id); if (s_wake_cb) s_wake_cb(); }
         else ESP_LOGW(TAG, "cmd queue full, dropping %s", dc.command_id);
+        // A config push carries its (possibly multi-fragment) payload in the
+        // staging slot, not in dev_command_t (too small to hold ~5-20KB). Flag
+        // it for poll_task instead of copying it through the queue.
+        if (strcmp(dc.type, "config-changed") == 0 && data == s_stage) {
+            s_stage_ready = true;   // poll_task parses out of the staging slot
+        }
     }
     cJSON_Delete(cmd);
+}
+
+static void on_data(esp_mqtt_event_handle_t e)
+{
+    // Single-fragment message: parse in place, no staging needed.
+    if (e->current_data_offset == 0 && e->data_len == e->total_data_len) {
+        on_cmd_message(e->data, e->data_len);
+        return;
+    }
+    if (!stage_ensure()) { ESP_LOGE(TAG, "stage alloc failed; dropping %d B", e->total_data_len); return; }
+    if (e->total_data_len >= STAGE_CAP) {
+        ESP_LOGE(TAG, "payload %d B exceeds stage cap %d", e->total_data_len, STAGE_CAP);
+        return;
+    }
+    xSemaphoreTake(s_stage_mux, portMAX_DELAY);
+    memcpy(s_stage + e->current_data_offset, e->data, e->data_len);
+    bool complete = (e->current_data_offset + e->data_len >= e->total_data_len);
+    if (complete) {
+        s_stage_len = e->total_data_len;
+        s_stage[s_stage_len] = '\0';
+    }
+    xSemaphoreGive(s_stage_mux);
+    if (complete) on_cmd_message(s_stage, s_stage_len);
 }
 
 static void mqtt_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
@@ -49,7 +99,7 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         break;
     case MQTT_EVENT_DATA:
         // Only the cmd topic is subscribed, so any data is a command.
-        on_cmd_message(e->data, e->data_len);
+        on_data(e);
         break;
     default: break;
     }
@@ -106,6 +156,28 @@ void mqtt_stop(void)
 }
 
 bool mqtt_is_connected(void) { return s_connected; }
+
+bool mqtt_config_pending(void) { return s_stage_ready; }
+
+bool mqtt_parse_pending_config(device_config_t *out)
+{
+    if (!s_stage_ready || !s_stage || !s_stage_mux) return false;
+    xSemaphoreTake(s_stage_mux, portMAX_DELAY);
+    // The staged bytes are the command envelope; Task B1's extractor pulls the
+    // config out of it and cfg_parse_json (unchanged) does the real parse. A
+    // false return here includes the legacy `payload: null` nudge, which the
+    // caller answers by re-requesting over cfg/get.
+    char *payload = NULL;
+    bool ok = false;
+    if (cmd_payload_json(s_stage, &payload)) {
+        ok = cfg_parse_json(payload, out);
+        if (ok) cloud_config_cache_write(payload);   // cache the payload, not the envelope
+        cJSON_free(payload);
+    }
+    s_stage_ready = false;
+    xSemaphoreGive(s_stage_mux);
+    return ok;
+}
 
 bool mqtt_poll_command(dev_command_t *out)
 {
