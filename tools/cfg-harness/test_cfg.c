@@ -1170,6 +1170,9 @@ static void test_mqtt_topics(void) {
     mqtt_topic_cmd(t, sizeof(t), "dev_9"); assert(strcmp(t, "d/dev_9/cmd") == 0);
     mqtt_topic_ack(t, sizeof(t), "dev_9"); assert(strcmp(t, "d/dev_9/ack") == 0);
     mqtt_topic_hb(t, sizeof(t), "dev_9");  assert(strcmp(t, "d/dev_9/hb") == 0);
+    // The broker ACL is keyed on this exact shape (username == device id); a
+    // silent change here would be rejected by EMQX with no local failure.
+    mqtt_topic_cfg_get(t, sizeof(t), "dev_9"); assert(strcmp(t, "d/dev_9/cfg/get") == 0);
     printf("test_mqtt_topics OK\n");
 }
 

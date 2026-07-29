@@ -140,6 +140,13 @@ static TaskHandle_t s_poll_handle;
 #define HB_EVERY_MS  300000          // 5 min
 static int64_t s_last_hb_ms;
 static bool s_was_mqtt_up;
+// Non-blocking once-per-connect config request: set on a fresh MQTT connect,
+// fired from the top of poll_task's loop once now_ms() reaches the due time.
+// Never sleep the loop for this — it also drains MQTT commands and touch/
+// swipe input, and a reconnect is exactly when the cloud is most likely to
+// have something queued for this device.
+static bool s_cfg_get_pending;
+static uint32_t s_cfg_get_due_ms;
 
 // Called from the esp-mqtt task: wake poll_task so it drains mqtt_poll_command().
 static void on_mqtt_wake(void) { if (s_poll_handle) xTaskNotifyGive(s_poll_handle); }
@@ -456,6 +463,13 @@ static void poll_task(void *arg)
     s_last_activity_ms = now_ms();
 
     for (;;) {
+        // Fire the once-per-connect config request, if its jitter delay has
+        // elapsed. Checked first, every iteration, so it can't be starved by
+        // any of the `continue`s below (net down, tap consumed, ...).
+        if (s_cfg_get_pending && now_ms() >= s_cfg_get_due_ms) {
+            s_cfg_get_pending = false;
+            mqtt_publish_cfg_get();
+        }
         // Boot gate fallback: still not online after the timeout → show the
         // cached idle screen and keep retrying in the background (self-heals).
         if (s_boot_gate && now_ms() - s_boot_start_ms >= BOOT_GATE_TIMEOUT_MS) {
@@ -474,6 +488,14 @@ static void poll_task(void *arg)
         if (!net_is_connected()) {
             ui_set_online(false);
             ui_set_wifi_level(0);   // network lost: empty the wifi bars immediately
+            // This branch `continue`s before the `s_was_mqtt_up = mqtt_up` assignment
+            // further down, so without this line a dropped Wi-Fi link would leave
+            // s_was_mqtt_up frozen at its pre-outage value. If MQTT then reconnects
+            // in the same iteration Wi-Fi recovers, `!s_was_mqtt_up` would read false
+            // and that fresh session would be missed for both the immediate
+            // heartbeat and the once-per-connect cfg/get request. Clearing it here
+            // guarantees the next successful connect is always treated as fresh.
+            s_was_mqtt_up = false;
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
@@ -547,11 +569,16 @@ static void poll_task(void *arg)
                 if (!s_was_mqtt_up) {
                     mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok());
                     s_last_hb_ms = now_ms();  // immediate hb on connect → cloud republishes pending
-                    // Ask for config once per connect. Jitter so a store whose
-                    // devices all power up together doesn't hit the cloud with
-                    // simultaneous presign work.
-                    vTaskDelay(pdMS_TO_TICKS(esp_random() % 3000));
-                    mqtt_publish_cfg_get();
+                    // Ask for config once per connect, but never block this loop for
+                    // it (it also drains MQTT commands and touch/swipe input, and a
+                    // reconnect is exactly when the cloud is most likely to have
+                    // something queued). Arm a due-time instead; the top of the loop
+                    // fires it non-blockingly once elapsed. The 0-3s jitter keeps a
+                    // store whose devices all power up together (or all reconnect
+                    // after a router blip) from hitting the cloud with simultaneous
+                    // presign work.
+                    s_cfg_get_pending = true;
+                    s_cfg_get_due_ms = now_ms() + (esp_random() % 3000);
                 }
                 else if (now_ms() - s_last_hb_ms >= HB_EVERY_MS) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok()); s_last_hb_ms = now_ms(); }
             }
