@@ -154,6 +154,32 @@ static TaskHandle_t s_poll_handle;
 #define CFG_GET_MIN_WAIT_MS 200
 static int64_t s_last_hb_ms;
 static bool s_was_mqtt_up;
+
+// Re-fetch identity over HTTPS when MQTT stays down long enough that the
+// stored credential/broker coordinates are plausibly stale (a credential the
+// broker never got, per Task D1 which re-provisions it on every
+// /api/device/identity call, or a broker that moved — config only carries a
+// new host/port over MQTT itself, which is exactly what's down). Gated on
+// BOTH a consecutive-failure count and a minimum elapsed interval, because
+// cloud_fetch_identity() is a synchronous HTTPS call (10 s timeout) on this
+// same task, which also drains MQTT commands and touch/swipe input:
+//   - IDENTITY_REFETCH_FAIL_THRESHOLD passes: the down-branch backoff climbs
+//     2s -> 60s (POLL_BACKOFF_MIN/MAX), so 6 consecutive passes take >=62s
+//     to accumulate even in the fastest case (deep into backoff it takes
+//     6*60s=360s) — a brief reconnect blip can't trip this, since a
+//     successful connect resets the counter.
+//   - IDENTITY_REFETCH_MIN_INTERVAL_MS: once backoff is pinned at its 60s
+//     ceiling, the count alone would refire every 360s; matching this floor
+//     to HB_EVERY_MS (5 min) keeps repeat attempts spaced like the other
+//     periodic cloud call this task already makes, rather than an arbitrary
+//     number. Net steady-state cadence on a dead broker is one attempt
+//     every ~6 minutes.
+#define IDENTITY_REFETCH_FAIL_THRESHOLD 6
+#define IDENTITY_REFETCH_MIN_INTERVAL_MS HB_EVERY_MS
+static int s_mqtt_down_count;
+// Initialized before "now" so the very first threshold-crossing is never
+// blocked by the interval floor.
+static int64_t s_last_identity_refetch_ms = -(int64_t)IDENTITY_REFETCH_MIN_INTERVAL_MS;
 // Non-blocking once-per-connect config request: set on a fresh MQTT connect,
 // fired from the top of poll_task's loop once now_ms() reaches the due time.
 // Never sleep the loop for this — it also drains MQTT commands and touch/
@@ -600,6 +626,7 @@ static void poll_task(void *arg)
             else if (now_ms() - s_last_hb_ms >= HB_EVERY_MS) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok()); s_last_hb_ms = now_ms(); }
             s_was_mqtt_up = true;
             backoff = POLL_BACKOFF_MIN;
+            s_mqtt_down_count = 0;   // connected: a fresh outage starts its count from zero
             ota_mark_valid_if_pending();   // healthy check-in → confirm any freshly-OTA'd image
             {
                 int idle_ms = MQTT_IDLE_MS;
@@ -628,7 +655,20 @@ static void poll_task(void *arg)
             // fatal. Retried on every pass through this branch; the exponential
             // backoff below (2s..60s) paces those retries so a transient network
             // error doesn't spin tight or wedge the device until reboot.
-            if (!appcfg_has_device_id()) cloud_fetch_identity();
+            if (!appcfg_has_device_id()) {
+                cloud_fetch_identity();
+            } else if (++s_mqtt_down_count >= IDENTITY_REFETCH_FAIL_THRESHOLD &&
+                       now_ms() - s_last_identity_refetch_ms >= IDENTITY_REFETCH_MIN_INTERVAL_MS) {
+                // Already have an id but MQTT still won't come up after a sustained
+                // stretch of failures — re-fetch identity anyway. Task D1 repairs the
+                // credential server-side on this same call, and the response carries
+                // whatever host/port are current, covering both a rejected key and a
+                // moved broker without knowing which one this is.
+                ESP_LOGW(TAG, "mqtt down %d consecutive passes; re-fetching identity", s_mqtt_down_count);
+                cloud_fetch_identity();
+                s_mqtt_down_count = 0;
+                s_last_identity_refetch_ms = now_ms();
+            }
             // Independent of any cached/valid config — that gate was the deadlock.
             // mqtt_start() itself is the no-op/failure guard: it warns and returns
             // false if the device id (still) or device key is missing.
