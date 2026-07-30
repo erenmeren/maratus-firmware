@@ -34,6 +34,21 @@ menu "Ditto firmware (dev)"
             message for firmware >= 0.18.0 (lib/mqtt-push.ts); below that it sends
             a legacy nudge whose HTTP answer this device no longer has.
 
+    config DITTO_MQTT_HOST
+        string "MQTT broker host"
+        default "e11a0b73.ala.eu-central-1.emqxsl.com"
+        help
+            Fallback MQTT broker hostname, used only when NVS holds no broker
+            (e.g. before cloud_fetch_identity or any config push has ever
+            succeeded). Matches the production EMQX broker so a device with
+            entirely empty NVS still has somewhere to point.
+
+    config DITTO_MQTT_PORT
+        int "MQTT broker port"
+        default 8883
+        help
+            Fallback MQTT broker port (TLS), paired with DITTO_MQTT_HOST.
+
     config DITTO_ROLL_WIDTH
         int "Receipt roll width in dots"
         default 576

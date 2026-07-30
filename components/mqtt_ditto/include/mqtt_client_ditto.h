@@ -4,10 +4,13 @@
 #include "command_parse.h"   // dev_command_t
 #include "ota_manifest.h"    // fw_manifest_t
 
-// Start the MQTT client from a config that has an enabled mqtt block. Safe to
-// call when already running (no-op if the same host/username). Returns false if
-// cfg->mqtt.enabled is false or the device key is missing.
-bool mqtt_start(const device_config_t *cfg);
+// Start the MQTT client from NVS-persisted identity/broker (appcfg_device_id,
+// appcfg_mqtt_host/port, appcfg_device_key) — never from a device_config_t, so
+// startup does not depend on having fetched a config (config arrives only over
+// MQTT, so gating on it deadlocks a fresh device). Safe to call when already
+// running: no-op if the broker/identity match what's already connected.
+// Returns false if the device id or device key is missing.
+bool mqtt_start(void);
 void mqtt_stop(void);
 bool mqtt_is_connected(void);
 

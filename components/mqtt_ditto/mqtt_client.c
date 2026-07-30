@@ -138,31 +138,35 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     }
 }
 
-bool mqtt_start(const device_config_t *cfg)
+bool mqtt_start(void)
 {
-    if (!cfg || !cfg->mqtt.enabled) return false;
+    const char *id = appcfg_device_id();
+    if (!id || !id[0]) { ESP_LOGW(TAG, "no device id; MQTT not started"); return false; }
     const char *key = appcfg_device_key();
     if (!key || !key[0]) { ESP_LOGW(TAG, "no device key; MQTT not started"); return false; }
+    const char *host = appcfg_mqtt_host();
+    int port = appcfg_mqtt_port();
 
     // Already running for the same broker/identity → no-op.
-    if (s_client && strcmp(s_host, cfg->mqtt.host) == 0 &&
-        strcmp(s_device_id, cfg->mqtt.username) == 0) return true;
+    if (s_client && strcmp(s_host, host) == 0 && strcmp(s_device_id, id) == 0) return true;
     if (s_client) mqtt_stop();
 
-    snprintf(s_device_id, sizeof(s_device_id), "%s", cfg->mqtt.username);
-    snprintf(s_host, sizeof(s_host), "%s", cfg->mqtt.host);
+    // The cloud always sets clientId == username == deviceId (lib/mqtt.ts
+    // buildMqttConfigBlock), so the persisted device id covers both.
+    snprintf(s_device_id, sizeof(s_device_id), "%s", id);
+    snprintf(s_host, sizeof(s_host), "%s", host);
     if (!s_cmd_q) s_cmd_q = xQueueCreate(4, sizeof(dev_command_t));
 
     ESP_LOGI(TAG, "starting; free internal DRAM before=%u",
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
 
     esp_mqtt_client_config_t c = {
-        .broker.address.hostname = cfg->mqtt.host,
-        .broker.address.port = cfg->mqtt.port,
+        .broker.address.hostname = s_host,
+        .broker.address.port = port,
         .broker.address.transport = MQTT_TRANSPORT_OVER_SSL,
         .broker.verification.crt_bundle_attach = esp_crt_bundle_attach,
-        .credentials.client_id = cfg->mqtt.client_id,
-        .credentials.username = cfg->mqtt.username,
+        .credentials.client_id = s_device_id,
+        .credentials.username = s_device_id,
         .credentials.authentication.password = key,
         .session.keepalive = 60,
         .session.disable_clean_session = false,

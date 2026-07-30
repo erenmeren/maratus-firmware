@@ -1,4 +1,5 @@
 #include "state.h"
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -553,9 +554,21 @@ static void poll_task(void *arg)
                     time_sync_set_tz(s_cfg_buf[next]->clock_timezone);  // POSIX TZ from payload
                     ui_set_countdown(s_cfg_buf[next]->qr_timeout_seconds);  // keep duration current for any document path
                     s_cfg_live = next;
-                    // A config that turns MQTT off must still be honoured.
-                    if (s_cfg_buf[s_cfg_live]->mqtt.enabled) mqtt_start(s_cfg_buf[s_cfg_live]);
-                    else mqtt_stop();
+                    // A config that moves the broker must still take effect: persist the
+                    // new host/port to NVS first (mqtt_start reads only from appcfg, never
+                    // from this config struct), then (re)start — mqtt_start() itself no-ops
+                    // if the broker/identity didn't actually change. A config that turns
+                    // MQTT off must still be honoured.
+                    if (s_cfg_buf[s_cfg_live]->mqtt.enabled) {
+                        const device_config_t *lc = s_cfg_buf[s_cfg_live];
+                        if (strcmp(lc->mqtt.host, appcfg_mqtt_host()) != 0 ||
+                            lc->mqtt.port != appcfg_mqtt_port()) {
+                            appcfg_store_mqtt(lc->mqtt.host, lc->mqtt.port);
+                        }
+                        mqtt_start();
+                    } else {
+                        mqtt_stop();
+                    }
                     // Idle/pinned re-derive home_state from the fresh config so a
                     // pin set/clear/URL-change repaints within this poll cycle;
                     // any other screen just re-renders as-is (cache hits).
@@ -608,6 +621,18 @@ static void poll_task(void *arg)
             ESP_LOGW(TAG, "mqtt down; waiting for reconnect (backoff=%dms)", backoff);
             ui_set_online(false);
             s_was_mqtt_up = false;
+            // Bootstrap identity: config (and the broker it would otherwise carry)
+            // arrives only over MQTT, so a device that hasn't yet learned its own id
+            // must fetch it over HTTPS before MQTT can ever come up — this is now the
+            // ONLY path to a working device, so a single failed attempt must not be
+            // fatal. Retried on every pass through this branch; the exponential
+            // backoff below (2s..60s) paces those retries so a transient network
+            // error doesn't spin tight or wedge the device until reboot.
+            if (!appcfg_has_device_id()) cloud_fetch_identity();
+            // Independent of any cached/valid config — that gate was the deadlock.
+            // mqtt_start() itself is the no-op/failure guard: it warns and returns
+            // false if the device id (still) or device key is missing.
+            mqtt_start();
             vTaskDelay(pdMS_TO_TICKS(backoff));
             backoff = backoff * 2 > POLL_BACKOFF_MAX ? POLL_BACKOFF_MAX : backoff * 2;
         }
@@ -632,7 +657,13 @@ void app_state_run(void)
     s_boot_gate = true;
     s_boot_start_ms = now_ms();
     mqtt_set_wake_cb(on_mqtt_wake);
-    if (s_cfg_buf[s_cfg_live]->valid && s_cfg_buf[s_cfg_live]->mqtt.enabled && net_is_connected())
-        mqtt_start(s_cfg_buf[s_cfg_live]);   // start from cached config on boot (fast connect)
+    // Start MQTT from NVS-persisted identity/broker, independently of whether a
+    // cached config exists — gating this on cfg->valid was the deadlock (config
+    // arrives only over MQTT, so a device with no cache could never get one). This
+    // call only covers the fast path where a previous boot already learned its id;
+    // if not, poll_task's mqtt-down branch fetches it (once the network is up) and
+    // retries.
+    if (appcfg_has_device_id() && net_is_connected())
+        mqtt_start();
     xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, &s_poll_handle);
 }

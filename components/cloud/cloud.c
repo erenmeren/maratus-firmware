@@ -11,6 +11,7 @@
 #include "device_config.h"
 #include "cfg_parse.h"
 #include "provisioning.h"
+#include "cJSON.h"
 
 static const char *TAG = "cloud";
 
@@ -55,6 +56,67 @@ bool cloud_claim_poll(const char *code, char *key_out, size_t key_len)
     }
     esp_http_client_cleanup(c);
     return got;
+}
+
+// ---- device identity bootstrap (GET /api/device/identity) ----
+// The only way a device that doesn't yet know its own id can learn it (and
+// where the broker is) — config, which would otherwise carry both, arrives
+// only over MQTT, and MQTT can't open without them. Called from poll_task's
+// mqtt-down branch, so it is retried on every pass through that branch (paced
+// by the existing exponential backoff) rather than attempted once.
+
+bool cloud_fetch_identity(void)
+{
+    // Response is small (a UUID-ish deviceId + a short mqtt block); a modest
+    // stack-local buffer keeps this off the scarce internal-DRAM heap.
+    char body[512];
+    resp_t resp = { .buf = body, .cap = sizeof(body), .len = 0 };
+    char url[256];
+    snprintf(url, sizeof(url), "%s/api/device/identity", appcfg_base_url());
+    char auth[96];
+    snprintf(auth, sizeof(auth), "Bearer %s", appcfg_device_key());
+
+    esp_http_client_config_t cfg = {
+        .url = url, .method = HTTP_METHOD_GET, .event_handler = on_evt,
+        .user_data = &resp, .crt_bundle_attach = esp_crt_bundle_attach, .timeout_ms = 10000,
+    };
+    esp_http_client_handle_t c = esp_http_client_init(&cfg);
+    esp_http_client_set_header(c, "Authorization", auth);
+
+    bool ok = false;
+    if (esp_http_client_perform(c) == ESP_OK) {
+        int status = esp_http_client_get_status_code(c);
+        body[resp.len] = '\0';
+        ESP_LOGI(TAG, "GET /identity -> %d", status);
+        if (status == 200) {
+            cJSON *root = cJSON_Parse(body);
+            if (root) {
+                const char *id = cJSON_GetStringValue(cJSON_GetObjectItem(root, "deviceId"));
+                if (id && id[0]) {
+                    appcfg_store_device_id(id);
+                    ok = true;
+                    cJSON *mq = cJSON_GetObjectItem(root, "mqtt");
+                    if (cJSON_IsObject(mq)) {
+                        const char *host = cJSON_GetStringValue(cJSON_GetObjectItem(mq, "host"));
+                        cJSON *port = cJSON_GetObjectItem(mq, "port");
+                        if (host && host[0]) {
+                            appcfg_store_mqtt(host,
+                                cJSON_IsNumber(port) ? (int)port->valuedouble : appcfg_mqtt_port());
+                        }
+                    }
+                } else {
+                    ESP_LOGW(TAG, "identity response missing deviceId");
+                }
+                cJSON_Delete(root);
+            } else {
+                ESP_LOGW(TAG, "identity response not valid JSON");
+            }
+        }
+    } else {
+        ESP_LOGW(TAG, "GET /identity failed");
+    }
+    esp_http_client_cleanup(c);
+    return ok;
 }
 
 // ---- raw asset fetch (presigned absolute URL → PSRAM buffer) ----

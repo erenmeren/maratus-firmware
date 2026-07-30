@@ -50,6 +50,16 @@ void cloud_note_config_apply(int status, int parse_ok);
 // true. Otherwise leaves key_out empty and returns false.
 bool cloud_claim_poll(const char *code, char *key_out, size_t key_len);
 
+// GET /api/device/identity (device-key Bearer auth). The one thing a device
+// cannot learn over MQTT: which device it is, and where the broker is — both
+// needed to open the MQTT connection in the first place. On HTTP 200 with a
+// non-empty "deviceId", persists it via appcfg_store_device_id; if the "mqtt"
+// object is present, also persists host+port via appcfg_store_mqtt. Returns
+// false on any transport error, non-200, or missing/empty deviceId — callers
+// should retry on a later loop iteration rather than treat a single failure
+// as fatal, since this is now the only path to a working device.
+bool cloud_fetch_identity(void);
+
 // Register a hook invoked when a config-changed command arrives (set by main).
 void cloud_set_config_changed_cb(void (*cb)(void));
 // Internal: the registered hook (NULL if none). Used by commands.c.
