@@ -948,6 +948,9 @@ static void test_ota_manifest(void) {
     assert(!ota_parse_manifest("{\"version\":\"0.3.0\"}", &m));  // missing url
 
     assert(ota_should_update("0.2.0-m2", "0.3.0"));
+    // Regression pin: manifest names the version already running -> must NOT
+    // update. This is the exact case ota_start_with_manifest lost when the
+    // ota_should_update guard was dropped along with ota_check_and_update.
     assert(!ota_should_update("0.3.0", "0.3.0"));
     assert(!ota_should_update("0.2.0-m2", ""));
     printf("test_ota_manifest OK\n");

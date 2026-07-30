@@ -15,6 +15,11 @@ static const char *TAG = "ota";
 void ota_start_with_manifest(const fw_manifest_t *m)
 {
     if (!m || !m->version[0] || !m->url[0]) return;
+    if (!ota_should_update(appcfg_fw_version(), m->version)) {
+        ESP_LOGI(TAG, "OTA skip: manifest version %s matches running %s, nothing to do",
+                 m->version, appcfg_fw_version());
+        return;
+    }
     ESP_LOGI(TAG, "OTA %s -> %s (%d bytes)", appcfg_fw_version(), m->version, m->size);
 
     esp_http_client_config_t http = {
