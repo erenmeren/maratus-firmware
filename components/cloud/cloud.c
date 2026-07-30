@@ -6,12 +6,12 @@
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
-#include "cJSON.h"
 #include "nvs.h"
 #include "appcfg.h"
 #include "device_config.h"
 #include "cfg_parse.h"
 #include "provisioning.h"
+#include "cJSON.h"
 
 static const char *TAG = "cloud";
 
@@ -28,48 +28,6 @@ static esp_err_t on_evt(esp_http_client_event_t *e)
         }
     }
     return ESP_OK;
-}
-
-int cloud_get_commands(char *out, int cap)
-{
-    return cloud_get_commands_to(out, cap, 0);
-}
-
-int cloud_get_commands_to(char *out, int cap, int timeout_ms)
-{
-    if (out && cap > 0) out[0] = '\0';
-    resp_t resp = { .buf = out, .cap = cap, .len = 0 };
-
-    char url[256];
-    snprintf(url, sizeof(url), "%s/api/device/commands", appcfg_base_url());
-
-    char auth[96];
-    snprintf(auth, sizeof(auth), "Bearer %s", appcfg_device_key());
-
-    esp_http_client_config_t cfg = {
-        .url = url,
-        .method = HTTP_METHOD_GET,
-        .event_handler = on_evt,
-        .user_data = &resp,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 10000,
-    };
-    if (timeout_ms > 0) cfg.timeout_ms = timeout_ms;
-    esp_http_client_handle_t c = esp_http_client_init(&cfg);
-    esp_http_client_set_header(c, "Authorization", auth);
-    esp_http_client_set_header(c, "x-device-version", appcfg_fw_version());
-
-    int status = -1;
-    esp_err_t err = esp_http_client_perform(c);
-    if (err == ESP_OK) {
-        status = esp_http_client_get_status_code(c);
-        if (out) out[resp.len] = '\0';
-        ESP_LOGI(TAG, "GET /commands -> %d, body: %s", status, out ? out : "");
-    } else {
-        ESP_LOGE(TAG, "GET /commands failed: %s", esp_err_to_name(err));
-    }
-    esp_http_client_cleanup(c);
-    return status;
 }
 
 bool cloud_claim_poll(const char *code, char *key_out, size_t key_len)
@@ -100,108 +58,65 @@ bool cloud_claim_poll(const char *code, char *key_out, size_t key_len)
     return got;
 }
 
-int cloud_ack_command(const char *command_id, bool ok)
+// ---- device identity bootstrap (GET /api/device/identity) ----
+// The only way a device that doesn't yet know its own id can learn it (and
+// where the broker is) — config, which would otherwise carry both, arrives
+// only over MQTT, and MQTT can't open without them. Called from poll_task's
+// mqtt-down branch, so it is retried on every pass through that branch (paced
+// by the existing exponential backoff) rather than attempted once.
+
+bool cloud_fetch_identity(void)
 {
+    // Response is small (a UUID-ish deviceId + a short mqtt block); a modest
+    // stack-local buffer keeps this off the scarce internal-DRAM heap.
+    char body[512];
+    resp_t resp = { .buf = body, .cap = sizeof(body), .len = 0 };
     char url[256];
-    snprintf(url, sizeof(url), "%s/api/device/commands/ack", appcfg_base_url());
+    snprintf(url, sizeof(url), "%s/api/device/identity", appcfg_base_url());
     char auth[96];
     snprintf(auth, sizeof(auth), "Bearer %s", appcfg_device_key());
-    char payload[160];
-    snprintf(payload, sizeof(payload), "{\"commandId\":\"%s\",\"ok\":%s}",
-             command_id, ok ? "true" : "false");
 
     esp_http_client_config_t cfg = {
-        .url = url,
-        .method = HTTP_METHOD_POST,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 10000,
+        .url = url, .method = HTTP_METHOD_GET, .event_handler = on_evt,
+        .user_data = &resp, .crt_bundle_attach = esp_crt_bundle_attach, .timeout_ms = 10000,
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     esp_http_client_set_header(c, "Authorization", auth);
-    esp_http_client_set_header(c, "Content-Type", "application/json");
-    esp_http_client_set_post_field(c, payload, strlen(payload));
 
-    int status = -1;
-    if (esp_http_client_perform(c) == ESP_OK) status = esp_http_client_get_status_code(c);
-    else ESP_LOGE(TAG, "ack %s failed", command_id);
-    esp_http_client_cleanup(c);
-    return status;
-}
-
-int cloud_post_document(const uint8_t *png, size_t png_len, char *url_out, int url_cap)
-{
-    if (url_out && url_cap > 0) url_out[0] = '\0';
-    if (!png || png_len == 0) return -1;
-
-    const char *boundary = "----dittoBoundaryM3xKt7Qw";
-
-    char meta[96];
-    snprintf(meta, sizeof(meta), "{\"firmwareVersion\":\"%s\"}", appcfg_fw_version());
-
-    char head[256];
-    int head_len = snprintf(head, sizeof(head),
-        "--%s\r\n"
-        "Content-Disposition: form-data; name=\"file\"; filename=\"document.png\"\r\n"
-        "Content-Type: image/png\r\n\r\n", boundary);
-
-    char tail[256];
-    int tail_len = snprintf(tail, sizeof(tail),
-        "\r\n--%s\r\n"
-        "Content-Disposition: form-data; name=\"metadata\"\r\n\r\n"
-        "%s"
-        "\r\n--%s--\r\n", boundary, meta, boundary);
-
-    size_t total = (size_t)head_len + png_len + (size_t)tail_len;
-    char *body = heap_caps_malloc(total, MALLOC_CAP_SPIRAM);
-    if (!body) body = malloc(total);
-    if (!body) { ESP_LOGE(TAG, "ingest body alloc failed (%u bytes)", (unsigned)total); return -1; }
-    memcpy(body, head, head_len);
-    memcpy(body + head_len, png, png_len);
-    memcpy(body + head_len + png_len, tail, tail_len);
-
-    char url[256];
-    snprintf(url, sizeof(url), "%s/api/ingest", appcfg_base_url());
-    char auth[96];
-    snprintf(auth, sizeof(auth), "Bearer %s", appcfg_device_key());
-    char ctype[96];
-    snprintf(ctype, sizeof(ctype), "multipart/form-data; boundary=%s", boundary);
-
-    char respbuf[512];
-    respbuf[0] = '\0';
-    resp_t resp = { .buf = respbuf, .cap = sizeof(respbuf), .len = 0 };
-
-    esp_http_client_config_t cfg = {
-        .url = url,
-        .method = HTTP_METHOD_POST,
-        .event_handler = on_evt,
-        .user_data = &resp,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 15000,
-    };
-    esp_http_client_handle_t c = esp_http_client_init(&cfg);
-    esp_http_client_set_header(c, "Authorization", auth);
-    esp_http_client_set_header(c, "Content-Type", ctype);
-    esp_http_client_set_post_field(c, body, total);
-
-    int status = -1;
+    bool ok = false;
     if (esp_http_client_perform(c) == ESP_OK) {
-        status = esp_http_client_get_status_code(c);
-        respbuf[resp.len] = '\0';
-        ESP_LOGI(TAG, "POST /ingest -> %d, body: %s", status, respbuf);
-        if (status == 201 && url_out) {
-            cJSON *root = cJSON_Parse(respbuf);
+        int status = esp_http_client_get_status_code(c);
+        body[resp.len] = '\0';
+        ESP_LOGI(TAG, "GET /identity -> %d", status);
+        if (status == 200) {
+            cJSON *root = cJSON_Parse(body);
             if (root) {
-                const char *u = cJSON_GetStringValue(cJSON_GetObjectItem(root, "url"));
-                if (u) { strncpy(url_out, u, url_cap - 1); url_out[url_cap - 1] = '\0'; }
+                const char *id = cJSON_GetStringValue(cJSON_GetObjectItem(root, "deviceId"));
+                if (id && id[0]) {
+                    appcfg_store_device_id(id);
+                    ok = true;
+                    cJSON *mq = cJSON_GetObjectItem(root, "mqtt");
+                    if (cJSON_IsObject(mq)) {
+                        const char *host = cJSON_GetStringValue(cJSON_GetObjectItem(mq, "host"));
+                        cJSON *port = cJSON_GetObjectItem(mq, "port");
+                        if (host && host[0]) {
+                            appcfg_store_mqtt(host,
+                                cJSON_IsNumber(port) ? (int)port->valuedouble : appcfg_mqtt_port());
+                        }
+                    }
+                } else {
+                    ESP_LOGW(TAG, "identity response missing deviceId");
+                }
                 cJSON_Delete(root);
+            } else {
+                ESP_LOGW(TAG, "identity response not valid JSON");
             }
         }
     } else {
-        ESP_LOGE(TAG, "POST /ingest failed");
+        ESP_LOGW(TAG, "GET /identity failed");
     }
     esp_http_client_cleanup(c);
-    free(body);
-    return status;
+    return ok;
 }
 
 // ---- raw asset fetch (presigned absolute URL → PSRAM buffer) ----
@@ -284,11 +199,14 @@ esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len)
     return ret;
 }
 
-// ---- device config (GET /api/device/config) ----
+// ---- device config cache (NVS) ----
+// The config itself now arrives over MQTT (reassembled in PSRAM, parsed by
+// cfg_parse_json in app_state.c); this is just the on-disk cache the MQTT
+// path writes through and boot seeds from.
 
 #define CFG_NVS_NS "ditto"
 
-static void cfg_save_nvs(const char *json)
+void cloud_config_cache_write(const char *json)
 {
     nvs_handle_t h;
     if (nvs_open(CFG_NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
@@ -312,82 +230,25 @@ void cloud_config_load_cached(device_config_t *cfg)
     nvs_close(h);
 }
 
-// Diagnostics for the most recent cloud_get_config, reported on the heartbeat.
-// -1000 = none yet. status: HTTP code (200/304) or -1 transport error.
-// parse_ok: 1 last 200 parsed valid, 0 last 200 failed to parse, -1000 no 200 yet.
+// Diagnostics for the most recent MQTT config-apply attempt, reported on the
+// heartbeat. Config now arrives via MQTT push (parsed in app_state.c's
+// config-apply block, out of a PSRAM slot reassembled from fragments), so
+// these no longer carry HTTP status codes — that meaning is retired along
+// with cloud_get_config. New meanings, set by cloud_note_config_apply():
+// status: 200 = a staged config was parsed and applied this cycle;
+//         0   = nothing usable was staged (a `payload: null` nudge, or the
+//               slot failed to parse) and the device re-requested via
+//               cfg/get; -1000 = no config-apply attempt yet this boot.
+// parse_ok: 1 = applied, 0 = not applied, -1000 = not attempted yet.
 static volatile int s_last_config_status = -1000;
 static volatile int s_last_parse_ok = -1000;
 int cloud_last_config_status(void) { return s_last_config_status; }
 int cloud_last_parse_ok(void) { return s_last_parse_ok; }
 
-int cloud_get_config(device_config_t *cfg)
+void cloud_note_config_apply(int status, int parse_ok)
 {
-    char url[256];
-    snprintf(url, sizeof(url), "%s/api/device/config", appcfg_base_url());
-    char auth[96];
-    snprintf(auth, sizeof(auth), "Bearer %s", appcfg_device_key());
-    char inm[64] = {0};
-    if (cfg->etag[0]) snprintf(inm, sizeof(inm), "\"%s\"", cfg->etag);
-
-    static char body[16384];
-    body[0] = '\0';
-    resp_t resp = { .buf = body, .cap = sizeof(body), .len = 0 };
-
-    esp_http_client_config_t hc = {
-        .url = url, .method = HTTP_METHOD_GET,
-        .event_handler = on_evt, .user_data = &resp,
-        .crt_bundle_attach = esp_crt_bundle_attach, .timeout_ms = 10000,
-    };
-    esp_http_client_handle_t c = esp_http_client_init(&hc);
-    esp_http_client_set_header(c, "Authorization", auth);
-    if (inm[0]) esp_http_client_set_header(c, "If-None-Match", inm);
-
-    int status = -1;
-    if (esp_http_client_perform(c) == ESP_OK) {
-        status = esp_http_client_get_status_code(c);
-        body[resp.len] = '\0';
-        if (status == 200) {
-            if (cfg_parse_json(body, cfg)) { s_last_parse_ok = 1; cfg_save_nvs(body); ESP_LOGI(TAG, "config updated"); }
-            else { s_last_parse_ok = 0; ESP_LOGW(TAG, "config parse failed (%u bytes)", (unsigned)resp.len); }
-        } else if (status == 304) {
-            ESP_LOGI(TAG, "config not modified");
-        }
-    } else {
-        ESP_LOGE(TAG, "GET /config failed");
-    }
     s_last_config_status = status;
-    esp_http_client_cleanup(c);
-    return status;
-}
-
-// ---- firmware manifest (GET /api/device/firmware) ----
-
-bool cloud_get_firmware(fw_manifest_t *out)
-{
-    static char body[1536];
-    resp_t resp = { .buf = body, .cap = sizeof(body), .len = 0 };
-    char url[256];
-    snprintf(url, sizeof(url), "%s/api/device/firmware", appcfg_base_url());
-    char auth[96];
-    snprintf(auth, sizeof(auth), "Bearer %s", appcfg_device_key());
-
-    esp_http_client_config_t cfg = {
-        .url = url, .method = HTTP_METHOD_GET, .event_handler = on_evt,
-        .user_data = &resp, .crt_bundle_attach = esp_crt_bundle_attach, .timeout_ms = 10000,
-    };
-    esp_http_client_handle_t c = esp_http_client_init(&cfg);
-    esp_http_client_set_header(c, "Authorization", auth);
-    bool ok = false;
-    if (esp_http_client_perform(c) == ESP_OK) {
-        int status = esp_http_client_get_status_code(c);
-        body[resp.len] = '\0';
-        ESP_LOGI(TAG, "GET /firmware -> %d", status);
-        if (status == 200) ok = ota_parse_manifest(body, out);   // 204 → empty body → false
-    } else {
-        ESP_LOGW(TAG, "GET /firmware failed");
-    }
-    esp_http_client_cleanup(c);
-    return ok;
+    s_last_parse_ok = parse_ok;
 }
 
 static void (*s_cfg_changed_cb)(void);

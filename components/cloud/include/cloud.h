@@ -5,37 +5,21 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "device_config.h"
-#include "ota_manifest.h"
 
-// HTTPS client for the Ditto M1 device contract (bearer device-key auth).
-
-// GET /api/device/commands. On success copies up to `cap`-1 bytes of the JSON
-// body into `out` (NUL-terminated) and returns the HTTP status. Returns -1 on
-// transport error. The poll itself is the heartbeat (server marks the device
-// online + records firmwareVersion from the x-device-version header).
-int cloud_get_commands(char *out, int cap);
-
-// Like cloud_get_commands but caps the HTTP timeout (ms). timeout_ms <= 0 uses
-// the default. Used during the boot gate to bound splash overshoot.
-int cloud_get_commands_to(char *out, int cap, int timeout_ms);
-
-// POST /api/device/commands/ack with { commandId, ok }. Returns HTTP status or -1.
-int cloud_ack_command(const char *command_id, bool ok);
-
-// POST /api/ingest with a PNG image (multipart field "file") + minimal metadata.
-// On HTTP 201, copies the returned document URL into `url_out` (NUL-terminated,
-// up to url_cap-1). Returns the HTTP status, or -1 on transport/allocation error.
-int cloud_post_document(const uint8_t *png, size_t png_len, char *url_out, int url_cap);
-
-// GET /api/device/config with the stored ETag (cfg->etag) as If-None-Match.
-//  - 200: parses brand colors + idle text objects into *cfg (cfg->valid = true,
-//         cfg->etag updated) and persists raw JSON + ETag to NVS. Returns 200.
-//  - 304: leaves *cfg unchanged. Returns 304.
-//  - else: returns the HTTP status or -1.
-int cloud_get_config(device_config_t *cfg);
+// HTTPS client for the parts of the Ditto device contract that are not MQTT:
+// the one-time claim (no device key yet), presigned R2 asset fetches, and the
+// NVS-backed config cache. Command polling/ack, config fetch and the firmware
+// manifest fetch are MQTT-only (see components/mqtt_ditto) — there is no HTTP
+// fallback by design.
 
 // Load the last config persisted in NVS into *cfg (cfg->valid = false if none).
 void cloud_config_load_cached(device_config_t *cfg);
+
+// Persist a config PAYLOAD (not an envelope) to the NVS cache used by
+// cloud_config_load_cached, so the next boot can seed from it. Written after
+// an MQTT config-changed push whose payload was reassembled in PSRAM and
+// parsed by cfg_parse_json already.
+void cloud_config_cache_write(const char *json);
 
 // HTTPS GET an already-presigned, absolute asset URL into a freshly allocated
 // PSRAM buffer (MALLOC_CAP_SPIRAM). On ESP_OK, *out points to *out_len bytes the
@@ -47,20 +31,34 @@ esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len);
 // -1000 never attempted · -1 transport/TLS error · -2 too large · else HTTP status.
 int cloud_last_asset_status(void);
 
-// Diagnostics for the most recent cloud_get_config (heartbeat).
-// status: HTTP code (200/304) · -1 transport error · -1000 none yet.
-// parse_ok: 1 last 200 parsed valid · 0 last 200 parse failed · -1000 no 200 yet.
+// Diagnostics for the most recent MQTT config-apply attempt (heartbeat).
+// These no longer carry HTTP status codes — see cloud_note_config_apply.
+// status: 200 applied this cycle · 0 nothing to apply, re-requested · -1000 none yet.
+// parse_ok: 1 applied · 0 not applied · -1000 none yet.
 int cloud_last_config_status(void);
 int cloud_last_parse_ok(void);
+
+// Record the outcome of the most recent MQTT config-apply attempt (called
+// from app_state.c's config-apply block, right where mqtt_parse_pending_config
+// returns). Pass (200, 1) when a staged config parsed and was applied; pass
+// (0, 0) when there was nothing to apply (a `payload: null` nudge or a slot
+// that failed to parse) and the device re-requested over cfg/get instead.
+void cloud_note_config_apply(int status, int parse_ok);
 
 // GET /api/device/claim?code=<code> (unauthenticated). On HTTP 200 parses the
 // returned deviceKey into key_out (NUL-terminated, up to key_len-1) and returns
 // true. Otherwise leaves key_out empty and returns false.
 bool cloud_claim_poll(const char *code, char *key_out, size_t key_len);
 
-// Fetch GET /api/device/firmware (device-key). On a 200 with a valid manifest, fills
-// *out and returns true. 204/empty/error → false.
-bool cloud_get_firmware(fw_manifest_t *out);
+// GET /api/device/identity (device-key Bearer auth). The one thing a device
+// cannot learn over MQTT: which device it is, and where the broker is — both
+// needed to open the MQTT connection in the first place. On HTTP 200 with a
+// non-empty "deviceId", persists it via appcfg_store_device_id; if the "mqtt"
+// object is present, also persists host+port via appcfg_store_mqtt. Returns
+// false on any transport error, non-200, or missing/empty deviceId — callers
+// should retry on a later loop iteration rather than treat a single failure
+// as fatal, since this is now the only path to a working device.
+bool cloud_fetch_identity(void);
 
 // Register a hook invoked when a config-changed command arrives (set by main).
 void cloud_set_config_changed_cb(void (*cb)(void));

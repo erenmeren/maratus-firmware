@@ -11,6 +11,8 @@ static char s_dev_key[80];
 static char s_pair[16];
 static char s_wifi_ssid[33];
 static char s_wifi_pass[64];
+static char s_device_id[64];
+static char s_mqtt_host[128];
 
 static bool nvs_read(const char *key, char *out, size_t cap) {
     nvs_handle_t h; out[0] = '\0';
@@ -24,6 +26,18 @@ static void nvs_write(const char *key, const char *val) {
     nvs_handle_t h;
     if (nvs_open(DITTO_NS, NVS_READWRITE, &h) != ESP_OK) return;
     nvs_set_str(h, key, val); nvs_commit(h); nvs_close(h);
+}
+static bool nvs_read_i32(const char *key, int32_t *out) {
+    nvs_handle_t h;
+    if (nvs_open(DITTO_NS, NVS_READONLY, &h) != ESP_OK) return false;
+    esp_err_t e = nvs_get_i32(h, key, out);
+    nvs_close(h);
+    return e == ESP_OK;
+}
+static void nvs_write_i32(const char *key, int32_t val) {
+    nvs_handle_t h;
+    if (nvs_open(DITTO_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_i32(h, key, val); nvs_commit(h); nvs_close(h);
 }
 static uint8_t rand_byte(void) { return (uint8_t)esp_random(); }
 
@@ -43,6 +57,28 @@ const char *appcfg_pairing_code(void) {
     provisioning_make_code(s_pair, sizeof(s_pair), rand_byte);
     nvs_write("pairing_code", s_pair);
     return s_pair;
+}
+
+bool appcfg_has_device_id(void) { char tmp[64]; return nvs_read("device_id", tmp, sizeof(tmp)); }
+void appcfg_store_device_id(const char *id) { if (id && id[0]) nvs_write("device_id", id); }
+const char *appcfg_device_id(void) {
+    if (nvs_read("device_id", s_device_id, sizeof(s_device_id))) return s_device_id;
+    return "";   // no Kconfig fallback — see appcfg.h
+}
+
+const char *appcfg_mqtt_host(void) {
+    if (nvs_read("mqtt_host", s_mqtt_host, sizeof(s_mqtt_host))) return s_mqtt_host;
+    return CONFIG_DITTO_MQTT_HOST;
+}
+int appcfg_mqtt_port(void) {
+    int32_t v;
+    if (nvs_read_i32("mqtt_port", &v)) return (int)v;
+    return CONFIG_DITTO_MQTT_PORT;
+}
+void appcfg_store_mqtt(const char *host, int port) {
+    if (!host || !host[0]) return;
+    nvs_write("mqtt_host", host);
+    nvs_write_i32("mqtt_port", (int32_t)port);
 }
 
 bool appcfg_has_wifi_creds(void) {

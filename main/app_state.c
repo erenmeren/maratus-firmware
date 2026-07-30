@@ -1,4 +1,5 @@
 #include "state.h"
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -27,7 +28,9 @@
 #include "brightness.h"
 #include "nvs.h"
 #include "mqtt_client_ditto.h"
+#include "ota_manifest.h"    // fw_manifest_t
 #include "appcfg.h"          // appcfg_fw_version
+#include "esp_random.h"
 
 static const char *TAG = "state";
 // Written by poll_task via app_state_set_state;
@@ -115,6 +118,17 @@ static void display_wake(int level) {
 
 void app_state_request_config(void) { s_config_dirty = true; }
 
+// Firmware-update cloud hook (registered by main via cloud_set_firmware_update_cb).
+// The manifest arrives staged in PSRAM the same way a config-changed payload
+// does; dispatch_command already ack'd the command before invoking this, since
+// a successful OTA reboots.
+void app_state_on_firmware_update(void)
+{
+    fw_manifest_t m;
+    if (mqtt_parse_pending_ota(&m)) ota_start_with_manifest(&m);
+    else ESP_LOGW(TAG, "firmware-update with no staged manifest");
+}
+
 void app_state_set_state(dev_state_t st) {
     // A print job arriving while asleep must light the screen so the QR is visible.
     if (s_display_asleep && (st == DEV_PROCESSING || st == DEV_QR))
@@ -128,17 +142,25 @@ void app_state_set_state(dev_state_t st) {
     s_state = st;
 }
 
-#define POLL_IDLE_MS     12000
 #define POLL_BACKOFF_MIN 2000
 #define POLL_BACKOFF_MAX 60000
-#define OTA_CHECK_EVERY  50
-static int s_ota_poll_ctr = 0;
 
 static TaskHandle_t s_poll_handle;
 #define MQTT_IDLE_MS 30000
 #define HB_EVERY_MS  300000          // 5 min
+// Floor for the idle-wait clamp below when a cfg/get's due-time has already
+// passed (e.g. this loop iteration took a while to reach the wait call) —
+// keeps the wait positive without materially delaying the fire.
+#define CFG_GET_MIN_WAIT_MS 200
 static int64_t s_last_hb_ms;
 static bool s_was_mqtt_up;
+// Non-blocking once-per-connect config request: set on a fresh MQTT connect,
+// fired from the top of poll_task's loop once now_ms() reaches the due time.
+// Never sleep the loop for this — it also drains MQTT commands and touch/
+// swipe input, and a reconnect is exactly when the cloud is most likely to
+// have something queued for this device.
+static bool s_cfg_get_pending;
+static uint32_t s_cfg_get_due_ms;
 
 // Called from the esp-mqtt task: wake poll_task so it drains mqtt_poll_command().
 static void on_mqtt_wake(void) { if (s_poll_handle) xTaskNotifyGive(s_poll_handle); }
@@ -449,12 +471,18 @@ static void boot_gate_fallback_offline(void)
 
 static void poll_task(void *arg)
 {
-    static char body[1024];
     int backoff = POLL_BACKOFF_MIN;
     s_state = s_boot_gate ? DEV_BOOT : DEV_IDLE;
     s_last_activity_ms = now_ms();
 
     for (;;) {
+        // Fire the once-per-connect config request, if its jitter delay has
+        // elapsed. Checked first, every iteration, so it can't be starved by
+        // any of the `continue`s below (net down, tap consumed, ...).
+        if (s_cfg_get_pending && now_ms() >= s_cfg_get_due_ms) {
+            s_cfg_get_pending = false;
+            mqtt_publish_cfg_get();
+        }
         // Boot gate fallback: still not online after the timeout → show the
         // cached idle screen and keep retrying in the background (self-heals).
         if (s_boot_gate && now_ms() - s_boot_start_ms >= BOOT_GATE_TIMEOUT_MS) {
@@ -473,34 +501,31 @@ static void poll_task(void *arg)
         if (!net_is_connected()) {
             ui_set_online(false);
             ui_set_wifi_level(0);   // network lost: empty the wifi bars immediately
+            // This branch `continue`s before the `s_was_mqtt_up` assignment further
+            // down, so without this line a dropped Wi-Fi link would leave
+            // s_was_mqtt_up frozen at its pre-outage value. If MQTT then reconnects
+            // in the same iteration Wi-Fi recovers, `!s_was_mqtt_up` would read false
+            // and that fresh session would be missed for both the immediate
+            // heartbeat and the once-per-connect cfg/get request. Clearing it here
+            // guarantees the next successful connect is always treated as fresh.
+            s_was_mqtt_up = false;
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
+
+        bool mqtt_up = mqtt_is_connected();
+
         // Drain any MQTT-delivered commands first (instant path). Harmless when empty.
         {
             dev_command_t mc;
             while (mqtt_poll_command(&mc)) {
-                if (mqtt_is_connected()) dispatch_command(&mc, mqtt_ack);
-                else ESP_LOGW(TAG, "mqtt cmd %s dropped (disconnected); HTTP will redeliver", mc.command_id);
+                if (mqtt_up) dispatch_command(&mc, mqtt_ack);
+                else ESP_LOGW(TAG, "mqtt cmd %s dropped (disconnected)", mc.command_id);
             }
         }
 
-        bool mqtt_up = mqtt_is_connected();
-        int status;
+        // Online-ness follows the broker connection — no HTTP fallback by design.
         if (mqtt_up) {
-            status = 200;
-        } else if (s_boot_gate) {
-            int64_t left = BOOT_GATE_TIMEOUT_MS - (now_ms() - s_boot_start_ms);
-            int to = left < 1000 ? 1000 : (int)left;   // floor so a live poll can still finish
-            status = cloud_get_commands_to(body, sizeof(body), to);
-            if (status != 200 && now_ms() - s_boot_start_ms >= BOOT_GATE_TIMEOUT_MS) {
-                boot_gate_fallback_offline();
-                continue;
-            }
-        } else {
-            status = cloud_get_commands(body, sizeof(body));
-        }
-        if (status == 200) {
             ui_set_online(true);
             time_sync_start();                 // idempotent; SNTP runs once Wi-Fi is up
             int rssi = 0;
@@ -509,15 +534,18 @@ static void poll_task(void *arg)
                 s_boot_gate = false;
                 ui_boot_progress(BOOT_READY);
                 vTaskDelay(pdMS_TO_TICKS(BOOT_READY_HOLD_MS));
-                show_home();   // cached config; the config fetch below re-renders fresh
+                show_home();   // cached config; the config-apply block below re-renders fresh
             }
-            if (!mqtt_up) commands_handle_body(body);   // may esp_restart() on reboot
             if (s_config_dirty) {
                 s_config_dirty = false;
                 int next = s_cfg_live ^ 1;
-                *s_cfg_buf[next] = *s_cfg_buf[s_cfg_live];   // seed ETag + 304 fallback from the live config
-                int cs = cloud_get_config(s_cfg_buf[next]);  // parses into the idle buffer; renderer never sees it half-written
-                if (cs == 200 && s_cfg_buf[next]->valid) {
+                *s_cfg_buf[next] = *s_cfg_buf[s_cfg_live];   // seed from the live config
+                // Parse straight out of the PSRAM stage mqtt_ditto reassembled the
+                // config-changed payload into, into the IDLE buffer — the renderer
+                // (s_cfg_buf[s_cfg_live]) never sees a half-written config.
+                bool ok = mqtt_parse_pending_config(s_cfg_buf[next]);
+                if (ok && s_cfg_buf[next]->valid) {
+                    cloud_note_config_apply(200, 1);   // staged config parsed + applied
                     prefetch_and_evict_assets(s_cfg_buf[next]);  // fill/prune flash cache before render
                     ui_set_config(s_cfg_buf[next]);     // publish under the LVGL lock (pointer swap)
                     // Apply the EFFECTIVE brightness (device value if "use device
@@ -526,37 +554,85 @@ static void poll_task(void *arg)
                     time_sync_set_tz(s_cfg_buf[next]->clock_timezone);  // POSIX TZ from payload
                     ui_set_countdown(s_cfg_buf[next]->qr_timeout_seconds);  // keep duration current for any document path
                     s_cfg_live = next;
-                    if (s_cfg_buf[s_cfg_live]->mqtt.enabled) mqtt_start(s_cfg_buf[s_cfg_live]);
-                    else mqtt_stop();
+                    // A config that moves the broker must still take effect: persist the
+                    // new host/port to NVS first (mqtt_start reads only from appcfg, never
+                    // from this config struct), then (re)start — mqtt_start() itself no-ops
+                    // if the broker/identity didn't actually change. A config that turns
+                    // MQTT off must still be honoured.
+                    if (s_cfg_buf[s_cfg_live]->mqtt.enabled) {
+                        const device_config_t *lc = s_cfg_buf[s_cfg_live];
+                        if (strcmp(lc->mqtt.host, appcfg_mqtt_host()) != 0 ||
+                            lc->mqtt.port != appcfg_mqtt_port()) {
+                            appcfg_store_mqtt(lc->mqtt.host, lc->mqtt.port);
+                        }
+                        mqtt_start();
+                    } else {
+                        mqtt_stop();
+                    }
                     // Idle/pinned re-derive home_state from the fresh config so a
                     // pin set/clear/URL-change repaints within this poll cycle;
                     // any other screen just re-renders as-is (cache hits).
                     if (s_state == DEV_IDLE || s_state == DEV_PINNED) show_home();
                     else ui_render_state(s_state);
-                } else if (cs != 304) {
-                    // Neither a fresh config applied nor "not modified" — a transport
-                    // error or a 200 that failed to parse. Re-arm so the next poll
-                    // retries; otherwise an acked pin/config-changed command that lost
-                    // this one fetch to a blip would never repaint until some other
-                    // external nudge sets s_config_dirty again.
-                    s_config_dirty = true;
+                } else {
+                    // Nothing staged, or it failed to parse (includes the legacy
+                    // `payload: null` nudge below fw 0.18.0). Ask again — the cloud
+                    // answers cfg/get with a freshly presigned config — rather than
+                    // sit on stale config.
+                    cloud_note_config_apply(0, 0);   // nothing usable staged; re-requesting
+                    mqtt_publish_cfg_get();
                 }
             }
-            if (mqtt_up) {
-                if (!s_was_mqtt_up) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok()); s_last_hb_ms = now_ms(); }  // immediate hb on connect → cloud republishes pending
-                else if (now_ms() - s_last_hb_ms >= HB_EVERY_MS) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok()); s_last_hb_ms = now_ms(); }
+            if (!s_was_mqtt_up) {
+                mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok());
+                s_last_hb_ms = now_ms();  // immediate hb on connect → cloud republishes pending
+                // Ask for config once per connect, but never block this loop for
+                // it (it also drains MQTT commands and touch/swipe input, and a
+                // reconnect is exactly when the cloud is most likely to have
+                // something queued). Arm a due-time instead; the top of the loop
+                // fires it non-blockingly once elapsed. The 0-3s jitter keeps a
+                // store whose devices all power up together (or all reconnect
+                // after a router blip) from hitting the cloud with simultaneous
+                // presign work.
+                s_cfg_get_pending = true;
+                s_cfg_get_due_ms = now_ms() + (esp_random() % 3000);
             }
-            s_was_mqtt_up = mqtt_up;
+            else if (now_ms() - s_last_hb_ms >= HB_EVERY_MS) { mqtt_publish_hb(appcfg_fw_version(), font_cache_used(), cloud_last_asset_status(), ui_last_image_state(), ui_live_image_count(), cloud_last_config_status(), cloud_last_parse_ok()); s_last_hb_ms = now_ms(); }
+            s_was_mqtt_up = true;
             backoff = POLL_BACKOFF_MIN;
             ota_mark_valid_if_pending();   // healthy check-in → confirm any freshly-OTA'd image
-            if (++s_ota_poll_ctr >= OTA_CHECK_EVERY) {
-                s_ota_poll_ctr = 0;
-                ota_check_and_update(false);   // may reboot
+            {
+                int idle_ms = MQTT_IDLE_MS;
+                if (s_cfg_get_pending) {
+                    // Don't let this wait sleep past the armed cfg/get's due-time.
+                    // The top-of-loop fire check only re-runs once this wait
+                    // returns, so left at the full idle interval (up to 30s) a
+                    // pending request could sit long past its 0-3s jitter window
+                    // before actually going out. Clamp to whatever's left until
+                    // due instead; idle_wait_or_qr_expiry already slices
+                    // internally, so a shorter total needs no change there.
+                    int32_t remaining = (int32_t)(s_cfg_get_due_ms - now_ms());
+                    if (remaining < CFG_GET_MIN_WAIT_MS) remaining = CFG_GET_MIN_WAIT_MS;
+                    if (remaining < idle_ms) idle_ms = remaining;
+                }
+                idle_wait_or_qr_expiry(idle_ms);
             }
-            idle_wait_or_qr_expiry(mqtt_up ? MQTT_IDLE_MS : POLL_IDLE_MS);
         } else {
-            ESP_LOGW(TAG, "poll failed (status=%d), backoff=%dms", status, backoff);
+            ESP_LOGW(TAG, "mqtt down; waiting for reconnect (backoff=%dms)", backoff);
             ui_set_online(false);
+            s_was_mqtt_up = false;
+            // Bootstrap identity: config (and the broker it would otherwise carry)
+            // arrives only over MQTT, so a device that hasn't yet learned its own id
+            // must fetch it over HTTPS before MQTT can ever come up — this is now the
+            // ONLY path to a working device, so a single failed attempt must not be
+            // fatal. Retried on every pass through this branch; the exponential
+            // backoff below (2s..60s) paces those retries so a transient network
+            // error doesn't spin tight or wedge the device until reboot.
+            if (!appcfg_has_device_id()) cloud_fetch_identity();
+            // Independent of any cached/valid config — that gate was the deadlock.
+            // mqtt_start() itself is the no-op/failure guard: it warns and returns
+            // false if the device id (still) or device key is missing.
+            mqtt_start();
             vTaskDelay(pdMS_TO_TICKS(backoff));
             backoff = backoff * 2 > POLL_BACKOFF_MAX ? POLL_BACKOFF_MAX : backoff * 2;
         }
@@ -574,14 +650,20 @@ void app_state_run(void)
         return;
     }
     overrides_load();   // restore device settings (use_device=0 == follow cloud)
-    cloud_config_load_cached(s_cfg_buf[s_cfg_live]);   // seed ETag so the first fetch can 304
+    cloud_config_load_cached(s_cfg_buf[s_cfg_live]);   // seed from the NVS cache for a fast boot render
     ui_set_config(s_cfg_buf[s_cfg_live]);
     if (s_cfg_buf[s_cfg_live]->valid)
         display_apply_brightness(devset_eff_brightness(&g_dev, s_cfg_buf[s_cfg_live]->device.brightness));
     s_boot_gate = true;
     s_boot_start_ms = now_ms();
     mqtt_set_wake_cb(on_mqtt_wake);
-    if (s_cfg_buf[s_cfg_live]->valid && s_cfg_buf[s_cfg_live]->mqtt.enabled && net_is_connected())
-        mqtt_start(s_cfg_buf[s_cfg_live]);   // start from cached config on boot (fast connect)
+    // Start MQTT from NVS-persisted identity/broker, independently of whether a
+    // cached config exists — gating this on cfg->valid was the deadlock (config
+    // arrives only over MQTT, so a device with no cache could never get one). This
+    // call only covers the fast path where a previous boot already learned its id;
+    // if not, poll_task's mqtt-down branch fetches it (once the network is up) and
+    // retries.
+    if (appcfg_has_device_id() && net_is_connected())
+        mqtt_start();
     xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, &s_poll_handle);
 }

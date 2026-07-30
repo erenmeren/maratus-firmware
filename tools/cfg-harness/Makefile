@@ -18,6 +18,7 @@ SRCS    := test_cfg.c vendor/cJSON.c \
            ../../components/devcfg/gesture.c \
            ../../components/devcfg/overrides.c \
            ../../components/devcfg/brightness.c \
+           ../../components/devcfg/cmd_envelope.c \
            ../../components/assetcache/asset_key.c \
            ../../components/assetcache/asset_evict.c \
            ../../components/cloud/command_parse.c \

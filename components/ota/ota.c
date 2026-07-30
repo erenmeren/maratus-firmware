@@ -7,21 +7,23 @@
 #include "esp_https_ota.h"
 #include "esp_crt_bundle.h"
 #include "esp_ota_ops.h"
-#include "cloud.h"
 #include "appcfg.h"
 #include "ota_manifest.h"
 
 static const char *TAG = "ota";
 
-void ota_check_and_update(bool forced)
+void ota_start_with_manifest(const fw_manifest_t *m)
 {
-    fw_manifest_t m;
-    if (!cloud_get_firmware(&m)) return;
-    if (!forced && !ota_should_update(appcfg_fw_version(), m.version)) return;
-    ESP_LOGI(TAG, "OTA %s -> %s (%d bytes)", appcfg_fw_version(), m.version, m.size);
+    if (!m || !m->version[0] || !m->url[0]) return;
+    if (!ota_should_update(appcfg_fw_version(), m->version)) {
+        ESP_LOGI(TAG, "OTA skip: manifest version %s matches running %s, nothing to do",
+                 m->version, appcfg_fw_version());
+        return;
+    }
+    ESP_LOGI(TAG, "OTA %s -> %s (%d bytes)", appcfg_fw_version(), m->version, m->size);
 
     esp_http_client_config_t http = {
-        .url = m.url,
+        .url = m->url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = 60000,
         .keep_alive_enable = true,
@@ -29,7 +31,7 @@ void ota_check_and_update(bool forced)
     esp_https_ota_config_t ota_cfg = { .http_config = &http };
     esp_err_t err = esp_https_ota(&ota_cfg);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "OTA ok, rebooting into %s", m.version);
+        ESP_LOGI(TAG, "OTA ok, rebooting into %s", m->version);
         vTaskDelay(pdMS_TO_TICKS(300));
         esp_restart();
     } else {

@@ -7,7 +7,6 @@
 #include "appcfg.h"
 #include "nvs_flash.h"
 #include "cloud.h"
-#include "ota.h"
 #include "device_config.h"
 #include "esp_heap_caps.h"
 #include "esp_littlefs.h"
@@ -19,10 +18,6 @@
 #include <string.h>
 
 static const char *TAG = "ditto";
-
-// Forced-OTA wrapper registered as the firmware-update command hook (cloud calls
-// this via callback so the cloud component never depends on ota → no cycle).
-static void ota_force(void) { ota_check_and_update(true); }
 
 // Trigger/show_qr handler: display the document QR screen immediately.
 // Live trigger handler: show a QR of the URL and enter the QR screen.
@@ -155,6 +150,6 @@ void app_main(void)
     if (net_is_connected()) ui_boot_progress(BOOT_CLOUD);
     app_state_run();
     cloud_set_config_changed_cb(app_state_request_config);
-    cloud_set_firmware_update_cb(ota_force);
+    cloud_set_firmware_update_cb(app_state_on_firmware_update);
     cloud_set_trigger_cb(on_trigger_show_qr);
 }
