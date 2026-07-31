@@ -961,7 +961,12 @@ void ui_set_wifi_level(int level) {
 }
 
 void ui_set_countdown(int seconds) {
-    if (seconds < 15) seconds = 15;
+    // Bounds must match the config contract (device_config.h: 5..180) and the
+    // parser's clamp in cfg_parse.c — this is a defensive duplicate, so a floor
+    // that disagrees silently overrides the admin's setting. It did: this floor
+    // stayed at 15 when the QR duration minimum was lowered to 5, so a 5 s
+    // setting parsed as 5 and then displayed for 15.
+    if (seconds < 5)   seconds = 5;
     if (seconds > 180) seconds = 180;
     lvgl_port_lock(0);
     s_cd_pending = seconds;
