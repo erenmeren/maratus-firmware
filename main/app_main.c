@@ -19,6 +19,10 @@
 
 static const char *TAG = "ditto";
 
+// How long the boot-time Wi-Fi picker waits for someone to start picking a
+// network before it gives up and lets boot continue offline.
+#define WIFI_RECOVERY_IDLE_MS (3 * 60 * 1000)
+
 // Trigger/show_qr handler: display the document QR screen immediately.
 // Live trigger handler: show a QR of the URL and enter the QR screen.
 static void on_trigger_show_qr(const char *url) {
@@ -116,7 +120,20 @@ void app_main(void)
     bool ran_wifi_setup = false;
     if (appcfg_has_wifi_creds() ||
         (appcfg_wifi_ssid()[0] && strcmp(appcfg_wifi_ssid(), "changeme") != 0)) {
-        net_connect(appcfg_wifi_ssid(), appcfg_wifi_password());
+        if (!net_connect(appcfg_wifi_ssid(), appcfg_wifi_password())) {
+            // The stored network is out of reach: the device moved, the router
+            // was replaced, the password rotated. Boot used to walk straight
+            // past this and land on the offline idle screen, where the only way
+            // back onto a network was a swipe-up into Settings that nobody
+            // knows is there. Offer the picker instead. It is exitable and it
+            // gives up on its own (WIFI_RECOVERY_IDLE_MS) so an unattended
+            // device whose router is just slow to return isn't held on a setup
+            // screen — boot continues offline and net.c keeps retrying.
+            ESP_LOGW(TAG, "stored Wi-Fi '%s' unreachable; opening the Wi-Fi picker",
+                     appcfg_wifi_ssid());
+            wifi_setup_run_recovery(WIFI_RECOVERY_IDLE_MS);
+            ran_wifi_setup = true;
+        }
     } else {
         wifi_setup_run(false);     // replaces the splash with the Wi-Fi setup UI (no exit: first boot)
         ran_wifi_setup = true;
