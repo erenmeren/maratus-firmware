@@ -64,7 +64,7 @@ int net_scan(net_ap_t *out, int max)
     return n;
 }
 
-bool net_connect(const char *ssid, const char *pass)
+void net_connect_async(const char *ssid, const char *pass)
 {
     wifi_config_t wc = { 0 };
     strncpy((char *)wc.sta.ssid, ssid ? ssid : "", sizeof(wc.sta.ssid) - 1);
@@ -75,8 +75,23 @@ bool net_connect(const char *ssid, const char *pass)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wc));
     ESP_LOGI(TAG, "connecting to SSID '%s'", ssid ? ssid : "");
     esp_wifi_connect();
+}
+
+bool net_connect(const char *ssid, const char *pass)
+{
+    net_connect_async(ssid, pass);
     EventBits_t bits = xEventGroupWaitBits(s_events, GOT_IP_BIT, pdFALSE, pdTRUE, pdMS_TO_TICKS(20000));
     return (bits & GOT_IP_BIT) != 0;
+}
+
+// The on_event retry loop above re-issues esp_wifi_connect() after every
+// disconnect, forever — which is what a store device wants, but it fights
+// esp_wifi_scan_start() (a connect attempt in flight makes the scan fail or
+// come back empty). The Wi-Fi picker parks it while it is up.
+void net_stop(void)
+{
+    s_want_connect = false;   // set first: no retry follows the disconnect below
+    esp_wifi_disconnect();
 }
 
 bool net_is_connected(void) { return s_connected; }

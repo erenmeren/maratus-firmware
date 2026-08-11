@@ -27,7 +27,7 @@ menu "Ditto firmware (dev)"
 
     config DITTO_FW_VERSION
         string "Reported firmware version"
-        default "0.18.2"
+        default "0.18.3"
         help
             Reported in the MQTT heartbeat and shown in the admin device list.
             The cloud's supportsConfigPush gate only carries a config in the MQTT
