@@ -6,7 +6,7 @@
 #include "dev_state.h"
 #include "net.h"   // net_ap_t
 
-// Ditto on-screen UI: a generic renderer that builds the active branding screen
+// Maratus on-screen UI: a generic renderer that builds the active branding screen
 // from the server config. Mirrors PRINTER_SCREENS in ditto-admin.
 //
 // Thread-safety: all functions take the LVGL port lock internally; safe from any

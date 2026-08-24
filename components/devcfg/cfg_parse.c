@@ -181,6 +181,9 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
     copy_str(cfg->etag, sizeof(cfg->etag), ver);
 
     cfg->brand_bg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandBg")),     0xE8A33D);  // Maratus amber
+    // Fallback is effectively dead today: ditto-admin's resolveBrandTokens (lib/color.ts)
+    // always emits explicit 6-hex brand colors in every config push. Keep it contract-safe
+    // if that ever changes.
     cfg->brand_fg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandFg")),     0x111827);  // Maratus ink (white-on-amber-default is low contrast)
     cfg->brand_accent = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandColor")),  0x111827);  // Maratus ink (contrasts against the amber default bg)
     cfg->brand_muted  = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandMuted")),  0x9CA3AF);

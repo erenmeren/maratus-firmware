@@ -76,7 +76,7 @@ static void assets_fs_mount(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Ditto firmware boot (M2 skeleton)");
+    ESP_LOGI(TAG, "Maratus firmware boot");
 
     // 0) Initialize NVS (device config cache lives here).
     esp_err_t nvs_err = nvs_flash_init();
