@@ -180,9 +180,9 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
     const char *ver = cJSON_GetStringValue(cJSON_GetObjectItem(root, "version"));
     copy_str(cfg->etag, sizeof(cfg->etag), ver);
 
-    cfg->brand_bg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandBg")),     0x10A765);
-    cfg->brand_fg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandFg")),     0xFFFFFF);
-    cfg->brand_accent = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandColor")),  0x10A765);
+    cfg->brand_bg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandBg")),     0xE8A33D);  // Maratus amber
+    cfg->brand_fg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandFg")),     0x111827);  // Maratus ink (white-on-amber-default is low contrast)
+    cfg->brand_accent = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandColor")),  0x111827);  // Maratus ink (contrasts against the amber default bg)
     cfg->brand_muted  = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandMuted")),  0x9CA3AF);
     cfg->brand_warn   = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandWarn")),   0xF59E0B);
     copy_str(cfg->logo_url, CFG_URL_LEN, cJSON_GetStringValue(cJSON_GetObjectItem(root, "logoUrl")));

@@ -30,7 +30,7 @@ typedef enum {
     BOOT_STARTING,   // 10%  "Starting up..."
     BOOT_CONFIG,     // 25%  "Loading saved settings..."
     BOOT_WIFI,       // 40%  "Connecting to Wi-Fi..."
-    BOOT_CLOUD,      // 70%  "Contacting Ditto..."
+    BOOT_CLOUD,      // 70%  "Contacting Maratus..."
     BOOT_READY,      // 100% "Ready"
     BOOT_OFFLINE,    // label-only: "Starting offline..."
 } boot_stage_t;
