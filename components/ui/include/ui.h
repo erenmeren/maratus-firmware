@@ -6,7 +6,7 @@
 #include "dev_state.h"
 #include "net.h"   // net_ap_t
 
-// Ditto on-screen UI: a generic renderer that builds the active branding screen
+// Maratus on-screen UI: a generic renderer that builds the active branding screen
 // from the server config. Mirrors PRINTER_SCREENS in ditto-admin.
 //
 // Thread-safety: all functions take the LVGL port lock internally; safe from any
@@ -30,7 +30,7 @@ typedef enum {
     BOOT_STARTING,   // 10%  "Starting up..."
     BOOT_CONFIG,     // 25%  "Loading saved settings..."
     BOOT_WIFI,       // 40%  "Connecting to Wi-Fi..."
-    BOOT_CLOUD,      // 70%  "Contacting Ditto..."
+    BOOT_CLOUD,      // 70%  "Contacting Maratus..."
     BOOT_READY,      // 100% "Ready"
     BOOT_OFFLINE,    // label-only: "Starting offline..."
 } boot_stage_t;

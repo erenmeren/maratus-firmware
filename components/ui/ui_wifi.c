@@ -19,7 +19,9 @@
 //   password stage — back chip + network-name title + status line +
 //                    textarea/Connect row + keyboard (unchanged 720x280)
 
-#define DITTO_GREEN 0x10A765
+#define MARATUS_AMBER 0xE8A33D
+#define MARATUS_INK   0x111827
+#define MARATUS_RUST  0xB4541F   // accent text on a white/light panel (amber-on-white is low contrast)
 
 // screen + list-stage widgets
 static lv_obj_t *s_wscreen, *s_list_panel, *s_list_sub, *s_list, *s_exit;
@@ -69,13 +71,13 @@ static void add_row(const char *symbol, const char *text, lv_event_cb_t cb, int 
 
     lv_obj_t *ic = lv_label_create(btn);
     lv_label_set_text(ic, symbol);                    // default font: symbol glyphs
-    lv_obj_set_style_text_color(ic, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(ic, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
     lv_obj_align(ic, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t *lbl = lv_label_create(btn);
     lv_label_set_text(lbl, text);
     lv_obj_set_style_text_font(lbl, font_cache_get(22, false), LV_PART_MAIN);
-    lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(lbl, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);   // ellipsize long SSIDs
     lv_obj_set_width(lbl, 680 - 2 * 20 - 44);         // row minus pads minus icon slot
     lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 44, 0);
@@ -120,7 +122,7 @@ void ui_wifi_show(void) {
     (void)f_row;                                      // pinned for add_row()
 
     s_wscreen = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(s_wscreen, lv_color_hex(DITTO_GREEN), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_wscreen, lv_color_hex(MARATUS_AMBER), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_wscreen, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(s_wscreen, LV_OBJ_FLAG_SCROLLABLE);
 
@@ -133,13 +135,13 @@ void ui_wifi_show(void) {
     lv_obj_t *title = lv_label_create(s_list_panel);
     lv_label_set_text(title, "Choose your Wi-Fi");
     lv_obj_set_style_text_font(title, f_title, LV_PART_MAIN);
-    lv_obj_set_style_text_color(title, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 28);
 
     s_list_sub = lv_label_create(s_list_panel);       // status line (Scanning... etc.)
     lv_label_set_text(s_list_sub, "");
     lv_obj_set_style_text_font(s_list_sub, f_status, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_list_sub, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_list_sub, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
     lv_obj_set_style_text_opa(s_list_sub, LV_OPA_80, LV_PART_MAIN);
     lv_obj_align(s_list_sub, LV_ALIGN_TOP_MID, 0, 70);
 
@@ -159,7 +161,7 @@ void ui_wifi_show(void) {
     lv_obj_add_event_cb(s_exit, exit_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *exit_ic = lv_label_create(s_exit);
     lv_label_set_text(exit_ic, LV_SYMBOL_CLOSE);      // default font: symbol glyphs
-    lv_obj_set_style_text_color(exit_ic, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(exit_ic, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
     lv_obj_center(exit_ic);
 
     // Plain scrollable flex column — full styling control (lv_list's theme
@@ -192,14 +194,14 @@ void ui_wifi_show(void) {
     lv_obj_add_event_cb(s_back, back_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *back_ic = lv_label_create(s_back);
     lv_label_set_text(back_ic, LV_SYMBOL_LEFT);       // default font: symbol glyphs
-    lv_obj_set_style_text_color(back_ic, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(back_ic, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
     lv_obj_center(back_ic);
 
     // Selected-network name — THE selection feedback.
     s_pw_title = lv_label_create(s_pw_panel);
     lv_label_set_text(s_pw_title, "");
     lv_obj_set_style_text_font(s_pw_title, f_title, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_pw_title, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_pw_title, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
     lv_label_set_long_mode(s_pw_title, LV_LABEL_LONG_DOT);
     lv_obj_set_width(s_pw_title, 500);                // clears the 56px back chip both sides
     lv_obj_set_style_text_align(s_pw_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -208,7 +210,7 @@ void ui_wifi_show(void) {
     s_pw_status = lv_label_create(s_pw_panel);
     lv_label_set_text(s_pw_status, "");
     lv_obj_set_style_text_font(s_pw_status, f_status, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_pw_status, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_pw_status, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
     lv_obj_set_style_text_opa(s_pw_status, LV_OPA_80, LV_PART_MAIN);
     lv_obj_align(s_pw_status, LV_ALIGN_TOP_MID, 0, 100);
 
@@ -241,7 +243,7 @@ void ui_wifi_show(void) {
     s_connect_lbl = lv_label_create(btn);
     lv_label_set_text(s_connect_lbl, "Connect");      // becomes "Next" in manual mode
     lv_obj_set_style_text_font(s_connect_lbl, f_btn, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_connect_lbl, lv_color_hex(DITTO_GREEN), LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_connect_lbl, lv_color_hex(MARATUS_RUST), LV_PART_MAIN);
     lv_obj_center(s_connect_lbl);
 
     // Keyboard — UNCHANGED: same creation, size, position, default styling.

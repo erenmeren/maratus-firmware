@@ -19,9 +19,10 @@
 #include "qrcodegen.h"
 #include "qr_style.h"
 
-#define DITTO_GREEN   0x10A765
-#define DITTO_ONLINE  0x37C871
-#define DITTO_GREY    0x888888
+#define MARATUS_AMBER 0xE8A33D
+#define MARATUS_INK   0x111827
+#define STATUS_ONLINE 0x37C871
+#define STATUS_GREY   0x888888
 
 static const char *TAG = "ui";
 
@@ -59,7 +60,7 @@ static const boot_stage_info_t BOOT_STAGES[] = {
     [BOOT_STARTING] = { 10,  "Starting up..." },
     [BOOT_CONFIG]   = { 25,  "Loading saved settings..." },
     [BOOT_WIFI]     = { 40,  "Connecting to Wi-Fi..." },
-    [BOOT_CLOUD]    = { 70,  "Contacting Ditto..." },
+    [BOOT_CLOUD]    = { 70,  "Contacting Maratus..." },
     [BOOT_READY]    = { 100, "Ready" },
     [BOOT_OFFLINE]  = { -1,  "Starting offline..." },   // label-only
 };
@@ -146,7 +147,7 @@ static void add_status_dot(lv_obj_t *scr) {
     lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_status_dot, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_color(s_status_dot,
-        lv_color_hex(s_online ? DITTO_ONLINE : DITTO_GREY), LV_PART_MAIN);
+        lv_color_hex(s_online ? STATUS_ONLINE : STATUS_GREY), LV_PART_MAIN);
     lv_obj_align(s_status_dot, LV_ALIGN_TOP_RIGHT, -16, 16);
 }
 
@@ -245,7 +246,7 @@ static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
     px_box_t b = geom_box(o);
     int side = b.w < b.h ? b.w : b.h;
     if (side < 32) side = 32;
-    const char *url = s_qr_url[0] ? s_qr_url : "https://ditto.app";
+    const char *url = s_qr_url[0] ? s_qr_url : "https://maratus.co";
 
     // qrcodegen needs a temp scratch buffer the same size as the output during
     // encoding; both sized for the worst case (version 40) so any URL up to the
@@ -723,7 +724,7 @@ static void render_pairing_code(lv_obj_t *scr, const cfg_object_t *o, uint32_t f
 }
 
 static const char *const SETUP_STEPS[] = {
-    "1.  Open your Ditto dashboard",
+    "1.  Open your Maratus dashboard",
     "2.  Add a screen to a store",
     "3.  Enter the code below",
 };
@@ -745,11 +746,11 @@ static void render_steps(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
 static lv_obj_t *build_splash(bool with_progress) {
     font_cache_begin_pass();
     lv_obj_t *scr = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(scr, lv_color_hex(DITTO_GREEN), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(scr, lv_color_hex(MARATUS_AMBER), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "Ditto");
-    lv_obj_set_style_text_color(title, lv_color_white(), LV_PART_MAIN);
+    lv_label_set_text(title, "Maratus");
+    lv_obj_set_style_text_color(title, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
     lv_obj_set_style_text_font(title, font_cache_get(64, /*bold*/ true), LV_PART_MAIN);
     lv_obj_center(title);
     if (with_progress) {
@@ -759,14 +760,14 @@ static lv_obj_t *build_splash(bool with_progress) {
         lv_bar_set_value(bar, 0, LV_ANIM_OFF);
         lv_obj_set_style_radius(bar, 4, LV_PART_MAIN);
         lv_obj_set_style_radius(bar, 4, LV_PART_INDICATOR);
-        lv_obj_set_style_bg_color(bar, lv_color_white(), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(bar, LV_OPA_30, LV_PART_MAIN);          // track: white @ ~25%
-        lv_obj_set_style_bg_color(bar, lv_color_white(), LV_PART_INDICATOR);
-        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);  // indicator: solid white
+        lv_obj_set_style_bg_color(bar, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_30, LV_PART_MAIN);          // track: ink @ ~25%
+        lv_obj_set_style_bg_color(bar, lv_color_hex(MARATUS_INK), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);  // indicator: solid ink
         lv_obj_align(bar, LV_ALIGN_CENTER, 0, 80);
         lv_obj_t *lbl = lv_label_create(scr);
         lv_label_set_text(lbl, "");
-        lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(lbl, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
         lv_obj_set_style_text_opa(lbl, LV_OPA_80, LV_PART_MAIN);
         lv_obj_set_style_text_font(lbl, font_cache_get(20, false), LV_PART_MAIN);
         lv_obj_align_to(lbl, bar, LV_ALIGN_OUT_BOTTOM_MID, 0, 14);
@@ -934,7 +935,7 @@ void ui_set_online(bool online) {
     s_online = online;
     if (s_status_dot) {
         lv_obj_set_style_bg_color(s_status_dot,
-            lv_color_hex(online ? DITTO_ONLINE : DITTO_GREY), LV_PART_MAIN);
+            lv_color_hex(online ? STATUS_ONLINE : STATUS_GREY), LV_PART_MAIN);
     }
     lvgl_port_unlock();
 }

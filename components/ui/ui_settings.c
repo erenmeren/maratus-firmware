@@ -11,7 +11,7 @@
 // Every public function takes the LVGL port lock internally, matching ui.c's
 // locking discipline.
 //
-// VISUAL: restyled to match the Ditto staff mockups (PinScreen / MenuScreen).
+// VISUAL: restyled to match the Maratus staff mockups (PinScreen / MenuScreen).
 // All colors derive from the tenant brand (brand_bg/fg/accent) via lv_color_mix
 // so the screens look right whether the brand bg is light or dark. The public
 // API, callbacks, volatile flags and statics are unchanged so run_settings_flow()

@@ -35,9 +35,9 @@ bool provisioning_parse_claim(const char *json, char *key_out, size_t key_len) {
 
 void provisioning_default_setup_config(device_config_t *cfg) {
     memset(cfg, 0, sizeof(*cfg));
-    cfg->brand_bg = 0x0B5D3B;
-    cfg->brand_fg = 0xFFFFFF;
-    cfg->brand_accent = 0x10A765;
+    cfg->brand_bg = 0xE8A33D;      // Maratus amber
+    cfg->brand_fg = 0x111827;      // Maratus ink (white-on-amber is low contrast)
+    cfg->brand_accent = 0x111827;  // Maratus ink
     cfg_screen_t *s = &cfg->screens[SCREEN_SETUP];
     int i = 0;
     cfg_object_t *t = &s->objects[i++];

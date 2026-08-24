@@ -1,4 +1,4 @@
-menu "Ditto firmware (dev)"
+menu "Maratus firmware (dev)"
 
     config DITTO_WIFI_SSID
         string "Dev Wi-Fi SSID"
@@ -13,10 +13,10 @@ menu "Ditto firmware (dev)"
             Wi-Fi password used during development. Replaced by on-screen provisioning in M6.
 
     config DITTO_API_BASE_URL
-        string "Ditto Cloud base URL"
-        default "https://your-ditto-deployment.vercel.app"
+        string "Maratus Cloud base URL"
+        default "https://your-maratus-deployment.vercel.app"
         help
-            Base URL of the Ditto Cloud deployment (no trailing slash).
+            Base URL of the Maratus Cloud deployment (no trailing slash).
 
     config DITTO_DEVICE_KEY
         string "Dev device key (raw, 40-char)"
@@ -27,7 +27,7 @@ menu "Ditto firmware (dev)"
 
     config DITTO_FW_VERSION
         string "Reported firmware version"
-        default "0.18.3"
+        default "0.19.0"
         help
             Reported in the MQTT heartbeat and shown in the admin device list.
             The cloud's supportsConfigPush gate only carries a config in the MQTT
