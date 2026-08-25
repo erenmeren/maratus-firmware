@@ -33,7 +33,11 @@ static esp_err_t on_evt(esp_http_client_event_t *e)
 bool cloud_claim_poll(const char *code, char *key_out, size_t key_len)
 {
     if (key_out && key_len) key_out[0] = '\0';
-    char body[256];
+    // Was 256, which the claim response outgrew (263 bytes once an mqtt block
+    // rode along): on_evt truncates silently at cap-1, so the JSON parse failed
+    // while the server had already consumed the one-shot key — the device then
+    // polled forever and could never be claimed. Match the identity buffer.
+    char body[512];
     resp_t resp = { .buf = body, .cap = sizeof(body), .len = 0 };
     char serial[13];
     provisioning_get_serial(serial);
