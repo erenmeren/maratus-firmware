@@ -1,0 +1,563 @@
+04a8990 feat(brand): Maratus rebrand — amber/ink UI, restring, base URL api.maratus.co, v0.19.0
+
+ components/devcfg/cfg_parse.c    |  6 +++---
+ components/devcfg/provisioning.c |  6 +++---
+ components/ui/include/ui.h       |  2 +-
+ components/ui/ui.c               | 33 +++++++++++++++++----------------
+ components/ui/ui_settings.c      |  2 +-
+ components/ui/ui_wifi.c          | 24 +++++++++++++-----------
+ main/Kconfig.projbuild           | 10 +++++-----
+ 7 files changed, 43 insertions(+), 40 deletions(-)
+
+diff --git a/components/devcfg/cfg_parse.c b/components/devcfg/cfg_parse.c
+index cd2b4a8..62f0ee4 100644
+--- a/components/devcfg/cfg_parse.c
++++ b/components/devcfg/cfg_parse.c
+@@ -173,23 +173,23 @@ static void parse_screen(cJSON *objs, cfg_screen_t *out) {
+ }
+ 
+ bool cfg_parse_json(const char *json, device_config_t *cfg) {
+     memset(cfg, 0, sizeof(*cfg));   // safe defaults; valid stays false until we finish
+     cJSON *root = cJSON_Parse(json);
+     if (!root) return false;
+ 
+     const char *ver = cJSON_GetStringValue(cJSON_GetObjectItem(root, "version"));
+     copy_str(cfg->etag, sizeof(cfg->etag), ver);
+ 
+-    cfg->brand_bg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandBg")),     0x10A765);
+-    cfg->brand_fg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandFg")),     0xFFFFFF);
+-    cfg->brand_accent = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandColor")),  0x10A765);
++    cfg->brand_bg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandBg")),     0xE8A33D);  // Maratus amber
++    cfg->brand_fg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandFg")),     0x111827);  // Maratus ink (white-on-amber-default is low contrast)
++    cfg->brand_accent = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandColor")),  0x111827);  // Maratus ink (contrasts against the amber default bg)
+     cfg->brand_muted  = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandMuted")),  0x9CA3AF);
+     cfg->brand_warn   = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandWarn")),   0xF59E0B);
+     copy_str(cfg->logo_url, CFG_URL_LEN, cJSON_GetStringValue(cJSON_GetObjectItem(root, "logoUrl")));
+     copy_str(cfg->wordmark, CFG_TEXT_LEN, cJSON_GetStringValue(cJSON_GetObjectItem(root, "wordmark")));
+ 
+     cJSON *config = cJSON_GetObjectItem(root, "config");
+     copy_str(cfg->clock_timezone, CFG_TZ_LEN,
+              config ? cJSON_GetStringValue(cJSON_GetObjectItem(config, "clockTimezone")) : NULL);
+     cfg->clock_24h = config ? cJSON_IsTrue(cJSON_GetObjectItem(config, "clock24h")) : false;
+     cJSON *wl = config ? cJSON_GetObjectItem(config, "wifiLevel") : NULL;
+diff --git a/components/devcfg/provisioning.c b/components/devcfg/provisioning.c
+index 8f0ecaf..c9e79a1 100644
+--- a/components/devcfg/provisioning.c
++++ b/components/devcfg/provisioning.c
+@@ -28,23 +28,23 @@ bool provisioning_parse_claim(const char *json, char *key_out, size_t key_len) {
+         strncpy(key_out, k, key_len - 1);
+         key_out[key_len - 1] = '\0';
+         ok = true;
+     }
+     cJSON_Delete(root);
+     return ok;
+ }
+ 
+ void provisioning_default_setup_config(device_config_t *cfg) {
+     memset(cfg, 0, sizeof(*cfg));
+-    cfg->brand_bg = 0x0B5D3B;
+-    cfg->brand_fg = 0xFFFFFF;
+-    cfg->brand_accent = 0x10A765;
++    cfg->brand_bg = 0xE8A33D;      // Maratus amber
++    cfg->brand_fg = 0x111827;      // Maratus ink (white-on-amber is low contrast)
++    cfg->brand_accent = 0x111827;  // Maratus ink
+     cfg_screen_t *s = &cfg->screens[SCREEN_SETUP];
+     int i = 0;
+     cfg_object_t *t = &s->objects[i++];
+     t->type = OBJ_TEXT; t->visible = true; t->x = 0.1f; t->y = 0.14f; t->w = 0.8f; t->h = 0.08f;
+     t->font_size = 34; t->align = CFG_ALIGN_CENTER; t->z = 0;
+     strncpy(t->text, "Pair this device", CFG_TEXT_LEN - 1);
+     cfg_object_t *st = &s->objects[i++];
+     st->type = OBJ_STEPS; st->visible = true; st->x = 0.18f; st->y = 0.34f; st->w = 0.64f; st->h = 0.28f; st->z = 1;
+     cfg_object_t *pc = &s->objects[i++];
+     pc->type = OBJ_PAIRING_CODE; pc->visible = true; pc->x = 0.2f; pc->y = 0.66f; pc->w = 0.6f; pc->h = 0.14f; pc->z = 2;
+diff --git a/components/ui/include/ui.h b/components/ui/include/ui.h
+index cd40a66..2270bbd 100644
+--- a/components/ui/include/ui.h
++++ b/components/ui/include/ui.h
+@@ -23,21 +23,21 @@ void ui_set_config(const device_config_t *cfg);
+ void ui_render_state(dev_state_t st);
+ 
+ // --- Boot progress (splash chrome) -----------------------------------------
+ // Stages of the boot loading bar shown on the built-in splash. The bar/label
+ // only exist on the boot splash; ui_boot_progress is a safe no-op on any
+ // other screen.
+ typedef enum {
+     BOOT_STARTING,   // 10%  "Starting up..."
+     BOOT_CONFIG,     // 25%  "Loading saved settings..."
+     BOOT_WIFI,       // 40%  "Connecting to Wi-Fi..."
+-    BOOT_CLOUD,      // 70%  "Contacting Ditto..."
++    BOOT_CLOUD,      // 70%  "Contacting Maratus..."
+     BOOT_READY,      // 100% "Ready"
+     BOOT_OFFLINE,    // label-only: "Starting offline..."
+ } boot_stage_t;
+ 
+ // Animate the splash bar to the stage's percent and set its status label.
+ // Takes the LVGL port lock; no-op when the boot splash is not active.
+ void ui_boot_progress(boot_stage_t stage);
+ 
+ // Stash the URL the qr widget should encode on the next/ current qr render.
+ void ui_set_qr_url(const char *url);
+diff --git a/components/ui/ui.c b/components/ui/ui.c
+index 95705f2..2196b49 100644
+--- a/components/ui/ui.c
++++ b/components/ui/ui.c
+@@ -12,23 +12,24 @@
+ #include "gesture.h"
+ #include "font_cache.h"
+ #include "assets.h"
+ #include "asset_cache.h"
+ #include "clock_format.h"
+ #include "time_sync.h"
+ #include "provisioning.h"
+ #include "qrcodegen.h"
+ #include "qr_style.h"
+ 
+-#define DITTO_GREEN   0x10A765
+-#define DITTO_ONLINE  0x37C871
+-#define DITTO_GREY    0x888888
++#define MARATUS_AMBER 0xE8A33D
++#define MARATUS_INK   0x111827
++#define STATUS_ONLINE 0x37C871
++#define STATUS_GREY   0x888888
+ 
+ static const char *TAG = "ui";
+ 
+ static const device_config_t *s_cfg;
+ static lv_obj_t  *s_active;            // currently displayed screen
+ static lv_obj_t  *s_status_dot;        // chrome dot on the active screen
+ static char       s_qr_url[512];       // matches device_config_t.pin_url / dev_command_t.url (512B)
+ static dev_state_t s_render_state = DEV_BOOT;  // last state passed to ui_render_state; OBJ_COUNTDOWN reads this
+ static char       s_pairing_code[16];
+ static bool       s_online;
+@@ -52,21 +53,21 @@ static int        s_cd_remaining;      // seconds left on the active widget
+ static bool       s_cd_expired;        // set at 0, consumed by the state machine
+ 
+ static lv_obj_t  *s_boot_bar;          // splash progress bar (NULL off-splash)
+ static lv_obj_t  *s_boot_lbl;          // splash status label (NULL off-splash)
+ 
+ typedef struct { int pct; const char *label; } boot_stage_info_t;
+ static const boot_stage_info_t BOOT_STAGES[] = {
+     [BOOT_STARTING] = { 10,  "Starting up..." },
+     [BOOT_CONFIG]   = { 25,  "Loading saved settings..." },
+     [BOOT_WIFI]     = { 40,  "Connecting to Wi-Fi..." },
+-    [BOOT_CLOUD]    = { 70,  "Contacting Ditto..." },
++    [BOOT_CLOUD]    = { 70,  "Contacting Maratus..." },
+     [BOOT_READY]    = { 100, "Ready" },
+     [BOOT_OFFLINE]  = { -1,  "Starting offline..." },   // label-only
+ };
+ 
+ #define SWIPE_UP_MIN_PX 150
+ static volatile bool s_swipeup = false;            // set on a swipe-up release; consumed by poll_task
+ static int  s_press_x, s_press_y;                  // touch-down coords for the swipe test
+ static bool s_press_valid = false;                 // a usable press is in flight
+ static bool s_suppress_click = false;              // eat the CLICKED that ends a swipe
+ static volatile bool s_input_suppressed = false;   // set by app_state during sleep / wake-guard
+@@ -139,21 +140,21 @@ static lv_text_align_t lv_align_of(cfg_align_t a) {
+     if (a == CFG_ALIGN_RIGHT)  return LV_TEXT_ALIGN_RIGHT;
+     return LV_TEXT_ALIGN_LEFT;
+ }
+ 
+ static void add_status_dot(lv_obj_t *scr) {
+     s_status_dot = lv_obj_create(scr);
+     lv_obj_set_size(s_status_dot, 20, 20);
+     lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+     lv_obj_set_style_border_width(s_status_dot, 0, LV_PART_MAIN);
+     lv_obj_set_style_bg_color(s_status_dot,
+-        lv_color_hex(s_online ? DITTO_ONLINE : DITTO_GREY), LV_PART_MAIN);
++        lv_color_hex(s_online ? STATUS_ONLINE : STATUS_GREY), LV_PART_MAIN);
+     lv_obj_align(s_status_dot, LV_ALIGN_TOP_RIGHT, -16, 16);
+ }
+ 
+ static void render_text(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
+     px_box_t b = geom_box(o);
+     lv_obj_t *lbl = lv_label_create(scr);
+     lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
+     lv_obj_set_width(lbl, b.w > 0 ? b.w : LV_SIZE_CONTENT);
+     lv_label_set_text(lbl, o->text);
+     lv_obj_set_style_text_color(lbl, lv_color_hex(fg), LV_PART_MAIN);
+@@ -238,21 +239,21 @@ static void paint_qr_neon_glow(uint8_t *pixels, int side, int halo, int plate_px
+             p->blue  = glow_color.blue;
+             p->alpha = (uint8_t)a;
+         }
+     }
+ }
+ 
+ static void render_qr(lv_obj_t *scr, const cfg_object_t *o) {
+     px_box_t b = geom_box(o);
+     int side = b.w < b.h ? b.w : b.h;
+     if (side < 32) side = 32;
+-    const char *url = s_qr_url[0] ? s_qr_url : "https://ditto.app";
++    const char *url = s_qr_url[0] ? s_qr_url : "https://maratus.co";
+ 
+     // qrcodegen needs a temp scratch buffer the same size as the output during
+     // encoding; both sized for the worst case (version 40) so any URL up to the
+     // s_qr_url/pin_url/dev_command_t.url 512B contract always fits. ~4KB each —
+     // PSRAM, not stack (this runs on the LVGL render task).
+     uint8_t *tmp = heap_caps_malloc(qrcodegen_BUFFER_LEN_MAX, MALLOC_CAP_SPIRAM);
+     uint8_t *qr  = heap_caps_malloc(qrcodegen_BUFFER_LEN_MAX, MALLOC_CAP_SPIRAM);
+     if (!tmp || !qr) { heap_caps_free(tmp); heap_caps_free(qr); return; }
+     bool ok = qrcodegen_encodeText(url, tmp, qr, qrcodegen_Ecc_MEDIUM,
+                                     qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
+@@ -716,21 +717,21 @@ static void render_pairing_code(lv_obj_t *scr, const cfg_object_t *o, uint32_t f
+     lv_obj_set_width(lbl, b.w > 0 ? b.w : LV_SIZE_CONTENT);
+     lv_label_set_text(lbl, s_pairing_code[0] ? s_pairing_code : "----");
+     lv_obj_set_style_text_color(lbl, lv_color_hex(fg), LV_PART_MAIN);
+     lv_obj_set_style_text_font(lbl, font_cache_get(box_h * 2 / 3, true), LV_PART_MAIN);
+     lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+     lv_obj_set_style_text_letter_space(lbl, 2, LV_PART_MAIN);
+     lv_obj_set_pos(lbl, b.x, b.y);
+ }
+ 
+ static const char *const SETUP_STEPS[] = {
+-    "1.  Open your Ditto dashboard",
++    "1.  Open your Maratus dashboard",
+     "2.  Add a screen to a store",
+     "3.  Enter the code below",
+ };
+ static void render_steps(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
+     px_box_t b = geom_box(o);
+     int n = (int)(sizeof(SETUP_STEPS) / sizeof(SETUP_STEPS[0]));
+     int fs = o->font_size > 0 ? o->font_size : 22;
+     int line_h = (b.h > 0 ? b.h : 120) / n;
+     for (int i = 0; i < n; i++) {
+         lv_obj_t *lbl = lv_label_create(scr);
+@@ -738,42 +739,42 @@ static void render_steps(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
+         lv_label_set_text(lbl, SETUP_STEPS[i]);
+         lv_obj_set_style_text_color(lbl, lv_color_hex(fg), LV_PART_MAIN);
+         lv_obj_set_style_text_font(lbl, font_cache_get(fs, false), LV_PART_MAIN);
+         lv_obj_set_pos(lbl, b.x, b.y + i * line_h);
+     }
+ }
+ 
+ static lv_obj_t *build_splash(bool with_progress) {
+     font_cache_begin_pass();
+     lv_obj_t *scr = lv_obj_create(NULL);
+-    lv_obj_set_style_bg_color(scr, lv_color_hex(DITTO_GREEN), LV_PART_MAIN);
++    lv_obj_set_style_bg_color(scr, lv_color_hex(MARATUS_AMBER), LV_PART_MAIN);
+     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
+     lv_obj_t *title = lv_label_create(scr);
+-    lv_label_set_text(title, "Ditto");
+-    lv_obj_set_style_text_color(title, lv_color_white(), LV_PART_MAIN);
++    lv_label_set_text(title, "Maratus");
++    lv_obj_set_style_text_color(title, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
+     lv_obj_set_style_text_font(title, font_cache_get(64, /*bold*/ true), LV_PART_MAIN);
+     lv_obj_center(title);
+     if (with_progress) {
+         lv_obj_t *bar = lv_bar_create(scr);
+         lv_obj_set_size(bar, 320, 8);
+         lv_bar_set_range(bar, 0, 100);
+         lv_bar_set_value(bar, 0, LV_ANIM_OFF);
+         lv_obj_set_style_radius(bar, 4, LV_PART_MAIN);
+         lv_obj_set_style_radius(bar, 4, LV_PART_INDICATOR);
+-        lv_obj_set_style_bg_color(bar, lv_color_white(), LV_PART_MAIN);
+-        lv_obj_set_style_bg_opa(bar, LV_OPA_30, LV_PART_MAIN);          // track: white @ ~25%
+-        lv_obj_set_style_bg_color(bar, lv_color_white(), LV_PART_INDICATOR);
+-        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);  // indicator: solid white
++        lv_obj_set_style_bg_color(bar, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
++        lv_obj_set_style_bg_opa(bar, LV_OPA_30, LV_PART_MAIN);          // track: ink @ ~25%
++        lv_obj_set_style_bg_color(bar, lv_color_hex(MARATUS_INK), LV_PART_INDICATOR);
++        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_INDICATOR);  // indicator: solid ink
+         lv_obj_align(bar, LV_ALIGN_CENTER, 0, 80);
+         lv_obj_t *lbl = lv_label_create(scr);
+         lv_label_set_text(lbl, "");
+-        lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
++        lv_obj_set_style_text_color(lbl, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
+         lv_obj_set_style_text_opa(lbl, LV_OPA_80, LV_PART_MAIN);
+         lv_obj_set_style_text_font(lbl, font_cache_get(20, false), LV_PART_MAIN);
+         lv_obj_align_to(lbl, bar, LV_ALIGN_OUT_BOTTOM_MID, 0, 14);
+         s_boot_bar = bar;
+         s_boot_lbl = lbl;
+     }
+     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
+     lv_obj_add_event_cb(scr, on_screen_click,   LV_EVENT_CLICKED,  NULL);
+     lv_obj_add_event_cb(scr, on_screen_press,   LV_EVENT_PRESSED,  NULL);
+     lv_obj_add_event_cb(scr, on_screen_release, LV_EVENT_RELEASED, NULL);
+@@ -927,21 +928,21 @@ void ui_set_pairing_code(const char *code) {
+     if (!code) s_pairing_code[0] = '\0';
+     else { strncpy(s_pairing_code, code, sizeof(s_pairing_code) - 1); s_pairing_code[sizeof(s_pairing_code) - 1] = '\0'; }
+     lvgl_port_unlock();
+ }
+ 
+ void ui_set_online(bool online) {
+     lvgl_port_lock(0);
+     s_online = online;
+     if (s_status_dot) {
+         lv_obj_set_style_bg_color(s_status_dot,
+-            lv_color_hex(online ? DITTO_ONLINE : DITTO_GREY), LV_PART_MAIN);
++            lv_color_hex(online ? STATUS_ONLINE : STATUS_GREY), LV_PART_MAIN);
+     }
+     lvgl_port_unlock();
+ }
+ 
+ void ui_set_wifi_level(int level) {
+     if (level < 0) level = 0;
+     if (level > 4) level = 4;
+     lvgl_port_lock(0);
+     // The poll task pushes the level every cycle. lv_obj_set_style_bg_opa always
+     // invalidates+redraws the bar (no equality check in LVGL), so repainting the
+diff --git a/components/ui/ui_settings.c b/components/ui/ui_settings.c
+index 0d95869..6023b81 100644
+--- a/components/ui/ui_settings.c
++++ b/components/ui/ui_settings.c
+@@ -4,21 +4,21 @@
+ #include "lvgl.h"
+ #include "esp_lvgl_port.h"
+ 
+ // On-device Settings screens (M7). PASSIVE by design: LVGL event callbacks
+ // ONLY set volatile flags here — no network, no esp_restart, no cloud calls.
+ // An orchestrator (Task 7) reads user intent via the consume_* functions and
+ // pushes data in via the set_* mutators, mirroring the ui_wifi.c pattern.
+ // Every public function takes the LVGL port lock internally, matching ui.c's
+ // locking discipline.
+ //
+-// VISUAL: restyled to match the Ditto staff mockups (PinScreen / MenuScreen).
++// VISUAL: restyled to match the Maratus staff mockups (PinScreen / MenuScreen).
+ // All colors derive from the tenant brand (brand_bg/fg/accent) via lv_color_mix
+ // so the screens look right whether the brand bg is light or dark. The public
+ // API, callbacks, volatile flags and statics are unchanged so run_settings_flow()
+ // keeps working.
+ 
+ // --------------------------------------------------------------------------
+ // Brand-derived palette
+ // --------------------------------------------------------------------------
+ typedef struct { lv_color_t bg, fg, accent, accent_fg, card, muted; } pal_t;
+ 
+diff --git a/components/ui/ui_wifi.c b/components/ui/ui_wifi.c
+index f3bc86a..56435de 100644
+--- a/components/ui/ui_wifi.c
++++ b/components/ui/ui_wifi.c
+@@ -12,21 +12,23 @@
+ // function takes the LVGL port lock internally, matching ui.c's discipline.
+ //
+ // TWO STAGES on ONE screen — panels toggled with LV_OBJ_FLAG_HIDDEN, every
+ // widget (keyboard included) created exactly once in ui_wifi_show():
+ //   list stage     — title + full-height network list (keyboard hidden) +
+ //                    an optional exit chip (top-right) when entered from
+ //                    Settings, so the flow isn't a trap
+ //   password stage — back chip + network-name title + status line +
+ //                    textarea/Connect row + keyboard (unchanged 720x280)
+ 
+-#define DITTO_GREEN 0x10A765
++#define MARATUS_AMBER 0xE8A33D
++#define MARATUS_INK   0x111827
++#define MARATUS_RUST  0xB4541F   // accent text on a white/light panel (amber-on-white is low contrast)
+ 
+ // screen + list-stage widgets
+ static lv_obj_t *s_wscreen, *s_list_panel, *s_list_sub, *s_list, *s_exit;
+ // password-stage widgets
+ static lv_obj_t *s_pw_panel, *s_back, *s_pw_title, *s_pw_status,
+                 *s_input_row, *s_ta, *s_connect_lbl, *s_kb;
+ 
+ static volatile bool s_sel_pending;       // a list row was tapped
+ static volatile bool s_sel_manual;        // the tapped row was "Other network..."
+ static volatile bool s_connect_pending;   // Connect/Next was tapped
+@@ -62,27 +64,27 @@ static void add_row(const char *symbol, const char *text, lv_event_cb_t cb, int
+     lv_obj_set_style_bg_color(btn, lv_color_white(), LV_PART_MAIN);
+     lv_obj_set_style_bg_opa(btn, LV_OPA_10, LV_PART_MAIN);
+     lv_obj_set_style_bg_opa(btn, LV_OPA_30, LV_PART_MAIN | LV_STATE_PRESSED); // touch feedback
+     lv_obj_set_style_pad_left(btn, 20, LV_PART_MAIN);
+     lv_obj_set_style_pad_right(btn, 20, LV_PART_MAIN);
+     lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, (void *)(intptr_t)idx);
+ 
+     lv_obj_t *ic = lv_label_create(btn);
+     lv_label_set_text(ic, symbol);                    // default font: symbol glyphs
+-    lv_obj_set_style_text_color(ic, lv_color_white(), LV_PART_MAIN);
++    lv_obj_set_style_text_color(ic, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
+     lv_obj_align(ic, LV_ALIGN_LEFT_MID, 0, 0);
+ 
+     lv_obj_t *lbl = lv_label_create(btn);
+     lv_label_set_text(lbl, text);
+     lv_obj_set_style_text_font(lbl, font_cache_get(22, false), LV_PART_MAIN);
+-    lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
++    lv_obj_set_style_text_color(lbl, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
+     lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);   // ellipsize long SSIDs
+     lv_obj_set_width(lbl, 680 - 2 * 20 - 44);         // row minus pads minus icon slot
+     lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 44, 0);
+ }
+ 
+ // Stage switches. Drop stale one-shot intents from the outgoing stage so the
+ // orchestrator never acts on a tap that belonged to a widget no longer shown.
+ static void show_stage_list(void) {
+     s_back_pending = false; s_connect_pending = false;
+     lv_obj_add_flag(s_pw_panel, LV_OBJ_FLAG_HIDDEN);
+@@ -113,60 +115,60 @@ void ui_wifi_show(void) {
+     if (s_wscreen) { lv_obj_delete(s_wscreen); s_wscreen = NULL; }
+     s_sel_pending = s_rescan_pending = s_connect_pending = s_back_pending = s_exit_pending = false;
+     font_cache_begin_pass();                          // no-op (API compat) — cache never evicts
+     const lv_font_t *f_title  = font_cache_get(28, true);
+     const lv_font_t *f_status = font_cache_get(20, false);
+     const lv_font_t *f_row    = font_cache_get(22, false);
+     const lv_font_t *f_btn    = font_cache_get(22, true);
+     (void)f_row;                                      // pinned for add_row()
+ 
+     s_wscreen = lv_obj_create(NULL);
+-    lv_obj_set_style_bg_color(s_wscreen, lv_color_hex(DITTO_GREEN), LV_PART_MAIN);
++    lv_obj_set_style_bg_color(s_wscreen, lv_color_hex(MARATUS_AMBER), LV_PART_MAIN);
+     lv_obj_set_style_bg_opa(s_wscreen, LV_OPA_COVER, LV_PART_MAIN);
+     lv_obj_clear_flag(s_wscreen, LV_OBJ_FLAG_SCROLLABLE);
+ 
+     // ---- list stage panel --------------------------------------------------
+     s_list_panel = lv_obj_create(s_wscreen);
+     lv_obj_remove_style_all(s_list_panel);
+     lv_obj_set_size(s_list_panel, 720, 720);
+     lv_obj_clear_flag(s_list_panel, LV_OBJ_FLAG_SCROLLABLE);
+ 
+     lv_obj_t *title = lv_label_create(s_list_panel);
+     lv_label_set_text(title, "Choose your Wi-Fi");
+     lv_obj_set_style_text_font(title, f_title, LV_PART_MAIN);
+-    lv_obj_set_style_text_color(title, lv_color_white(), LV_PART_MAIN);
++    lv_obj_set_style_text_color(title, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
+     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 28);
+ 
+     s_list_sub = lv_label_create(s_list_panel);       // status line (Scanning... etc.)
+     lv_label_set_text(s_list_sub, "");
+     lv_obj_set_style_text_font(s_list_sub, f_status, LV_PART_MAIN);
+-    lv_obj_set_style_text_color(s_list_sub, lv_color_white(), LV_PART_MAIN);
++    lv_obj_set_style_text_color(s_list_sub, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
+     lv_obj_set_style_text_opa(s_list_sub, LV_OPA_80, LV_PART_MAIN);
+     lv_obj_align(s_list_sub, LV_ALIGN_TOP_MID, 0, 70);
+ 
+     // Exit chip, 56x56, top-right. Only shown when entered from Settings
+     // (ui_wifi_set_exit_visible) — first boot has nothing to fall back to,
+     // so it starts hidden.
+     s_exit = lv_button_create(s_list_panel);
+     lv_obj_remove_style_all(s_exit);
+     lv_obj_set_size(s_exit, 56, 56);
+     lv_obj_align(s_exit, LV_ALIGN_TOP_RIGHT, -20, 20);
+     lv_obj_set_style_radius(s_exit, 16, LV_PART_MAIN);
+     lv_obj_set_style_bg_color(s_exit, lv_color_white(), LV_PART_MAIN);
+     lv_obj_set_style_bg_opa(s_exit, LV_OPA_20, LV_PART_MAIN);
+     lv_obj_set_style_bg_opa(s_exit, LV_OPA_40, LV_PART_MAIN | LV_STATE_PRESSED);
+     lv_obj_clear_flag(s_exit, LV_OBJ_FLAG_SCROLLABLE);
+     lv_obj_add_flag(s_exit, LV_OBJ_FLAG_HIDDEN);
+     lv_obj_add_event_cb(s_exit, exit_cb, LV_EVENT_CLICKED, NULL);
+     lv_obj_t *exit_ic = lv_label_create(s_exit);
+     lv_label_set_text(exit_ic, LV_SYMBOL_CLOSE);      // default font: symbol glyphs
+-    lv_obj_set_style_text_color(exit_ic, lv_color_white(), LV_PART_MAIN);
++    lv_obj_set_style_text_color(exit_ic, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
+     lv_obj_center(exit_ic);
+ 
+     // Plain scrollable flex column — full styling control (lv_list's theme
+     // fights the brand look). 64px rows + 8px gaps, scrolls when overflowing.
+     s_list = lv_obj_create(s_list_panel);
+     lv_obj_remove_style_all(s_list);
+     lv_obj_set_size(s_list, 680, 596);                // 104..700 of the 720 screen
+     lv_obj_align(s_list, LV_ALIGN_TOP_MID, 0, 104);
+     lv_obj_set_flex_flow(s_list, LV_FLEX_FLOW_COLUMN);
+     lv_obj_set_style_pad_row(s_list, 8, LV_PART_MAIN);
+@@ -185,37 +187,37 @@ void ui_wifi_show(void) {
+     lv_obj_set_size(s_back, 56, 56);
+     lv_obj_align(s_back, LV_ALIGN_TOP_LEFT, 20, 20);
+     lv_obj_set_style_radius(s_back, 16, LV_PART_MAIN);
+     lv_obj_set_style_bg_color(s_back, lv_color_white(), LV_PART_MAIN);
+     lv_obj_set_style_bg_opa(s_back, LV_OPA_20, LV_PART_MAIN);
+     lv_obj_set_style_bg_opa(s_back, LV_OPA_40, LV_PART_MAIN | LV_STATE_PRESSED);
+     lv_obj_clear_flag(s_back, LV_OBJ_FLAG_SCROLLABLE);
+     lv_obj_add_event_cb(s_back, back_cb, LV_EVENT_CLICKED, NULL);
+     lv_obj_t *back_ic = lv_label_create(s_back);
+     lv_label_set_text(back_ic, LV_SYMBOL_LEFT);       // default font: symbol glyphs
+-    lv_obj_set_style_text_color(back_ic, lv_color_white(), LV_PART_MAIN);
++    lv_obj_set_style_text_color(back_ic, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
+     lv_obj_center(back_ic);
+ 
+     // Selected-network name — THE selection feedback.
+     s_pw_title = lv_label_create(s_pw_panel);
+     lv_label_set_text(s_pw_title, "");
+     lv_obj_set_style_text_font(s_pw_title, f_title, LV_PART_MAIN);
+-    lv_obj_set_style_text_color(s_pw_title, lv_color_white(), LV_PART_MAIN);
++    lv_obj_set_style_text_color(s_pw_title, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
+     lv_label_set_long_mode(s_pw_title, LV_LABEL_LONG_DOT);
+     lv_obj_set_width(s_pw_title, 500);                // clears the 56px back chip both sides
+     lv_obj_set_style_text_align(s_pw_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+     lv_obj_align(s_pw_title, LV_ALIGN_TOP_MID, 0, 34);
+ 
+     s_pw_status = lv_label_create(s_pw_panel);
+     lv_label_set_text(s_pw_status, "");
+     lv_obj_set_style_text_font(s_pw_status, f_status, LV_PART_MAIN);
+-    lv_obj_set_style_text_color(s_pw_status, lv_color_white(), LV_PART_MAIN);
++    lv_obj_set_style_text_color(s_pw_status, lv_color_hex(MARATUS_INK), LV_PART_MAIN);
+     lv_obj_set_style_text_opa(s_pw_status, LV_OPA_80, LV_PART_MAIN);
+     lv_obj_align(s_pw_status, LV_ALIGN_TOP_MID, 0, 100);
+ 
+     // Input row: textarea (480) + Connect (180) side by side, 20px gap — the
+     // two never overlap (the old screen's bug). Grouped so the "Connecting..."
+     // view can hide them together.
+     s_input_row = lv_obj_create(s_pw_panel);
+     lv_obj_remove_style_all(s_input_row);
+     lv_obj_set_size(s_input_row, 680, 60);
+     lv_obj_align(s_input_row, LV_ALIGN_TOP_MID, 0, 150);
+@@ -234,21 +236,21 @@ void ui_wifi_show(void) {
+     lv_obj_align(btn, LV_ALIGN_RIGHT_MID, 0, 0);
+     lv_obj_set_style_radius(btn, 12, LV_PART_MAIN);
+     lv_obj_set_style_bg_color(btn, lv_color_white(), LV_PART_MAIN);
+     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN);
+     lv_obj_set_style_bg_opa(btn, LV_OPA_80, LV_PART_MAIN | LV_STATE_PRESSED);
+     lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+     lv_obj_add_event_cb(btn, connect_cb, LV_EVENT_CLICKED, NULL);
+     s_connect_lbl = lv_label_create(btn);
+     lv_label_set_text(s_connect_lbl, "Connect");      // becomes "Next" in manual mode
+     lv_obj_set_style_text_font(s_connect_lbl, f_btn, LV_PART_MAIN);
+-    lv_obj_set_style_text_color(s_connect_lbl, lv_color_hex(DITTO_GREEN), LV_PART_MAIN);
++    lv_obj_set_style_text_color(s_connect_lbl, lv_color_hex(MARATUS_RUST), LV_PART_MAIN);
+     lv_obj_center(s_connect_lbl);
+ 
+     // Keyboard — UNCHANGED: same creation, size, position, default styling.
+     s_kb = lv_keyboard_create(s_pw_panel);
+     lv_keyboard_set_textarea(s_kb, s_ta);
+     lv_obj_set_size(s_kb, 720, 280);
+     lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+ 
+     lv_screen_load(s_wscreen);
+     lvgl_port_unlock();
+diff --git a/main/Kconfig.projbuild b/main/Kconfig.projbuild
+index 71d5097..525d166 100644
+--- a/main/Kconfig.projbuild
++++ b/main/Kconfig.projbuild
+@@ -1,40 +1,40 @@
+-menu "Ditto firmware (dev)"
++menu "Maratus firmware (dev)"
+ 
+     config DITTO_WIFI_SSID
+         string "Dev Wi-Fi SSID"
+         default "changeme"
+         help
+             Wi-Fi SSID used during development. Replaced by on-screen provisioning in M6.
+ 
+     config DITTO_WIFI_PASSWORD
+         string "Dev Wi-Fi password"
+         default "changeme"
+         help
+             Wi-Fi password used during development. Replaced by on-screen provisioning in M6.
+ 
+     config DITTO_API_BASE_URL
+-        string "Ditto Cloud base URL"
+-        default "https://your-ditto-deployment.vercel.app"
++        string "Maratus Cloud base URL"
++        default "https://your-maratus-deployment.vercel.app"
+         help
+-            Base URL of the Ditto Cloud deployment (no trailing slash).
++            Base URL of the Maratus Cloud deployment (no trailing slash).
+ 
+     config DITTO_DEVICE_KEY
+         string "Dev device key (raw, 40-char)"
+         default "changeme"
+         help
+             Raw device bearer key. Dev-only shortcut; M6 sources this from NVS after
+             on-screen claim. Obtain one by claiming a seeded device in the admin UI.
+ 
+     config DITTO_FW_VERSION
+         string "Reported firmware version"
+-        default "0.18.3"
++        default "0.19.0"
+         help
+             Reported in the MQTT heartbeat and shown in the admin device list.
+             The cloud's supportsConfigPush gate only carries a config in the MQTT
+             message for firmware >= 0.18.0 (lib/mqtt-push.ts); below that it sends
+             a legacy nudge whose HTTP answer this device no longer has.
+ 
+     config DITTO_MQTT_HOST
+         string "MQTT broker host"
+         default "e11a0b73.ala.eu-central-1.emqxsl.com"
+         help

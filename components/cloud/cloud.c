@@ -125,7 +125,15 @@ bool cloud_fetch_identity(void)
 
 // ---- raw asset fetch (presigned absolute URL → PSRAM buffer) ----
 
-#define ASSET_MAX_BYTES (256 * 1024)
+// Matches MAX_LOGO_BYTES in the console's branding upload (2 MB). They MUST stay
+// aligned: anything the console accepts but this rejects uploads "successfully"
+// and then renders as an empty placeholder frame on the device, with the reason
+// visible only on the serial console. The buffer itself is PSRAM (32 MB), so the
+// size is cheap. NOTE the real ceiling is pixels, not bytes — decoding costs
+// ~2x w*h*4 of PSRAM (decoded ARGB + lodepng's intermediate) on top of LVGL's
+// scaled transform layer, and the on-flash asset cache partition is only 1 MB,
+// so an asset near this cap is re-fetched on every boot instead of being cached.
+#define ASSET_MAX_BYTES (2 * 1024 * 1024)
 
 // Accumulates the response body into a growable PSRAM buffer, capped at
 // ASSET_MAX_BYTES. On overflow it sets cap=-1 (sticky) so the perform aborts logic.
