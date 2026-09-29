@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(ditto-firmware)
+project(maratus-firmware)
 
 # --- Guard: tools/patch-deps.sh must have been applied to managed_components ---
 # managed_components/ is gitignored and re-fetched by the component manager, which

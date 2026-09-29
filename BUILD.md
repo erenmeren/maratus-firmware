@@ -1,4 +1,4 @@
-# Building & flashing ditto-firmware
+# Building & flashing maratus-firmware
 
 ## Toolchain: ESP-IDF **5.5.x** (required)
 

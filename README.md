@@ -1,8 +1,8 @@
-# ditto-firmware
+# maratus-firmware
 
-Firmware for the **Ditto** digital-receipt printer — a Waveshare **ESP32-P4-WIFI6-Touch-LCD-4B**
+Firmware for the **Maratus** digital-receipt printer — a Waveshare **ESP32-P4-WIFI6-Touch-LCD-4B**
 that receives Epson ESC/POS print jobs over Wi-Fi, renders them to a PNG, uploads the image
-to Ditto Cloud, and shows the customer a QR code linking to the digital receipt.
+to Maratus Cloud, and shows the customer a QR code linking to the digital receipt.
 
 - **SoC:** ESP32-P4 (dual RISC-V) + ESP32-C6 Wi-Fi 6 co-processor (SDIO)
 - **Display:** 720×720 MIPI-DSI capacitive touch
