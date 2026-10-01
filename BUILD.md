@@ -45,7 +45,7 @@ idf.py build            # if it fails in esp_wifi_remote, run ./tools/patch-deps
 > Let `idf.py` set the version itself, or export exactly `ESP_IDF_VERSION=5.5`. If a stale
 > `sdkconfig` already drifted to SPI (`CONFIG_ESP_HOSTED_SPI_HOST_INTERFACE=y`), recover with:
 > `./tools/patch-deps.sh && rm sdkconfig && ESP_IDF_VERSION=5.5 idf.py reconfigure` then
-> restore the dev creds in `sdkconfig` (`CONFIG_DITTO_API_BASE_URL` / `CONFIG_DITTO_DEVICE_KEY`).
+> restore the dev creds in `sdkconfig` (`CONFIG_MARATUS_API_BASE_URL` / `CONFIG_MARATUS_DEVICE_KEY`).
 > Verify with `grep CONFIG_ESP_HOSTED_SDIO_HOST_INTERFACE sdkconfig`.
 
 ## Flash (USB-to-UART port, NOT USB-OTG)
@@ -93,10 +93,10 @@ Wi-Fi + cloud config are project Kconfig options. The placeholders live in
 local) and rebuild:
 
 ```
-CONFIG_DITTO_WIFI_SSID="<2.4GHz SSID>"        # the C6 is 2.4GHz-only
-CONFIG_DITTO_WIFI_PASSWORD="<password>"
-CONFIG_DITTO_API_BASE_URL="https://<your-deployment>.vercel.app"   # no trailing slash
-CONFIG_DITTO_DEVICE_KEY="dvk_..."             # from admin: Add device -> Claim printer (shown once)
+CONFIG_MARATUS_WIFI_SSID="<2.4GHz SSID>"        # the C6 is 2.4GHz-only
+CONFIG_MARATUS_WIFI_PASSWORD="<password>"
+CONFIG_MARATUS_API_BASE_URL="https://<your-deployment>.vercel.app"   # no trailing slash
+CONFIG_MARATUS_DEVICE_KEY="dvk_..."             # from admin: Add device -> Claim printer (shown once)
 ```
 
 The device polls `GET /api/device/commands` (heartbeat → shows online in admin),
@@ -134,7 +134,7 @@ IDF 5.5, prod `ditto-admin-brown.vercel.app`):
 - **Receipt-flow regression**: tap → idle→processing→QR→`/r/<token>` still resolves; M5b
   image work didn't disturb the M5a/M4 path.
 - Decode is memory-bound: decoded bitmap = w·h·4 in PSRAM, so logos must be modestly sized.
-  The admin now downscales uploads to ≤512px PNG server-side (ditto-admin) so the device
+  The admin now downscales uploads to ≤512px PNG server-side (maratus-admin) so the device
   always gets a decodable asset; oversized/SVG no longer reach the device.
 - Gotchas fixed en route: `CFG_URL_LEN` 256→768 (presigned R2 URLs ~500 chars were truncated
   → R2 400), and `CONFIG_SPIRAM_USE_MALLOC=y` so the lodepng intermediate scanline buffer
@@ -151,7 +151,7 @@ IDF 5.5, prod `ditto-admin-brown.vercel.app`):
 - Spinner (`lv_spinner` on the processing screen) builds + is wired but was not eyeballed this
   pass (low-risk pure animation); confirm opportunistically on the next receipt.
 - **Timezone needs the admin POSIX change deployed:** the device does `setenv(TZ, …)` with the
-  payload's `clockTimezone`, which ditto-admin now converts IANA→POSIX in `getDeviceConfig`
+  payload's `clockTimezone`, which maratus-admin now converts IANA→POSIX in `getDeviceConfig`
   (`lib/posix-tz.ts`). Until that admin deploy lands, the device receives an IANA name newlib
   can't parse and the clock runs UTC. After deploy, changing the tenant timezone shifts the
   on-screen clock within a poll cycle.
@@ -175,7 +175,7 @@ IDF 5.5, prod `ditto-admin-brown.vercel.app`):
 (same board/IDF 5.5; merged to main `9ef26dd`, flashed + HW-verified). Makes the firmware honor
 the org-wide device settings the cloud delivers in `/api/device/config`'s new `device` block
 (`brightness`, `sleep:{enabled,timeoutSeconds}`, `settingsPasswordHash`, `settingsPasswordSalt`).
-Spec/plan in ditto-admin `docs/superpowers/{specs,plans}/2026-06-21-firmware-m7-device-policies*`.
+Spec/plan in maratus-admin `docs/superpowers/{specs,plans}/2026-06-21-firmware-m7-device-policies*`.
 Pure logic is host-tested in `tools/cfg-harness` (15/15): the `device`-block parser, `should_sleep`,
 and `settings_pin_verify`.
 - **Brightness** (`device.brightness`, clamped 10–100): applied via `bsp_display_brightness_set`
@@ -218,7 +218,7 @@ Reworks how Settings opens and adds two sub-screens. Branch `feat/swipe-up-setti
 - **Redesign + typeface.** PIN keypad (dot entry) + menu restyled to the dReceipt mockups, colors
   derived from the org brand via `lv_color_mix`. Device typeface switched to **Plus Jakarta Sans**
   (OFL), instanced to wght 400/700 and Latin-subset to ~23 KB each, same embedded filenames
-  (`components/assets/fonts/ditto_sans*.ttf`) so the font cache picks it up with no code change.
+  (`components/assets/fonts/maratus_sans*.ttf`) so the font cache picks it up with no code change.
 - **About** (read-only): firmware / IP / MAC / SSID+signal / online / `:9100` listener, status dots.
 - **Device settings** (`components/devcfg/overrides.c` = `device_settings_t`, NVS keys
   `dev_use/dev_br/dev_sl`): a single **"Use device settings"** switch picks the source for BOTH
@@ -317,7 +317,7 @@ Branch `feat/pinned-screen-styled-qr`. Two independent features:
 ## QR style options (2026-07-23) — fw 0.11.0
 
 Branch `feat/qr-style-options`. Cloud counterpart:
-`docs/superpowers/specs/2026-07-23-qr-style-options.md` (ditto-admin).
+`docs/superpowers/specs/2026-07-23-qr-style-options.md` (maratus-admin).
 
 Org-wide QR look (`config.qrShape`/`qrFg`/`qrBg` — siblings of
 `clockTimezone`/`qrTimeoutSeconds` inside `"config"`, parsed in
@@ -349,7 +349,7 @@ Org-wide QR look (`config.qrShape`/`qrFg`/`qrBg` — siblings of
 ## QR background corner + shadow (2026-07-23) — fw 0.12.0
 
 Branch `feat/qr-corner-shadow`. Cloud counterpart: same doc's addendum
-(`docs/superpowers/specs/2026-07-23-qr-style-options.md`, ditto-admin).
+(`docs/superpowers/specs/2026-07-23-qr-style-options.md`, maratus-admin).
 
 Independent of module `qrShape` — governs the QR's own background PLATE
 (`config.qrCorner`/`qrShadow`, siblings of `qrShape`/`qrFg`/`qrBg`):
@@ -442,7 +442,7 @@ preview. Root cause: the 0.12.0/0.13.0 curves (`qr_bg_radius_px`'s fixed 6%,
 with how large the QR plate actually renders — a small device canvas got a
 proportionally tiny shadow/radius next to the studio's larger preview
 canvas, even at identical corner/strength settings. Fix: port the cloud's
-canonical *dim-relative* formulas (`ditto-admin lib/qr-svg.ts`
+canonical *dim-relative* formulas (`maratus-admin lib/qr-svg.ts`
 `qrCornerRadiusPx`/`qrShadowParams`, added there the same day) exactly,
 `dim` = the plate's own rendered pixel size (`canvas_px`) on both sides:
 

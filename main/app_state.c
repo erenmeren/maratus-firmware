@@ -27,7 +27,7 @@
 #include "overrides.h"
 #include "brightness.h"
 #include "nvs.h"
-#include "mqtt_client_ditto.h"
+#include "mqtt_client_maratus.h"
 #include "ota_manifest.h"    // fw_manifest_t
 #include "appcfg.h"          // appcfg_fw_version
 #include "esp_random.h"
@@ -55,7 +55,7 @@ static inline uint32_t now_ms(void) { return (uint32_t)(esp_timer_get_time() / 1
 // Device-local settings (brightness/sleep) governed by a single "use device
 // settings" switch: when use_device is 0 (fresh NVS) the effective values follow
 // the admin's pushed policy exactly; when 1 the device-local values win.
-// Persisted in NVS namespace "ditto". Init to a fresh struct at declaration so
+// Persisted in NVS namespace "maratus". Init to a fresh struct at declaration so
 // the app_state_set_state wake path can't read a zero-initialised
 // struct in the boot window before overrides_load() runs (use_device=0 means it
 // follows cloud regardless).
@@ -71,7 +71,7 @@ static int cloud_sleep_encoded(const device_config_t *c) {
 static void overrides_load(void) {
     devset_init(&g_dev);
     nvs_handle_t h;
-    if (nvs_open("ditto", NVS_READONLY, &h) != ESP_OK) return;
+    if (nvs_open("maratus", NVS_READONLY, &h) != ESP_OK) return;
     int32_t v;
     if (nvs_get_i32(h, "dev_use", &v) == ESP_OK) g_dev.use_device = v;
     if (nvs_get_i32(h, "dev_br",  &v) == ESP_OK) g_dev.brightness = v;
@@ -82,7 +82,7 @@ static void overrides_load(void) {
 // Persist the device-settings ints to NVS.
 static void overrides_save(void) {
     nvs_handle_t h;
-    if (nvs_open("ditto", NVS_READWRITE, &h) != ESP_OK) return;
+    if (nvs_open("maratus", NVS_READWRITE, &h) != ESP_OK) return;
     nvs_set_i32(h, "dev_use", g_dev.use_device);
     nvs_set_i32(h, "dev_br",  g_dev.brightness);
     nvs_set_i32(h, "dev_sl",  g_dev.sleep);
@@ -288,7 +288,7 @@ static void build_about_info(char *out, size_t n) {
              "Wi-Fi\t%s\n"
              "Signal\t%s\n"
              "Online\t%s",
-             CONFIG_DITTO_FW_VERSION, ip, mac, ssid, bars,
+             CONFIG_MARATUS_FW_VERSION, ip, mac, ssid, bars,
              net_is_connected() ? "Online" : "Offline");
 }
 
@@ -566,7 +566,7 @@ static void poll_task(void *arg)
                 s_config_dirty = false;
                 int next = s_cfg_live ^ 1;
                 *s_cfg_buf[next] = *s_cfg_buf[s_cfg_live];   // seed from the live config
-                // Parse straight out of the PSRAM stage mqtt_ditto reassembled the
+                // Parse straight out of the PSRAM stage mqtt_maratus reassembled the
                 // config-changed payload into, into the IDLE buffer — the renderer
                 // (s_cfg_buf[s_cfg_live]) never sees a half-written config.
                 bool ok = mqtt_parse_pending_config(s_cfg_buf[next]);
@@ -705,5 +705,5 @@ void app_state_run(void)
     // retries.
     if (appcfg_has_device_id() && net_is_connected())
         mqtt_start();
-    xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, &s_poll_handle);
+    xTaskCreate(poll_task, "maratus_poll", 8192, NULL, 5, &s_poll_handle);
 }

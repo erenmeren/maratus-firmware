@@ -6,10 +6,10 @@
 #include "esp_err.h"
 #include "device_config.h"
 
-// HTTPS client for the parts of the Ditto device contract that are not MQTT:
+// HTTPS client for the parts of the Maratus device contract that are not MQTT:
 // the one-time claim (no device key yet), presigned R2 asset fetches, and the
 // NVS-backed config cache. Command polling/ack, config fetch and the firmware
-// manifest fetch are MQTT-only (see components/mqtt_ditto) — there is no HTTP
+// manifest fetch are MQTT-only (see components/mqtt_maratus) — there is no HTTP
 // fallback by design.
 
 // Load the last config persisted in NVS into *cfg (cfg->valid = false if none).

@@ -73,7 +73,7 @@ Medium — unchanged from before, `qrcodegen_VERSION_MIN..MAX`,
 - Quiet zone: 4 modules (`QR_QUIET_MODULES`) of untouched white canvas margin
   on all sides, inside the object's box.
 - Same fallback URL behavior as before (`s_qr_url[0] ? s_qr_url :
-  "https://ditto.app"`), same box-fit scaling (module size derived from
+  "https://maratus.co"`), same box-fit scaling (module size derived from
   `min(box_w, box_h)`, canvas centered in the full box).
 - One code path: every `OBJ_QR` render (trigger, pinned, setup) goes through
   this same function — no per-screen QR variants.
@@ -128,7 +128,7 @@ string).
 
 - `sdkconfig` (gitignored, dev-local — confirmed via `git check-ignore` and
   precedent from the 0.9.0 bump commit `7d5debc`, which touched only
-  `Kconfig.projbuild` + `BUILD.md`): `CONFIG_DITTO_FW_VERSION="0.10.0"`.
+  `Kconfig.projbuild` + `BUILD.md`): `CONFIG_MARATUS_FW_VERSION="0.10.0"`.
 - `main/Kconfig.projbuild` default: `"0.10.0"`.
 - `BUILD.md`: new `## Pinned screen + styled QR (2026-07-22, pending HIL) —
   fw 0.10.0` section, HIL checklist line reads *"Pinned screen + styled QR
@@ -158,7 +158,7 @@ ALL TESTS PASSED
 devcfg) returned nothing:
 ```
 [9/10] ... check_sizes.py ...
-ditto-firmware.bin binary size 0x196160 bytes. Smallest app partition is
+maratus-firmware.bin binary size 0x196160 bytes. Smallest app partition is
 0x200000 bytes. 0x69ea0 bytes (21%) free.
 Project build complete.
 ```
@@ -172,6 +172,6 @@ Project build complete.
   constant in `components/devcfg/qr_style.c` is the single knob to turn.
 - Pinned-screen editing UX on the cloud side (branding studio) is out of
   scope here — this task only covers the firmware parse/render half; the
-  spec's cloud counterpart is `ditto-admin`'s
+  spec's cloud counterpart is `maratus-admin`'s
   `2026-07-21-pinned-qr-design.md` / `2026-07-22-screen-terminology-and-
   pinned-screen.md`.

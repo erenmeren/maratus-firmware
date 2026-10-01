@@ -1,4 +1,4 @@
-# ESP-MQTT Device Transport — Design (ditto-firmware)
+# ESP-MQTT Device Transport — Design (maratus-firmware)
 
 **Date:** 2026-07-16
 **Status:** Approved (brainstorm complete)
@@ -6,7 +6,7 @@
 commands arrive push-style (sub-second) instead of via the 12 s HTTP poll,
 with HTTP polling kept as an automatic fallback. One milestone.
 **Cloud contract:** the cloud side is already built + merged
-(`ditto-admin` main, EMQX Cloud Serverless). This device implements the
+(`maratus-admin` main, EMQX Cloud Serverless). This device implements the
 **Path A** auth model (device-key built-in-DB auth), NOT the JWT described in
 the older cloud design doc.
 
@@ -222,5 +222,5 @@ webhooks configured):**
 - Persistent (non-clean) MQTT sessions and app-level LWT (cloud safety nets +
   HTTP fallback make them unnecessary).
 - Changing the SDIO / PSRAM / mbedTLS memory configuration.
-- Cloud-side changes (already built + merged in ditto-admin).
+- Cloud-side changes (already built + merged in maratus-admin).
 - The `MQTT_BROKER_HOST` value / EMQX console webhook setup (cloud/ops task).

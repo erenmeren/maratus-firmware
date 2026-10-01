@@ -17,7 +17,7 @@ shadow/radius next to the studio's larger preview canvas at identical settings.
    (clamped+rounded); else legacy `qrCorner` maps 1:1 (rounded→24, square→0); else default 24.
    `device_config_t.qr_corner` (`qr_corner_t`) → `qr_corner_radius` (`int`).
 2. **`components/devcfg/qr_style.c` + `include/qr_style.h`** — canonical dim-relative
-   formulas, ported exactly from `ditto-admin lib/qr-svg.ts`:
+   formulas, ported exactly from `maratus-admin lib/qr-svg.ts`:
    - `qr_corner_radius_px(dim, v) = round(dim * 0.30 * v/100)` replaces `qr_bg_radius_px`.
    - `qr_shadow_params(mode, strength, dim)` (struct: `blur_px`, `offset_y_px`, `opa`
      [0..255], `spread_px`) replaces `qr_shadow_width_px`/`qr_shadow_opa_pct`. DROP:
@@ -30,7 +30,7 @@ shadow/radius next to the studio's larger preview canvas at identical settings.
    DROP: `shadow_width = blurPx*2`, `ofs_y = offsetYPx`, `opa` direct. NEON:
    `shadow_width = spreadPx*2`, `ofs 0`, `opa 255`, **plus `shadow_spread = blurPx/2`**
    (see calibration note below).
-4. **Version bump** — `main/Kconfig.projbuild` `DITTO_FW_VERSION` 0.13.0→0.14.0 (local
+4. **Version bump** — `main/Kconfig.projbuild` `MARATUS_FW_VERSION` 0.13.0→0.14.0 (local
    `sdkconfig`, gitignored/generated, updated to match on disk — not committed).
    `BUILD.md` changelog entry with root cause + formulas + pending-HIL note.
 

@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** The device renders each screen with its per-screen palette override (`config.screens[s].colors`) when present, falling back to the global brand colors otherwise — matching the admin preview shipped in ditto-admin `7052500`.
+**Goal:** The device renders each screen with its per-screen palette override (`config.screens[s].colors`) when present, falling back to the global brand colors otherwise — matching the admin preview shipped in maratus-admin `7052500`.
 
 **Architecture:** `cfg_screen_t` gains an optional per-screen palette (`has_colors` + 4 colors) parsed defensively from the payload's `screens[s].colors`; `build_screen()` resolves the effective palette once per build and threads it to renderers. No protocol change — the cloud already ships the field (guaranteed lowercase `#rrggbb`, all-or-nothing after cloud normalize; firmware still validates all four before trusting it).
 
 **Tech Stack:** ESP-IDF 5.5 / C11 / cJSON; host unit harness `tools/cfg-harness` (`make test`, plain cc).
 
-**Cloud contract:** ditto-admin `docs/superpowers/specs/2026-07-14-per-screen-theming-design.md` §Device contract.
+**Cloud contract:** maratus-admin `docs/superpowers/specs/2026-07-14-per-screen-theming-design.md` §Device contract.
 
 ## Global Constraints
 
@@ -145,7 +145,7 @@ Then, WITHIN `build_screen()` only, replace every `s_cfg->brand_bg` with `bg`, `
 
 - Host harness still green: `cd tools/cfg-harness && make test`.
 - Full firmware build: `. ~/.espressif/v5.5/esp-idf/export.sh` then `idf.py build` from the repo root (if it fails inside `esp_wifi_remote`, run `./tools/patch-deps.sh` and rebuild; NEVER set `ESP_IDF_VERSION` to a patch version like 5.5.4 — see BUILD.md).
-- Expected: build succeeds (`ditto-firmware.bin` produced).
+- Expected: build succeeds (`maratus-firmware.bin` produced).
 
 - [ ] **Step 4: Commit**
 

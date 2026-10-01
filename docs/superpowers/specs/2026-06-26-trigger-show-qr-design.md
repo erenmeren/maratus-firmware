@@ -1,9 +1,9 @@
 # Firmware Trigger Execution — `show_qr` + ack (Spec B) — Design
 
 **Date:** 2026-06-26
-**Repo:** `ditto-firmware` (device only — no cloud changes)
+**Repo:** `maratus-firmware` (device only — no cloud changes)
 **Status:** Approved design, pre-implementation
-**Part of:** the public credit-gated device-trigger feature. **Spec A** (cloud) shipped to prod 2026-06-26 (see ditto-admin `docs/superpowers/specs/2026-06-26-credits-and-device-trigger-core-design.md`). This is **Spec B** — the device half that makes a trigger actually do something and **acks** it (which settles the credit hold in the cloud).
+**Part of:** the public credit-gated device-trigger feature. **Spec A** (cloud) shipped to prod 2026-06-26 (see maratus-admin `docs/superpowers/specs/2026-06-26-credits-and-device-trigger-core-design.md`). This is **Spec B** — the device half that makes a trigger actually do something and **acks** it (which settles the credit hold in the cloud).
 
 ## Problem
 

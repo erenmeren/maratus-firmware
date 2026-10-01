@@ -19,9 +19,9 @@ idf.py -p <PORT> flash monitor
 ## Status
 
 Bring-up follows milestones M2–M6. See the architecture spec and the per-milestone plans in
-the `ditto-admin` repo:
+the `maratus-admin` repo:
 
-- Spec: `ditto-admin/docs/superpowers/specs/2026-06-14-ditto-firmware-design.md`
-- M2 plan: `ditto-admin/docs/superpowers/plans/2026-06-14-firmware-m2-skeleton.md`
+- Spec: `maratus-admin/docs/superpowers/specs/2026-06-14-maratus-firmware-design.md`
+- M2 plan: `maratus-admin/docs/superpowers/plans/2026-06-14-firmware-m2-skeleton.md`
 
 Vendor BSP facts (display/touch/Wi-Fi init) are recorded in [`docs/bsp-notes.md`](docs/bsp-notes.md).

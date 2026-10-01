@@ -34,7 +34,7 @@ void dispatch_command(const dev_command_t *cmd, ack_fn_t ack)
         vTaskDelay(pdMS_TO_TICKS(300));
         esp_restart();   // does not return
     } else if (strcmp(cmd->type, "config-changed") == 0 || strcmp(cmd->type, "refresh") == 0) {
-        // The config now arrives IN the message (staged in PSRAM by mqtt_ditto);
+        // The config now arrives IN the message (staged in PSRAM by mqtt_maratus);
         // the handler applies it instead of triggering an HTTP fetch.
         void (*cb)(void) = cloud_config_changed_handler();
         if (cb) cb();

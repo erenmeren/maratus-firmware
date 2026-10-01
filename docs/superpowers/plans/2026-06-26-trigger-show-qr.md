@@ -4,7 +4,7 @@
 
 **Goal:** On a `trigger`/`show_qr` command, the device displays a QR of `payload.url` on the existing `DEV_QR` screen (auto-returning after `qrTimeoutSeconds`) and acks it — `ok=true` when displayed (cloud settles = charged), `ok=false` for invalid/missing url (cloud releases = refund).
 
-**Architecture:** Firmware-only (ditto-firmware). A pure cJSON helper extracts the `show_qr` url (host-testable). The cloud command dispatcher gains a `trigger` branch that invokes an app-registered callback (mirroring the `config-changed` callback pattern, keeping the cloud component decoupled from app/ui state) and acks. The callback reuses the receipt path `ui_set_qr_url(url); app_state_set_state(DEV_QR); ui_render_state(DEV_QR)`.
+**Architecture:** Firmware-only (maratus-firmware). A pure cJSON helper extracts the `show_qr` url (host-testable). The cloud command dispatcher gains a `trigger` branch that invokes an app-registered callback (mirroring the `config-changed` callback pattern, keeping the cloud component decoupled from app/ui state) and acks. The callback reuses the receipt path `ui_set_qr_url(url); app_state_set_state(DEV_QR); ui_render_state(DEV_QR)`.
 
 **Tech Stack:** ESP-IDF 5.5 / C / cJSON / LVGL; host unit tests via `tools/cfg-harness` (no ESP-IDF).
 
@@ -224,13 +224,13 @@ For the board's org: grant a credit (admin grant or a DB insert into `credit_bal
 ```bash
 curl -s -X POST "https://ditto-admin-brown.vercel.app/api/v1/devices/<board-deviceId>/trigger" \
   -H "Authorization: Bearer <scoped key>" -H "Idempotency-Key: hil-1" \
-  -H "Content-Type: application/json" -d '{"action":"show_qr","payload":{"url":"https://ditto.app/hil"}}'
+  -H "Content-Type: application/json" -d '{"action":"show_qr","payload":{"url":"https://maratus.co/hil"}}'
 ```
 Expected: `202 {id, status:"queued"}`.
 
 - [ ] **Step 3: Observe the device**
 
-`python3 tools/read-console.py 30` and watch: the command arrives (`command ... type=trigger`), the device shows the QR of `https://ditto.app/hil`, the countdown ticks and auto-returns to idle, and an ack POST is sent. Visually confirm the QR appears on screen.
+`python3 tools/read-console.py 30` and watch: the command arrives (`command ... type=trigger`), the device shows the QR of `https://maratus.co/hil`, the countdown ticks and auto-returns to idle, and an ack POST is sent. Visually confirm the QR appears on screen.
 
 - [ ] **Step 4: Confirm the credit settled (cloud side)**
 

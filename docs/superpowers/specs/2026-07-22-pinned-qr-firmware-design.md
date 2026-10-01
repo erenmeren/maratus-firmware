@@ -1,6 +1,6 @@
 # Pinned QR — Firmware Design Spec
 
-*Date: 2026-07-22 · Counterpart: ditto-admin `docs/superpowers/specs/2026-07-21-pinned-qr-design.md` (cloud side SHIPPED to prod 2026-07-22).*
+*Date: 2026-07-22 · Counterpart: maratus-admin `docs/superpowers/specs/2026-07-21-pinned-qr-design.md` (cloud side SHIPPED to prod 2026-07-22).*
 
 ## Problem
 

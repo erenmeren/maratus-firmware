@@ -1,9 +1,9 @@
 # Rename "Receipt" → "Document" (Firmware, Spec 2) — Design
 
 **Date:** 2026-06-27
-**Repo:** `ditto-firmware`
+**Repo:** `maratus-firmware`
 **Status:** Approved design, pre-implementation
-**Follows:** the cloud rename ([ditto-admin Spec 1], shipped to prod 2026-06-27). This is the firmware half — cosmetic; the device already works against the cloud's renamed `/d/{token}` URL because it just prints the URL the cloud returns.
+**Follows:** the cloud rename ([maratus-admin Spec 1], shipped to prod 2026-06-27). This is the firmware half — cosmetic; the device already works against the cloud's renamed `/d/{token}` URL because it just prints the URL the cloud returns.
 
 ## Problem
 

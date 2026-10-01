@@ -2,8 +2,8 @@
 
 **Date:** 2026-07-04
 **Status:** Draft — awaiting user review
-**Repo:** ditto-firmware (ESP32-P4 / ESP-IDF 5.5)
-**Context:** Follow-up #4 from the ditto-admin trigger-only pivot. The cloud already stopped ingesting/hosting documents; the device is driven solely by the `trigger`/`show_qr` command (shows a QR of a caller-supplied URL). This removes the firmware's now-dead receipt/print rendering + ingest pipeline.
+**Repo:** maratus-firmware (ESP32-P4 / ESP-IDF 5.5)
+**Context:** Follow-up #4 from the maratus-admin trigger-only pivot. The cloud already stopped ingesting/hosting documents; the device is driven solely by the `trigger`/`show_qr` command (shows a QR of a caller-supplied URL). This removes the firmware's now-dead receipt/print rendering + ingest pipeline.
 
 ## Problem
 
@@ -34,7 +34,7 @@ The **live** trigger→QR path is entirely separate (it uses LVGL's `lv_qrcode` 
 - `main/render_job.c` + `main/render_job.h` (the ESC/POS job callback: parse → render → `cloud_post_document` → show QR).
 - `run_test_ingest()` in `main/app_state.c` and its two call sites (the tap handler in the poll task, and the "Test print" settings handler ~lines 357-360).
 - The `escpos_server_start(render_job_handle)` call + include in `main/app_main.c`.
-- `CONFIG_DITTO_ROLL_WIDTH` in `main/Kconfig.projbuild` ("Receipt roll width in dots").
+- `CONFIG_MARATUS_ROLL_WIDTH` in `main/Kconfig.projbuild` ("Receipt roll width in dots").
 - `escpos` and `render` from the `REQUIRES` list in `main/CMakeLists.txt`.
 
 **`components/cloud/`:**

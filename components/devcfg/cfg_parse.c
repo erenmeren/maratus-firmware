@@ -75,7 +75,7 @@ static qr_shape_t qr_shape_of(const char *s) {
 
 // config.qrCornerRadius: 0..100 int slider (0 = square), replacing the
 // earlier 2-value `qrCorner: "square" | "rounded"` enum (2026-07-24 slider
-// addendum). Mirrors ditto-admin lib/printer-layout.ts sanitizeQrCornerRadius:
+// addendum). Mirrors maratus-admin lib/printer-layout.ts sanitizeQrCornerRadius:
 // a valid stored qrCornerRadius number always wins (clamped+rounded to
 // 0..100); otherwise a legacy qrCorner "rounded" -> 24, "square" -> 0;
 // anything else (absent, garbage, unrecognized legacy value) -> the default
@@ -181,7 +181,7 @@ bool cfg_parse_json(const char *json, device_config_t *cfg) {
     copy_str(cfg->etag, sizeof(cfg->etag), ver);
 
     cfg->brand_bg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandBg")),     0xE8A33D);  // Maratus amber
-    // Fallback is effectively dead today: ditto-admin's resolveBrandTokens (lib/color.ts)
+    // Fallback is effectively dead today: maratus-admin's resolveBrandTokens (lib/color.ts)
     // always emits explicit 6-hex brand colors in every config push. Keep it contract-safe
     // if that ever changes.
     cfg->brand_fg     = parse_hex_color(cJSON_GetStringValue(cJSON_GetObjectItem(root, "brandFg")),     0x111827);  // Maratus ink (white-on-amber-default is low contrast)

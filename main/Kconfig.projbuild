@@ -1,40 +1,40 @@
 menu "Maratus firmware (dev)"
 
-    config DITTO_WIFI_SSID
+    config MARATUS_WIFI_SSID
         string "Dev Wi-Fi SSID"
         default "changeme"
         help
             Wi-Fi SSID used during development. Replaced by on-screen provisioning in M6.
 
-    config DITTO_WIFI_PASSWORD
+    config MARATUS_WIFI_PASSWORD
         string "Dev Wi-Fi password"
         default "changeme"
         help
             Wi-Fi password used during development. Replaced by on-screen provisioning in M6.
 
-    config DITTO_API_BASE_URL
+    config MARATUS_API_BASE_URL
         string "Maratus Cloud base URL"
         default "https://your-maratus-deployment.vercel.app"
         help
             Base URL of the Maratus Cloud deployment (no trailing slash).
 
-    config DITTO_DEVICE_KEY
+    config MARATUS_DEVICE_KEY
         string "Dev device key (raw, 40-char)"
         default "changeme"
         help
             Raw device bearer key. Dev-only shortcut; M6 sources this from NVS after
             on-screen claim. Obtain one by claiming a seeded device in the admin UI.
 
-    config DITTO_FW_VERSION
+    config MARATUS_FW_VERSION
         string "Reported firmware version"
-        default "0.19.1"
+        default "0.19.2"
         help
             Reported in the MQTT heartbeat and shown in the admin device list.
             The cloud's supportsConfigPush gate only carries a config in the MQTT
             message for firmware >= 0.18.0 (lib/mqtt-push.ts); below that it sends
             a legacy nudge whose HTTP answer this device no longer has.
 
-    config DITTO_MQTT_HOST
+    config MARATUS_MQTT_HOST
         string "MQTT broker host"
         default "e11a0b73.ala.eu-central-1.emqxsl.com"
         help
@@ -43,13 +43,13 @@ menu "Maratus firmware (dev)"
             succeeded). Matches the production EMQX broker so a device with
             entirely empty NVS still has somewhere to point.
 
-    config DITTO_MQTT_PORT
+    config MARATUS_MQTT_PORT
         int "MQTT broker port"
         default 8883
         help
-            Fallback MQTT broker port (TLS), paired with DITTO_MQTT_HOST.
+            Fallback MQTT broker port (TLS), paired with MARATUS_MQTT_HOST.
 
-    config DITTO_ROLL_WIDTH
+    config MARATUS_ROLL_WIDTH
         int "Receipt roll width in dots"
         default 576
         help

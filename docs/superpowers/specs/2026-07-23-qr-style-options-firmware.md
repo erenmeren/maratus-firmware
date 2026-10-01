@@ -1,6 +1,6 @@
 # QR Style Options — firmware (fw 0.11.0)
 
-*2026-07-23. Cloud counterpart: ditto-admin docs/superpowers/specs/2026-07-23-qr-style-options.md.*
+*2026-07-23. Cloud counterpart: maratus-admin docs/superpowers/specs/2026-07-23-qr-style-options.md.*
 
 - Parse top-level `qrShape` ("classic"|"soft"|"rounded"|"dots"; unknown/absent → rounded)
   + `qrFg`/`qrBg` hex (malformed/absent → #111111 / #ffffff) into device_config_t

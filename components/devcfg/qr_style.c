@@ -88,7 +88,7 @@ qr_module_style_t qr_module_style(qr_shape_t shape, int module_px) {
     return s;
 }
 
-// CLOUD PARITY: mirrors ditto-admin lib/qr-svg.ts qrCornerRadiusPx — keep in sync.
+// CLOUD PARITY: mirrors maratus-admin lib/qr-svg.ts qrCornerRadiusPx — keep in sync.
 int qr_corner_radius_px(int dim, int v) {
     if (dim < 1) return 0;
     if (v < 0)   v = 0;
@@ -105,7 +105,7 @@ static int clamp_strength(int strength) {
     return strength;
 }
 
-// CLOUD PARITY: mirrors ditto-admin lib/qr-svg.ts qrShadowParams — keep in sync.
+// CLOUD PARITY: mirrors maratus-admin lib/qr-svg.ts qrShadowParams — keep in sync.
 qr_shadow_params_t qr_shadow_params(qr_shadow_mode_t mode, int strength, int dim) {
     qr_shadow_params_t p = { 0, 0, 0, 0 };
     if (mode == QR_SHADOW_NONE) return p;

@@ -73,7 +73,7 @@ qr_module_style_t qr_module_style(qr_shape_t shape, int module_px);
 // (0 = square), replacing the earlier 2-value `qrCorner: "square" |
 // "rounded"` enum (2026-07-24 slider addendum).
 //
-// CLOUD PARITY: mirrors ditto-admin lib/qr-svg.ts qrCornerRadiusPx — keep in sync.
+// CLOUD PARITY: mirrors maratus-admin lib/qr-svg.ts qrCornerRadiusPx — keep in sync.
 //
 // Corner radius, in px, for a background plate of pixel dimension `dim`:
 // round(dim * 0.30 * v/100) — 0 at v=0 (square), scaling linearly to 30% of
@@ -95,7 +95,7 @@ int qr_corner_radius_px(int dim, int v);
 // qrShadowMode itself is absent from the payload.
 typedef enum { QR_SHADOW_NONE, QR_SHADOW_DROP, QR_SHADOW_NEON } qr_shadow_mode_t;
 
-// CLOUD PARITY: mirrors ditto-admin lib/qr-svg.ts qrShadowParams — keep in sync.
+// CLOUD PARITY: mirrors maratus-admin lib/qr-svg.ts qrShadowParams — keep in sync.
 //
 // Canonical dim-relative shadow/glow numbers for the QR background plate, as
 // a function of the plate's OWN pixel dimension `dim` (the canvas side) —

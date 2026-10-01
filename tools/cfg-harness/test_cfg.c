@@ -564,7 +564,7 @@ static void test_qr_shape_colors(void) {
 
 // config.qrCornerRadius: 0..100 int slider, replacing the earlier 2-value
 // `qrCorner: "square" | "rounded"` enum (2026-07-24). Mirrors the cloud's
-// sanitizeQrCornerRadius (ditto-admin lib/printer-layout.ts): a valid stored
+// sanitizeQrCornerRadius (maratus-admin lib/printer-layout.ts): a valid stored
 // number always wins (clamped+rounded); otherwise a legacy `qrCorner` string
 // maps 1:1 (rounded -> 24, square -> 0); anything else -> the default (24).
 static void test_qr_corner_shadow(void) {

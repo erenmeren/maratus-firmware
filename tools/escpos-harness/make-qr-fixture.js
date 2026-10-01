@@ -1,6 +1,6 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 
-const url = process.argv[2] || "https://ditto.app/r/qr-fixture-demo";
+const url = process.argv[2] || "https://maratus.co/r/qr-fixture-demo";
 const bytes = Buffer.from(url, "latin1");
 
 // GS ( k helpers (cn = 49 for QR).

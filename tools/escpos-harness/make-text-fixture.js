@@ -19,7 +19,7 @@ push([0x1b, 0x45, 0x01], "TOTAL  7.75\n", [0x1b, 0x45, 0x00]);
 push([0x1b, 0x61, 0x01]);                 // center
 push("\n", "Scan for your e-receipt\n");
 // a QR too:
-const url = Buffer.from("https://ditto.app/r/text-demo", "latin1");
+const url = Buffer.from("https://maratus.co/r/text-demo", "latin1");
 const sl = url.length + 3;
 push([0x1d, 0x28, 0x6b, 0x03, 0x00, 49, 67, 6]);                 // size 6
 push([0x1d, 0x28, 0x6b, 0x03, 0x00, 49, 69, 49]);                // ecc M

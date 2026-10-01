@@ -17,4 +17,4 @@ the demo builds + runs on the board.
   `sdkconfig.defaults`: _TODO_
 - **Serial flash port** on this machine (e.g. `/dev/cu.usbserial-*`): _TODO_
 
-Reference spec: `ditto-admin/docs/superpowers/specs/2026-06-14-ditto-firmware-design.md`.
+Reference spec: `maratus-admin/docs/superpowers/specs/2026-06-14-maratus-firmware-design.md`.

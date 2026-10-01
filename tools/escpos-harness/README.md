@@ -1,4 +1,4 @@
-# Ditto ESC/POS test harness
+# Maratus ESC/POS test harness
 
 Streams ESC/POS fixtures to the device's TCP :9100 (acts as a fake POS).
 

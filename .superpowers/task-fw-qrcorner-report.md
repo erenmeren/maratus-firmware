@@ -2,7 +2,7 @@
 
 Spec addendum: `docs/superpowers/specs/2026-07-23-qr-style-options-firmware.md`
 (no firmware-side addendum existed yet; cloud counterpart addendum is in
-`docs/superpowers/specs/2026-07-23-qr-style-options.md` in ditto-admin).
+`docs/superpowers/specs/2026-07-23-qr-style-options.md` in maratus-admin).
 Branch: `feat/qr-corner-shadow` off `main` (repo clean, up to date with
 origin/main at `8063da5` before starting — verified via `git status` +
 `git log main` vs `origin/main`).

@@ -13,9 +13,9 @@ Commit `fd47c7d` — `fix(ui): s_qr_url 512B to match pin/trigger url contracts;
 
 ## Piece B — Task 6 (version + docs + gates)
 Commit `7d5debc` — `build: bump fw to 0.9.0 + BUILD.md pinned-QR entry`
-- `sdkconfig`: `CONFIG_DITTO_FW_VERSION` `0.8.0` → `0.9.0` (file is gitignored; edited on disk,
+- `sdkconfig`: `CONFIG_MARATUS_FW_VERSION` `0.8.0` → `0.9.0` (file is gitignored; edited on disk,
   **not committed** — see below).
-- `main/Kconfig.projbuild`: `DITTO_FW_VERSION` default `0.8.0` → `0.9.0`.
+- `main/Kconfig.projbuild`: `MARATUS_FW_VERSION` default `0.8.0` → `0.9.0`.
 - `BUILD.md`: appended dated entry "## Pinned QR (2026-07-22, pending HIL) — fw 0.9.0" with
   feature summary (persistent `DEV_PINNED` QR state, `s_qr_url` widen + truncation warn) and the
   HIL checklist copied from `docs/superpowers/specs/2026-07-22-pinned-qr-firmware-design.md`
@@ -64,15 +64,15 @@ ALL TESTS PASSED
 ```
 [1863/1868] Linking C static library esp-idf/main/libmain.a
 [1864/1868] Generating esp-idf/esp_system/ld/sections.ld
-[1865/1868] Linking CXX executable ditto-firmware.elf
+[1865/1868] Linking CXX executable maratus-firmware.elf
 [1866/1868] Generating binary image from built executable
 esptool.py v4.12.dev2
 Creating esp32p4 image...
 Merged 3 ELF sections
 Successfully created esp32p4 image.
-Generated /Users/eren/Projects/ditto-firmware/build/ditto-firmware.bin
+Generated /Users/eren/Projects/maratus-firmware/build/maratus-firmware.bin
 [1867/1868] cd .../esptool_py && python check_sizes.py --offset 0xa000 partition ...
-ditto-firmware.bin binary size 0x195b30 bytes. Smallest app partition is 0x200000 bytes. 0x6a4d0 bytes (21%) free.
+maratus-firmware.bin binary size 0x195b30 bytes. Smallest app partition is 0x200000 bytes. 0x6a4d0 bytes (21%) free.
 
 Project build complete.
 ```

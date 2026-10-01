@@ -7,7 +7,7 @@
 #include "net.h"   // net_ap_t
 
 // Maratus on-screen UI: a generic renderer that builds the active branding screen
-// from the server config. Mirrors PRINTER_SCREENS in ditto-admin.
+// from the server config. Mirrors PRINTER_SCREENS in maratus-admin.
 //
 // Thread-safety: all functions take the LVGL port lock internally; safe from any
 // task. Call ui_init() once AFTER the display + LVGL port are up.

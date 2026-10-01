@@ -24,7 +24,7 @@
 ## File Structure
 
 **New:**
-- `components/mqtt/mqtt_client.c` + `include/mqtt_client_ditto.h` — esp-mqtt glue: lifecycle, event handler, queue, ack/hb publish. (Header named `mqtt_client_ditto.h` to avoid clashing with IDF's `mqtt_client.h`.)
+- `components/mqtt/mqtt_client.c` + `include/mqtt_client_maratus.h` — esp-mqtt glue: lifecycle, event handler, queue, ack/hb publish. (Header named `mqtt_client_maratus.h` to avoid clashing with IDF's `mqtt_client.h`.)
 - `components/mqtt/mqtt_topics.c` + `include/mqtt_topics.h` — pure topic-string builders (host-tested).
 - `components/mqtt/CMakeLists.txt`.
 
@@ -393,7 +393,7 @@ git commit -m "refactor(cloud): struct-based transport-agnostic dispatch_command
 ### Task 4: `components/mqtt/` — esp-mqtt client glue
 
 **Files:**
-- Create: `components/mqtt/mqtt_client.c`, `components/mqtt/include/mqtt_client_ditto.h`, `components/mqtt/CMakeLists.txt`
+- Create: `components/mqtt/mqtt_client.c`, `components/mqtt/include/mqtt_client_maratus.h`, `components/mqtt/CMakeLists.txt`
 
 **Interfaces:**
 - Consumes: `dev_command_t` + `command_parse_into` (`command_parse.h`, Task 3); `mqtt_topic_*` (Task 2); `appcfg_device_key()`; `device_config_t` (`device_config.h`).
@@ -420,7 +420,7 @@ idf_component_register(
 
 - [ ] **Step 2: Create the header**
 
-Create `components/mqtt/include/mqtt_client_ditto.h`:
+Create `components/mqtt/include/mqtt_client_maratus.h`:
 
 ```c
 #pragma once
@@ -453,7 +453,7 @@ void mqtt_publish_hb(const char *version);
 Create `components/mqtt/mqtt_client.c`:
 
 ```c
-#include "mqtt_client_ditto.h"
+#include "mqtt_client_maratus.h"
 #include "mqtt_topics.h"
 #include "mqtt_client.h"          // esp-mqtt
 #include "esp_crt_bundle.h"
@@ -628,7 +628,7 @@ In `main/CMakeLists.txt`, add `mqtt` to the `REQUIRES` list.
 In `main/app_state.c`, add near the other includes:
 
 ```c
-#include "mqtt_client_ditto.h"
+#include "mqtt_client_maratus.h"
 #include "commands.h"        // dispatch_command, ack_fn_t
 #include "appcfg.h"          // appcfg_fw_version
 ```
@@ -709,14 +709,14 @@ And change the final `idle_wait_or_qr_expiry(POLL_IDLE_MS);` (the one at the end
 In `app_state_run`, capture the task handle at creation — change:
 
 ```c
-    xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, NULL);
+    xTaskCreate(poll_task, "maratus_poll", 8192, NULL, 5, NULL);
 ```
 to:
 ```c
     mqtt_set_wake_cb(on_mqtt_wake);
     if (s_cfg_buf[s_cfg_live]->valid && s_cfg_buf[s_cfg_live]->mqtt.enabled && net_is_connected())
         mqtt_start(s_cfg_buf[s_cfg_live]);   // start from cached config on boot (fast connect)
-    xTaskCreate(poll_task, "ditto_poll", 8192, NULL, 5, &s_poll_handle);
+    xTaskCreate(poll_task, "maratus_poll", 8192, NULL, 5, &s_poll_handle);
 ```
 
 Then, in `poll_task`, after a fresh config is published (inside the `if (cs == 200 && s_cfg_buf[next]->valid)` block that ends with `s_cfg_live = next;`), keep MQTT in sync with the new config — add right after `s_cfg_live = next;`:
@@ -749,7 +749,7 @@ git commit -m "feat(mqtt): poll_task MQTT integration (drain, gate, hb, lifecycl
 
 **Files:** none (validation).
 
-**Prerequisite:** the cloud must be activated for the test org — EMQX env set on the deployment serving this device's `/api/device/config`, and the three EMQX console webhooks configured (see `ditto-admin/docs/runbooks/emqx-setup.md`). The desk device is **b580** (Starbucks test org). b580 may need a re-claim so the cloud provisions its MQTT credential (device key = MQTT password).
+**Prerequisite:** the cloud must be activated for the test org — EMQX env set on the deployment serving this device's `/api/device/config`, and the three EMQX console webhooks configured (see `maratus-admin/docs/runbooks/emqx-setup.md`). The desk device is **b580** (Starbucks test org). b580 may need a re-claim so the cloud provisions its MQTT credential (device key = MQTT password).
 
 - [ ] **Step 1: Build + flash**
 

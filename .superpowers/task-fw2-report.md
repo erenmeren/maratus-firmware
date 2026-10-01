@@ -70,11 +70,11 @@ IDF 5.5 env sourced via `~/.espressif/v5.5/esp-idf/export.sh`. `idf.py build` fr
 ...
 [16/34] Linking C static library esp-idf/devcfg/libdevcfg.a
 ...
-[31/34] Linking CXX executable ditto-firmware.elf
+[31/34] Linking CXX executable maratus-firmware.elf
 [32/34] Generating binary image from built executable
 Successfully created esp32p4 image.
-Generated /Users/eren/Projects/ditto-firmware/build/ditto-firmware.bin
-ditto-firmware.bin binary size 0x195a60 bytes. Smallest app partition is 0x200000 bytes. 0x6a5a0 bytes (21%) free.
+Generated /Users/eren/Projects/maratus-firmware/build/maratus-firmware.bin
+maratus-firmware.bin binary size 0x195a60 bytes. Smallest app partition is 0x200000 bytes. 0x6a5a0 bytes (21%) free.
 
 Project build complete.
 ```

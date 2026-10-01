@@ -1,4 +1,4 @@
-#include "mqtt_client_ditto.h"
+#include "mqtt_client_maratus.h"
 #include "mqtt_topics.h"
 #include "mqtt_client.h"          // esp-mqtt
 #include "esp_crt_bundle.h"
@@ -296,7 +296,7 @@ void mqtt_publish_hb(const char *version, int fonts, int afetch, int aimg,
     // one-time internal-DRAM step is font-face creation, not a leak.
     if (fonts >= 0) cJSON_AddNumberToObject(j, "fonts", (double)fonts);
     // Image-render diagnostics: afetch = last asset GET status, aimg = last image
-    // render state (see mqtt_client_ditto.h). Pinpoints fetch vs decode/render.
+    // render state (see mqtt_client_maratus.h). Pinpoints fetch vs decode/render.
     if (afetch   > -999) cJSON_AddNumberToObject(j, "afetch",   (double)afetch);
     if (aimg     > -999) cJSON_AddNumberToObject(j, "aimg",     (double)aimg);
     if (cfgimg   > -999) cJSON_AddNumberToObject(j, "cfgimg",   (double)cfgimg);

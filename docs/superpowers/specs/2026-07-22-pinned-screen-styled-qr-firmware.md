@@ -1,6 +1,6 @@
 # Pinned Screen + Styled QR — Firmware Design Spec
 
-*2026-07-22 · approved in conversation. Cloud counterpart: ditto-admin
+*2026-07-22 · approved in conversation. Cloud counterpart: maratus-admin
 `docs/superpowers/specs/2026-07-22-screen-terminology-and-pinned-screen.md`. fw 0.10.0.*
 
 ## 1. Editable pinned screen

@@ -606,7 +606,7 @@ static void render_wifi(lv_obj_t *scr, const cfg_object_t *o, uint32_t fg) {
     lv_obj_set_style_border_width(cont, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(cont, 0, LV_PART_MAIN);
     lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
-    // Bar proportions match the branding preview's WifiObject (ditto-admin
+    // Bar proportions match the branding preview's WifiObject (maratus-admin
     // components/device-preview/printer-preview.tsx): heights 0.45/0.65/0.85/1
     // of the base (min of container w/h), bar width ~0.22x base, gap ~0.14x
     // base, corner radius ~0.10x base, active ~85% opacity / inactive ~20%.

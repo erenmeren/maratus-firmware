@@ -7,12 +7,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # --- esp_wifi_remote: add the WIFI_RMT_* defaults its Kconfig stub omits ---
 for HDR in "$ROOT"/managed_components/espressif__esp_wifi_remote/idf_v*/include/injected/esp_wifi.h; do
   [ -f "$HDR" ] || continue
-  if grep -q "PATCH (Ditto)" "$HDR"; then echo "already patched: $HDR"; continue; fi
+  if grep -q "PATCH (Maratus)" "$HDR"; then echo "already patched: $HDR"; continue; fi
   python3 - "$HDR" <<'PY'
 import sys
 f = sys.argv[1]; s = open(f).read()
 anchor = "#define WIFI_INIT_CONFIG_DEFAULT() { \\"
-block = """/* PATCH (Ditto): esp_wifi_remote's Kconfig stub omits these WIFI_RMT_* symbols
+block = """/* PATCH (Maratus): esp_wifi_remote's Kconfig stub omits these WIFI_RMT_* symbols
    that the macro below uses. Provide standard IDF Wi-Fi defaults. */
 #ifndef CONFIG_WIFI_RMT_STATIC_RX_BUFFER_NUM
 #define CONFIG_WIFI_RMT_STATIC_RX_BUFFER_NUM 10
@@ -52,7 +52,7 @@ done
 # drawn (silent: CONFIG_LV_USE_LOG is off). Route those temporaries to PSRAM.
 LODEPNG="$ROOT/managed_components/lvgl__lvgl/src/libs/lodepng/lodepng.c"
 if [ -f "$LODEPNG" ]; then
-  if grep -q "PATCH (Ditto) lodepng PSRAM" "$LODEPNG"; then
+  if grep -q "PATCH (Maratus) lodepng PSRAM" "$LODEPNG"; then
     echo "already patched: $LODEPNG"
   else
     python3 - "$LODEPNG" <<'PY'
@@ -60,7 +60,7 @@ import sys
 f = sys.argv[1]; s = open(f).read()
 anchor = '#define image_cache_draw_buf_handlers &(LV_GLOBAL_DEFAULT()->image_cache_draw_buf_handlers)'
 inc = '''
-/* PATCH (Ditto) lodepng PSRAM: route lodepng's intermediate decode buffers
+/* PATCH (Maratus) lodepng PSRAM: route lodepng's intermediate decode buffers
    (zlib inflate + filtered scanlines, ~w*h*4 for the raw image) to PSRAM.
    The default lv_malloc -> C malloc lands in internal DRAM, which on the
    ESP32-P4 (~768KB internal SRAM) cannot hold the ~1MB temporary a >=512px

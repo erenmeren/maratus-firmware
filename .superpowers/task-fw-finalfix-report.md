@@ -124,9 +124,9 @@ esptool.py v4.12.dev2
 Creating esp32p4 image...
 Merged 3 ELF sections
 Successfully created esp32p4 image.
-Generated /Users/eren/Projects/ditto-firmware/build/ditto-firmware.bin
+Generated /Users/eren/Projects/maratus-firmware/build/maratus-firmware.bin
 [11/12] cd .../esptool_py && python .../check_sizes.py ...
-ditto-firmware.bin binary size 0x195b30 bytes. Smallest app partition is 0x200000 bytes. 0x6a4d0 bytes (21%) free.
+maratus-firmware.bin binary size 0x195b30 bytes. Smallest app partition is 0x200000 bytes. 0x6a4d0 bytes (21%) free.
 
 Project build complete.
 ```

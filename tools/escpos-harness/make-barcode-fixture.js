@@ -1,6 +1,6 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 
-const code = process.argv[2] || "DITTO-100423";
+const code = process.argv[2] || "MARATUS-100423";
 const data = Buffer.from(code, "latin1");
 
 const b = [];

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rename every "receipt" reference in the `ditto-firmware` source to "document", matching the cloud rename, with zero protocol or behavior change.
+**Goal:** Rename every "receipt" reference in the `maratus-firmware` source to "document", matching the cloud rename, with zero protocol or behavior change.
 
 **Architecture:** Pure mechanical rename in three reviewer-gated tasks: (1) the embedded test asset (file move + linker-symbol rename — the one build-breaking risk), (2) the `cloud_post_receipt` function + its callers + the multipart filename, (3) the remaining comment / log / UI-string sweep ending in a zero-"receipt" grep gate. No new tests — there is no unit harness for the cloud/render path; verification is the existing host suite (`tools/cfg-harness`) plus a clean `idf.py build` (which is what actually proves the asset/symbol rename links) plus the grep gate.
 
@@ -63,7 +63,7 @@
 - [ ] **Step 1: Move the asset file with git**
 
 ```bash
-cd /Users/eren/Projects/ditto-firmware
+cd /Users/eren/Projects/maratus-firmware
 git mv components/assets/test_receipt.png components/assets/test_document.png
 ```
 
@@ -72,13 +72,13 @@ git mv components/assets/test_receipt.png components/assets/test_document.png
 In `components/assets/CMakeLists.txt`, line 3 currently reads:
 
 ```cmake
-                       EMBED_FILES "test_receipt.png" "fonts/ditto_sans.ttf" "fonts/ditto_sans_bold.ttf")
+                       EMBED_FILES "test_receipt.png" "fonts/maratus_sans.ttf" "fonts/maratus_sans_bold.ttf")
 ```
 
 Change `"test_receipt.png"` → `"test_document.png"`:
 
 ```cmake
-                       EMBED_FILES "test_document.png" "fonts/ditto_sans.ttf" "fonts/ditto_sans_bold.ttf")
+                       EMBED_FILES "test_document.png" "fonts/maratus_sans.ttf" "fonts/maratus_sans_bold.ttf")
 ```
 
 - [ ] **Step 3: Update the symbol externs + comment in `assets.c`**
@@ -300,7 +300,7 @@ Line 13: `// ui_render_state(s_state) — preserves a live receipt/QR screen ins
 
 - [ ] **Step 5: Edit `components/ui/ui_settings.c` (2 lines)**
 
-Line 14: `// VISUAL: restyled to match the dReceipt staff mockups (PinScreen / MenuScreen).` → `// VISUAL: restyled to match the Ditto staff mockups (PinScreen / MenuScreen).` (drop the "dReceipt" token so no "receipt" remains; "Ditto" is the accurate referent.)
+Line 14: `// VISUAL: restyled to match the dReceipt staff mockups (PinScreen / MenuScreen).` → `// VISUAL: restyled to match the Maratus staff mockups (PinScreen / MenuScreen).` (drop the "dReceipt" token so no "receipt" remains; "Maratus" is the accurate referent.)
 
 Line 416 (the user-visible Settings subtitle): `        { LV_SYMBOL_IMAGE,    "Test print",      "Send a sample receipt", UI_SET_TEST_PRINT },` → `        { LV_SYMBOL_IMAGE,    "Test print",      "Send a sample document", UI_SET_TEST_PRINT },`
 
@@ -331,7 +331,7 @@ Line 20: `    // filled block — representative bilevel receipt content.` → `
 - [ ] **Step 12: Run the grep gate — must be zero**
 
 ```bash
-cd /Users/eren/Projects/ditto-firmware
+cd /Users/eren/Projects/maratus-firmware
 grep -rinE "receipt" components main tools --include="*.c" --include="*.h" --include="CMakeLists.txt" | grep -v managed_components | grep -v "/build/"
 ```
 

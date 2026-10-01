@@ -17,7 +17,7 @@
 #include "freertos/task.h"
 #include <string.h>
 
-static const char *TAG = "ditto";
+static const char *TAG = "maratus";
 
 // How long the boot-time Wi-Fi picker waits for someone to start picking a
 // network before it gives up and lets boot continue offline.
@@ -157,7 +157,7 @@ void app_main(void)
         }
         ui_set_pairing_code(appcfg_pairing_code());
         ui_render_state(DEV_SETUP);
-        xTaskCreate(provisioning_task, "ditto_provision", 8192, NULL, 5, NULL);
+        xTaskCreate(provisioning_task, "maratus_provision", 8192, NULL, 5, NULL);
         return;
     }
 

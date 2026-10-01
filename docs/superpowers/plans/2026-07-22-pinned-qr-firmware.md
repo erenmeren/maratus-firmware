@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- Repo: `/Users/eren/Projects/ditto-firmware`, branch `feat/pinned-qr` off `main`; commits only there.
-- **ESP_IDF_VERSION must stay 5.5** (5.5.4 breaks esp_wifi_remote → boot mempool panic — see admin-repo memory `firmware-idf-version-sdio-trap`). Do not touch IDF/sdkconfig beyond `CONFIG_DITTO_FW_VERSION`.
+- Repo: `/Users/eren/Projects/maratus-firmware`, branch `feat/pinned-qr` off `main`; commits only there.
+- **ESP_IDF_VERSION must stay 5.5** (5.5.4 breaks esp_wifi_remote → boot mempool panic — see admin-repo memory `firmware-idf-version-sdio-trap`). Do not touch IDF/sdkconfig beyond `CONFIG_MARATUS_FW_VERSION`.
 - Gates per task: host suite `cd tools/cfg-harness && make && ./run` prints its final `ALL PASS`-style line; firmware `idf.py build` compiles clean with **no new warnings** (run `. $HOME/esp/esp-idf/bin/../export.sh 2>/dev/null || . $HOME/esp/esp-idf/export.sh` first if `idf.py` is absent; if the IDF env cannot be sourced, report BLOCKED).
 - Old-cloud compatibility: `pin` absent/null ⇒ `pin_set=false` ⇒ behavior byte-identical to today (assert via host tests).
 - `pin_url` buffer is 512 bytes (matches `dev_command_t.url`); parse must truncate-safely (`strlcpy`-style, never overflow).
@@ -139,7 +139,7 @@ static void show_home(void) {
 
 ### Task 6: Version + docs + full gates
 
-- [ ] **Step 1:** `sdkconfig`: `CONFIG_DITTO_FW_VERSION="0.9.0"`; also bump the Kconfig default in `main/Kconfig.projbuild` to `"0.9.0"`.
+- [ ] **Step 1:** `sdkconfig`: `CONFIG_MARATUS_FW_VERSION="0.9.0"`; also bump the Kconfig default in `main/Kconfig.projbuild` to `"0.9.0"`.
 - [ ] **Step 2:** `BUILD.md`: append a dated hardware-validation-log entry "Pinned QR (0.9.0) — pending HIL" listing what to verify (spec's HIL list).
 - [ ] **Step 3:** Full gates: `cd tools/cfg-harness && make && ./run` (all pass) + `idf.py build` (clean). Paste both tails in the report.
 - [ ] **Step 4: Commit** — `build: bump fw to 0.9.0 + BUILD.md pinned-QR entry`

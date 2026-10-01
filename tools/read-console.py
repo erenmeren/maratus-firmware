@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Passive UART0 console reader for the ESP32-P4 Ditto board.
+"""Passive UART0 console reader for the ESP32-P4 Maratus board.
 
 `idf.py monitor` drives this board's DTR/RTS lines and traps it in download
 mode. This reader holds DTR/RTS low (normal boot straps) and just reads the

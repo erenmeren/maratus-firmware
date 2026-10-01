@@ -10,11 +10,11 @@ project(maratus-firmware)
 # (CONFIG_LV_USE_LOG is off) — branding images just never appear on device. This
 # regressed once already when the deps were re-fetched during an IDF upgrade, so
 # fail the build rather than ship a firmware that cannot draw images.
-set(DITTO_LODEPNG "${CMAKE_CURRENT_LIST_DIR}/managed_components/lvgl__lvgl/src/libs/lodepng/lodepng.c")
-if(EXISTS "${DITTO_LODEPNG}")
-    file(STRINGS "${DITTO_LODEPNG}" DITTO_LODEPNG_PATCHED
-         REGEX "PATCH \\(Ditto\\) lodepng PSRAM" LIMIT_COUNT 1)
-    if(NOT DITTO_LODEPNG_PATCHED)
+set(MARATUS_LODEPNG "${CMAKE_CURRENT_LIST_DIR}/managed_components/lvgl__lvgl/src/libs/lodepng/lodepng.c")
+if(EXISTS "${MARATUS_LODEPNG}")
+    file(STRINGS "${MARATUS_LODEPNG}" MARATUS_LODEPNG_PATCHED
+         REGEX "PATCH \\(Maratus\\) lodepng PSRAM" LIMIT_COUNT 1)
+    if(NOT MARATUS_LODEPNG_PATCHED)
         message(FATAL_ERROR
             "lodepng PSRAM patch is MISSING from managed_components.\n"
             "Images would silently fail to decode on device (no error is logged).\n"
@@ -24,6 +24,6 @@ else()
     # Not fatal (the path could legitimately move), but never let the guard go
     # quietly dead — a silent no-op guard is how this bug came back.
     message(WARNING
-        "Cannot verify the lodepng PSRAM patch: ${DITTO_LODEPNG} not found. "
+        "Cannot verify the lodepng PSRAM patch: ${MARATUS_LODEPNG} not found. "
         "If lvgl moved, update the guard path in CMakeLists.txt.")
 endif()

@@ -216,7 +216,7 @@ esp_err_t cloud_fetch_asset(const char *url, uint8_t **out, size_t *out_len)
 // cfg_parse_json in app_state.c); this is just the on-disk cache the MQTT
 // path writes through and boot seeds from.
 
-#define CFG_NVS_NS "ditto"
+#define CFG_NVS_NS "maratus"
 
 void cloud_config_cache_write(const char *json)
 {
